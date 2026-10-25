@@ -1,0 +1,43 @@
+<mujocoinclude>
+  <motor name="left_hand_thumb_0" joint="left_hand_thumb_0_joint" ctrlrange="-2.5 2.5" />
+  <motor name="left_hand_thumb_1" joint="left_hand_thumb_1_joint" ctrlrange="-2 2" />
+  <motor name="left_hand_thumb_2" joint="left_hand_thumb_2_joint" ctrlrange="-1.8 1.8" />
+  <motor name="left_hand_thumb_3" joint="left_hand_thumb_3_joint" ctrlrange="-1.6 1.6" />
+  <motor name="left_hand_index_0" joint="left_hand_index_0_joint" ctrlrange="-1.4 1.4" />
+  <motor name="left_hand_index_1" joint="left_hand_index_1_joint" ctrlrange="-1.6 1.6" />
+  <motor name="left_hand_index_2" joint="left_hand_index_2_joint" ctrlrange="-1.5 1.5" />
+  <motor name="left_hand_index_3" joint="left_hand_index_3_joint" ctrlrange="-1.4 1.4" />
+  <motor name="left_hand_middle_0" joint="left_hand_middle_0_joint" ctrlrange="-1.4 1.4" />
+  <motor name="left_hand_middle_1" joint="left_hand_middle_1_joint" ctrlrange="-1.6 1.6" />
+  <motor name="left_hand_middle_2" joint="left_hand_middle_2_joint" ctrlrange="-1.5 1.5" />
+  <motor name="left_hand_middle_3" joint="left_hand_middle_3_joint" ctrlrange="-1.4 1.4" />
+  <motor name="left_hand_ring_0" joint="left_hand_ring_0_joint" ctrlrange="-1.4 1.4" />
+  <motor name="left_hand_ring_1" joint="left_hand_ring_1_joint" ctrlrange="-1.6 1.6" />
+  <motor name="left_hand_ring_2" joint="left_hand_ring_2_joint" ctrlrange="-1.5 1.5" />
+  <motor name="left_hand_ring_3" joint="left_hand_ring_3_joint" ctrlrange="-1.4 1.4" />
+  <motor name="left_hand_pinky_0" joint="left_hand_pinky_0_joint" ctrlrange="-1.4 1.4" />
+  <motor name="left_hand_pinky_1" joint="left_hand_pinky_1_joint" ctrlrange="-1.6 1.6" />
+  <motor name="left_hand_pinky_2" joint="left_hand_pinky_2_joint" ctrlrange="-1.5 1.5" />
+  <motor name="left_hand_pinky_3" joint="left_hand_pinky_3_joint" ctrlrange="-1.4 1.4" />
+
+  <motor name="right_hand_thumb_0" joint="right_hand_thumb_0_joint" ctrlrange="-2.5 2.5" />
+  <motor name="right_hand_thumb_1" joint="right_hand_thumb_1_joint" ctrlrange="-2 2" />
+  <motor name="right_hand_thumb_2" joint="right_hand_thumb_2_joint" ctrlrange="-1.8 1.8" />
+  <motor name="right_hand_thumb_3" joint="right_hand_thumb_3_joint" ctrlrange="-1.6 1.6" />
+  <motor name="right_hand_index_0" joint="right_hand_index_0_joint" ctrlrange="-1.4 1.4" />
+  <motor name="right_hand_index_1" joint="right_hand_index_1_joint" ctrlrange="-1.6 1.6" />
+  <motor name="right_hand_index_2" joint="right_hand_index_2_joint" ctrlrange="-1.5 1.5" />
+  <motor name="right_hand_index_3" joint="right_hand_index_3_joint" ctrlrange="-1.4 1.4" />
+  <motor name="right_hand_middle_0" joint="right_hand_middle_0_joint" ctrlrange="-1.4 1.4" />
+  <motor name="right_hand_middle_1" joint="right_hand_middle_1_joint" ctrlrange="-1.6 1.6" />
+  <motor name="right_hand_middle_2" joint="right_hand_middle_2_joint" ctrlrange="-1.5 1.5" />
+  <motor name="right_hand_middle_3" joint="right_hand_middle_3_joint" ctrlrange="-1.4 1.4" />
+  <motor name="right_hand_ring_0" joint="right_hand_ring_0_joint" ctrlrange="-1.4 1.4" />
+  <motor name="right_hand_ring_1" joint="right_hand_ring_1_joint" ctrlrange="-1.6 1.6" />
+  <motor name="right_hand_ring_2" joint="right_hand_ring_2_joint" ctrlrange="-1.5 1.5" />
+  <motor name="right_hand_ring_3" joint="right_hand_ring_3_joint" ctrlrange="-1.4 1.4" />
+  <motor name="right_hand_pinky_0" joint="right_hand_pinky_0_joint" ctrlrange="-1.4 1.4" />
+  <motor name="right_hand_pinky_1" joint="right_hand_pinky_1_joint" ctrlrange="-1.6 1.6" />
+  <motor name="right_hand_pinky_2" joint="right_hand_pinky_2_joint" ctrlrange="-1.5 1.5" />
+  <motor name="right_hand_pinky_3" joint="right_hand_pinky_3_joint" ctrlrange="-1.4 1.4" />
+</mujocoinclude>

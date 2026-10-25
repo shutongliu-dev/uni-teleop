@@ -1,0 +1,136 @@
+<mujocoinclude>
+  <body name="right_hand_palm_link" pos="0.035 -0.003 0">
+    <geom name="right_hand_palm" type="ellipsoid" pos="0.055 0 0" size="0.065 0.020 0.052"
+      density="650" friction="1.2 0.01 0.001" rgba="0.18 0.20 0.24 1" />
+
+    <body name="right_hand_thumb_0_link" pos="0.047 0 0.052">
+      <joint name="right_hand_thumb_0_joint" axis="1 0 0" range="-0.9 0.9"
+        actuatorfrcrange="-2.5 2.5" class="finger_motor" />
+      <geom type="capsule" fromto="0 0 0 0.020 0.025 0.010" size="0.011"
+        density="600" friction="1.3 0.01 0.001" rgba="0.80 0.82 0.86 1" />
+      <body name="right_hand_thumb_1_link" pos="0.020 0.025 0.010">
+        <joint name="right_hand_thumb_1_joint" axis="0 0 1" range="-0.8 0.8"
+          actuatorfrcrange="-2 2" class="finger_motor" />
+        <geom type="capsule" fromto="0 0 0 0.032 0.012 0" size="0.010"
+          density="600" friction="1.3 0.01 0.001" rgba="0.72 0.75 0.80 1" />
+        <body name="right_hand_thumb_2_link" pos="0.032 0.012 0">
+          <joint name="right_hand_thumb_2_joint" axis="0 0 1" range="0 1.5"
+            actuatorfrcrange="-1.8 1.8" class="finger_motor" />
+          <geom type="capsule" fromto="0 0 0 0.027 0 0" size="0.009"
+            density="600" friction="1.3 0.01 0.001" rgba="0.72 0.75 0.80 1" />
+          <body name="right_hand_thumb_3_link" pos="0.027 0 0">
+            <joint name="right_hand_thumb_3_joint" axis="0 0 1" range="0 1.4"
+              actuatorfrcrange="-1.6 1.6" class="finger_motor" />
+            <geom type="capsule" fromto="0 0 0 0.022 0 0" size="0.009"
+              density="600" friction="1.5 0.01 0.001" rgba="0.62 0.66 0.72 1" />
+            <site name="right_hand_thumb_tip" pos="0.022 0 0" size="0.009" />
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <body name="right_hand_index_0_link" pos="0.104 0 0.037">
+      <joint name="right_hand_index_0_joint" axis="0 1 0" range="-0.35 0.35"
+        actuatorfrcrange="-1.4 1.4" class="finger_motor" />
+      <geom type="capsule" fromto="0 0 0 0.015 0 0" size="0.010" density="600"
+        friction="1.2 0.01 0.001" rgba="0.80 0.82 0.86 1" />
+      <body name="right_hand_index_1_link" pos="0.015 0 0">
+        <joint name="right_hand_index_1_joint" axis="0 0 1" range="0 1.5"
+          actuatorfrcrange="-1.6 1.6" class="finger_motor" />
+        <geom type="capsule" fromto="0 0 0 0.040 0 0" size="0.009" density="600"
+          friction="1.2 0.01 0.001" rgba="0.72 0.75 0.80 1" />
+        <body name="right_hand_index_2_link" pos="0.040 0 0">
+          <joint name="right_hand_index_2_joint" axis="0 0 1" range="0 1.6"
+            actuatorfrcrange="-1.5 1.5" class="finger_motor" />
+          <geom type="capsule" fromto="0 0 0 0.028 0 0" size="0.0085" density="600"
+            friction="1.3 0.01 0.001" rgba="0.72 0.75 0.80 1" />
+          <body name="right_hand_index_3_link" pos="0.028 0 0">
+            <joint name="right_hand_index_3_joint" axis="0 0 1" range="0 1.4"
+              actuatorfrcrange="-1.4 1.4" class="finger_motor" />
+            <geom type="capsule" fromto="0 0 0 0.021 0 0" size="0.0085" density="600"
+              friction="1.5 0.01 0.001" rgba="0.62 0.66 0.72 1" />
+            <site name="right_hand_index_tip" pos="0.021 0 0" size="0.0085" />
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <body name="right_hand_middle_0_link" pos="0.108 0 0.013">
+      <joint name="right_hand_middle_0_joint" axis="0 1 0" range="-0.30 0.30"
+        actuatorfrcrange="-1.4 1.4" class="finger_motor" />
+      <geom type="capsule" fromto="0 0 0 0.015 0 0" size="0.010" density="600"
+        friction="1.2 0.01 0.001" rgba="0.80 0.82 0.86 1" />
+      <body name="right_hand_middle_1_link" pos="0.015 0 0">
+        <joint name="right_hand_middle_1_joint" axis="0 0 1" range="0 1.5"
+          actuatorfrcrange="-1.6 1.6" class="finger_motor" />
+        <geom type="capsule" fromto="0 0 0 0.043 0 0" size="0.0095" density="600"
+          friction="1.2 0.01 0.001" rgba="0.72 0.75 0.80 1" />
+        <body name="right_hand_middle_2_link" pos="0.043 0 0">
+          <joint name="right_hand_middle_2_joint" axis="0 0 1" range="0 1.6"
+            actuatorfrcrange="-1.5 1.5" class="finger_motor" />
+          <geom type="capsule" fromto="0 0 0 0.030 0 0" size="0.009" density="600"
+            friction="1.3 0.01 0.001" rgba="0.72 0.75 0.80 1" />
+          <body name="right_hand_middle_3_link" pos="0.030 0 0">
+            <joint name="right_hand_middle_3_joint" axis="0 0 1" range="0 1.4"
+              actuatorfrcrange="-1.4 1.4" class="finger_motor" />
+            <geom type="capsule" fromto="0 0 0 0.022 0 0" size="0.009" density="600"
+              friction="1.5 0.01 0.001" rgba="0.62 0.66 0.72 1" />
+            <site name="right_hand_middle_tip" pos="0.022 0 0" size="0.009" />
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <body name="right_hand_ring_0_link" pos="0.106 0 -0.013">
+      <joint name="right_hand_ring_0_joint" axis="0 1 0" range="-0.35 0.35"
+        actuatorfrcrange="-1.4 1.4" class="finger_motor" />
+      <geom type="capsule" fromto="0 0 0 0.015 0 0" size="0.0095" density="600"
+        friction="1.2 0.01 0.001" rgba="0.80 0.82 0.86 1" />
+      <body name="right_hand_ring_1_link" pos="0.015 0 0">
+        <joint name="right_hand_ring_1_joint" axis="0 0 1" range="0 1.5"
+          actuatorfrcrange="-1.6 1.6" class="finger_motor" />
+        <geom type="capsule" fromto="0 0 0 0.039 0 0" size="0.009" density="600"
+          friction="1.2 0.01 0.001" rgba="0.72 0.75 0.80 1" />
+        <body name="right_hand_ring_2_link" pos="0.039 0 0">
+          <joint name="right_hand_ring_2_joint" axis="0 0 1" range="0 1.6"
+            actuatorfrcrange="-1.5 1.5" class="finger_motor" />
+          <geom type="capsule" fromto="0 0 0 0.027 0 0" size="0.0085" density="600"
+            friction="1.3 0.01 0.001" rgba="0.72 0.75 0.80 1" />
+          <body name="right_hand_ring_3_link" pos="0.027 0 0">
+            <joint name="right_hand_ring_3_joint" axis="0 0 1" range="0 1.4"
+              actuatorfrcrange="-1.4 1.4" class="finger_motor" />
+            <geom type="capsule" fromto="0 0 0 0.020 0 0" size="0.0085" density="600"
+              friction="1.5 0.01 0.001" rgba="0.62 0.66 0.72 1" />
+            <site name="right_hand_ring_tip" pos="0.020 0 0" size="0.0085" />
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <body name="right_hand_pinky_0_link" pos="0.099 0 -0.038">
+      <joint name="right_hand_pinky_0_joint" axis="0 1 0" range="-0.40 0.40"
+        actuatorfrcrange="-1.4 1.4" class="finger_motor" />
+      <geom type="capsule" fromto="0 0 0 0.014 0 0" size="0.009" density="600"
+        friction="1.2 0.01 0.001" rgba="0.80 0.82 0.86 1" />
+      <body name="right_hand_pinky_1_link" pos="0.014 0 0">
+        <joint name="right_hand_pinky_1_joint" axis="0 0 1" range="0 1.5"
+          actuatorfrcrange="-1.6 1.6" class="finger_motor" />
+        <geom type="capsule" fromto="0 0 0 0.033 0 0" size="0.0085" density="600"
+          friction="1.2 0.01 0.001" rgba="0.72 0.75 0.80 1" />
+        <body name="right_hand_pinky_2_link" pos="0.033 0 0">
+          <joint name="right_hand_pinky_2_joint" axis="0 0 1" range="0 1.6"
+            actuatorfrcrange="-1.5 1.5" class="finger_motor" />
+          <geom type="capsule" fromto="0 0 0 0.023 0 0" size="0.008" density="600"
+            friction="1.3 0.01 0.001" rgba="0.72 0.75 0.80 1" />
+          <body name="right_hand_pinky_3_link" pos="0.023 0 0">
+            <joint name="right_hand_pinky_3_joint" axis="0 0 1" range="0 1.4"
+              actuatorfrcrange="-1.4 1.4" class="finger_motor" />
+            <geom type="capsule" fromto="0 0 0 0.018 0 0" size="0.008" density="600"
+              friction="1.5 0.01 0.001" rgba="0.62 0.66 0.72 1" />
+            <site name="right_hand_pinky_tip" pos="0.018 0 0" size="0.008" />
+          </body>
+        </body>
+      </body>
+    </body>
+  </body>
+</mujocoinclude>

@@ -1,0 +1,40 @@
+{
+  "protocol": "agent_development_matrix_v1",
+  "description": "Four-mode interface smoke test: one frozen task, two model calls and four primitive attempts per slot; not task performance or generalization evidence.",
+  "bench_url": "http://127.0.0.1:8765",
+  "task_release": "data://datasets/fr3_sharpa_bench/isaacsim/releases/simple_manipulation/v7_contact_substeps",
+  "tasks": [
+    "01_cube_push"
+  ],
+  "modes": [
+    "joints_action",
+    "fingertip_action",
+    "fingertip_tools",
+    "fingertip_code"
+  ],
+  "visual_inputs": [
+    "rgbd"
+  ],
+  "tactile_inputs": [
+    "on"
+  ],
+  "seeds": [
+    0
+  ],
+  "repeat_ids": [
+    "r0"
+  ],
+  "robot": "sharpa_w01_right",
+  "model": "gpt-6-astra",
+  "reasoning_effort": "max",
+  "max_decisions": 2,
+  "max_actions": 4,
+  "max_tool_calls_per_decision": 8,
+  "max_program_actions": 3,
+  "sim_budget": 12.0,
+  "wall_budget": 600.0,
+  "model_timeout": 300.0,
+  "http_timeout": 300.0,
+  "max_output_tokens": 16384,
+  "expected_runtime_pins": {}
+}

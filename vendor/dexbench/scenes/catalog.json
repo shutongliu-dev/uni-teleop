@@ -1,0 +1,554 @@
+{
+  "schema": "bench_scenarios.v1",
+  "version": "1.1.1",
+  "sampler": "sha256_coordinate_uniform_v1",
+  "status": "prepared_unvalidated",
+  "physics_accepted": false,
+  "source_release": {
+    "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/simple_manipulation/v7_contact_substeps",
+    "sha256": "c6381a213d2d6a544d6216481b6f8b7059f6f6de9b64bc3de70e667b1c000a1c"
+  },
+  "catalogs": {
+    "target_cube": {
+      "root": "data://assets/objects/hand_system0/bench_catalog/v1",
+      "manifest_sha256": "02dfb8cb7eb2423cc0900c360f4220818376921f9b77606be8d67c95e822fbb2",
+      "status": "prepared_unvalidated",
+      "native_qualified": false
+    },
+    "procedural_manipulation": {
+      "root": "data://assets/task_parts/manipulation_collection/v2",
+      "manifest_sha256": "d7c9b579f7b9ada6221e3e2a71380917561cbd892c417e9a124e67e81f2d1af3",
+      "status": "prepared_unvalidated",
+      "native_qualified": false
+    },
+    "procedural_sequence": {
+      "root": "data://assets/task_parts/sequence_workcell/v1",
+      "manifest_sha256": "acaeeb98ecf75df4f1a097bb94db80338b0640f0fab5110dcc61f0720f71a6ce",
+      "status": "prepared_unvalidated",
+      "native_qualified": false
+    },
+    "ycb": {
+      "root": "data://assets/task_parts/ycb_manipulation/v1",
+      "manifest_sha256": "687b6f317bb943dd044716e42bebadac09c85ad72692e72700141848f33d7de3",
+      "status": "prepared_unvalidated",
+      "native_qualified": false
+    }
+  },
+  "split_seeds": {
+    "development": [
+      11,
+      23,
+      37
+    ],
+    "evaluation": [
+      101,
+      211,
+      307
+    ]
+  },
+  "validation": {
+    "min_clearance_m": 0.015,
+    "table_margin_m": 0.03
+  },
+  "scenes": {
+    "clear_table": {
+      "title_zh": "清桌操作",
+      "description_zh": "空桌面与一个方块；固定物体资产，变化初始位置和绕竖轴姿态。",
+      "status": "prepared_unvalidated",
+      "native_qualified": false,
+      "supported_tasks": [
+        "01_cube_push",
+        "02_cube_lift_hold",
+        "03_cube_pick_place",
+        "04_cube_grasp_hold"
+      ],
+      "unsupported_task_intents": [],
+      "target_pose": {
+        "xy_m": [
+          0.45,
+          0.1
+        ],
+        "xy_jitter_m": [
+          0.014,
+          0.012
+        ],
+        "yaw_jitter_rad": 0.14
+      },
+      "instances": [],
+      "qualification_scope": "CPU geometry candidate only; require native settling, robot clearance and task success evidence."
+    },
+    "cluttered_table": {
+      "title_zh": "干扰物桌面",
+      "description_zh": "方块操作区周围放置YCB罐、饼干盒与泡沫块，均有独立碰撞网格；目标仍为原方块资产。",
+      "status": "prepared_unvalidated",
+      "native_qualified": false,
+      "supported_tasks": [
+        "01_cube_push",
+        "02_cube_lift_hold",
+        "03_cube_pick_place",
+        "04_cube_grasp_hold"
+      ],
+      "unsupported_task_intents": [],
+      "target_pose": {
+        "xy_m": [
+          0.45,
+          0.1
+        ],
+        "xy_jitter_m": [
+          0.014,
+          0.012
+        ],
+        "yaw_jitter_rad": 0.14
+      },
+      "instances": [
+        {
+          "id": "context_can",
+          "catalog": "ycb",
+          "asset_id": "ycb_005_tomato_soup_can",
+          "kind": "objects",
+          "xy_m": [
+            0.69,
+            0.37
+          ],
+          "xy_jitter_m": [
+            0.004,
+            0.004
+          ],
+          "rpy_rad": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "yaw_jitter_rad": 0.03
+        },
+        {
+          "id": "context_cracker_box",
+          "catalog": "ycb",
+          "asset_id": "ycb_003_cracker_box",
+          "kind": "objects",
+          "xy_m": [
+            0.76,
+            0.6
+          ],
+          "xy_jitter_m": [
+            0.004,
+            0.004
+          ],
+          "rpy_rad": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "yaw_jitter_rad": 0.03
+        },
+        {
+          "id": "context_block",
+          "catalog": "ycb",
+          "asset_id": "ycb_061_foam_brick",
+          "kind": "objects",
+          "xy_m": [
+            0.26,
+            0.43
+          ],
+          "xy_jitter_m": [
+            0.004,
+            0.004
+          ],
+          "rpy_rad": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "yaw_jitter_rad": 0.03
+        }
+      ],
+      "qualification_scope": "CPU geometry candidate only; require native settling, robot clearance and task success evidence."
+    },
+    "tray_sorting": {
+      "title_zh": "托盘分拣桌",
+      "description_zh": "前排齿轮、垫圈与线轴，后排三槽托盘；仅准备场景，尚无该初态族的分拣评分适配。",
+      "status": "prepared_unvalidated",
+      "native_qualified": false,
+      "supported_tasks": [],
+      "unsupported_task_intents": [
+        {
+          "intent": "ordered_kitting",
+          "status": "unsupported",
+          "reason": "Requires ordered placement, tray-region scoring and release qualification; cube scorer is not applicable."
+        }
+      ],
+      "target_pose": {
+        "xy_m": [
+          0.45,
+          0.1
+        ],
+        "xy_jitter_m": [
+          0.014,
+          0.012
+        ],
+        "yaw_jitter_rad": 0.14
+      },
+      "instances": [
+        {
+          "id": "gear_large",
+          "catalog": "procedural_sequence",
+          "asset_id": "gear_large",
+          "kind": "objects",
+          "xy_m": [
+            0.3,
+            0.22
+          ],
+          "xy_jitter_m": [
+            0.004,
+            0.004
+          ],
+          "rpy_rad": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "yaw_jitter_rad": 0.03
+        },
+        {
+          "id": "washer",
+          "catalog": "procedural_sequence",
+          "asset_id": "washer",
+          "kind": "objects",
+          "xy_m": [
+            0.46,
+            0.23
+          ],
+          "xy_jitter_m": [
+            0.004,
+            0.004
+          ],
+          "rpy_rad": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "yaw_jitter_rad": 0.03
+        },
+        {
+          "id": "spool",
+          "catalog": "procedural_sequence",
+          "asset_id": "spool",
+          "kind": "objects",
+          "xy_m": [
+            0.62,
+            0.22
+          ],
+          "xy_jitter_m": [
+            0.004,
+            0.004
+          ],
+          "rpy_rad": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "yaw_jitter_rad": 0.03
+        },
+        {
+          "id": "sorting_tray",
+          "catalog": "procedural_sequence",
+          "asset_id": "tray_sorting",
+          "kind": "fixtures",
+          "xy_m": [
+            0.49,
+            0.51
+          ],
+          "xy_jitter_m": [
+            0,
+            0
+          ],
+          "rpy_rad": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "yaw_jitter_rad": 0
+        }
+      ],
+      "qualification_scope": "CPU geometry candidate only; require native settling, robot clearance and task success evidence."
+    },
+    "narrow_fixture": {
+      "title_zh": "双边挡块工作台",
+      "description_zh": "两个固定压条形成较窄操作通道；仅初始化有间距，未宣称机械手可达或碰撞规划成功。",
+      "status": "prepared_unvalidated",
+      "native_qualified": false,
+      "supported_tasks": [
+        "01_cube_push",
+        "02_cube_lift_hold",
+        "03_cube_pick_place",
+        "04_cube_grasp_hold"
+      ],
+      "unsupported_task_intents": [],
+      "target_pose": {
+        "xy_m": [
+          0.45,
+          0.1
+        ],
+        "xy_jitter_m": [
+          0.014,
+          0.012
+        ],
+        "yaw_jitter_rad": 0.14
+      },
+      "instances": [
+        {
+          "id": "left_rail",
+          "catalog": "procedural_sequence",
+          "asset_id": "press_bar",
+          "kind": "fixtures",
+          "xy_m": [
+            0.32,
+            0.16
+          ],
+          "xy_jitter_m": [
+            0,
+            0
+          ],
+          "rpy_rad": [
+            0,
+            0,
+            1.5707963267948966
+          ],
+          "yaw_jitter_rad": 0
+        },
+        {
+          "id": "right_rail",
+          "catalog": "procedural_sequence",
+          "asset_id": "press_bar",
+          "kind": "fixtures",
+          "xy_m": [
+            0.63,
+            0.16
+          ],
+          "xy_jitter_m": [
+            0,
+            0
+          ],
+          "rpy_rad": [
+            0,
+            0,
+            1.5707963267948966
+          ],
+          "yaw_jitter_rad": 0
+        }
+      ],
+      "qualification_scope": "CPU geometry candidate only; require native settling, robot clearance and task success evidence."
+    },
+    "tool_table": {
+      "title_zh": "工具工作台",
+      "description_zh": "方块周围摆放平放螺丝刀、木槌、YCB记号笔与零件架；当前评分只覆盖方块操作，不覆盖工具使用。",
+      "status": "prepared_unvalidated",
+      "native_qualified": false,
+      "supported_tasks": [
+        "01_cube_push",
+        "02_cube_lift_hold",
+        "03_cube_pick_place",
+        "04_cube_grasp_hold"
+      ],
+      "unsupported_task_intents": [
+        {
+          "intent": "tool_use",
+          "status": "unsupported",
+          "reason": "No tool-use evaluator adapter exists."
+        }
+      ],
+      "target_pose": {
+        "xy_m": [
+          0.45,
+          0.1
+        ],
+        "xy_jitter_m": [
+          0.014,
+          0.012
+        ],
+        "yaw_jitter_rad": 0.14
+      },
+      "instances": [
+        {
+          "id": "screwdriver",
+          "catalog": "procedural_manipulation",
+          "asset_id": "screwdriver",
+          "kind": "objects",
+          "xy_m": [
+            0.28,
+            0.39
+          ],
+          "xy_jitter_m": [
+            0.004,
+            0.004
+          ],
+          "rpy_rad": [
+            0,
+            1.5707963267948966,
+            0
+          ],
+          "yaw_jitter_rad": 0.03
+        },
+        {
+          "id": "mallet",
+          "catalog": "procedural_manipulation",
+          "asset_id": "rubber_mallet",
+          "kind": "objects",
+          "xy_m": [
+            0.75,
+            0.39
+          ],
+          "xy_jitter_m": [
+            0.004,
+            0.004
+          ],
+          "rpy_rad": [
+            0,
+            1.5707963267948966,
+            0
+          ],
+          "yaw_jitter_rad": 0.03
+        },
+        {
+          "id": "parts_rack",
+          "catalog": "procedural_manipulation",
+          "asset_id": "parts_rack",
+          "kind": "fixtures",
+          "xy_m": [
+            0.51,
+            0.64
+          ],
+          "xy_jitter_m": [
+            0,
+            0
+          ],
+          "rpy_rad": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "yaw_jitter_rad": 0
+        },
+        {
+          "id": "marker",
+          "catalog": "ycb",
+          "asset_id": "ycb_040_large_marker",
+          "kind": "objects",
+          "xy_m": [
+            0.76,
+            0.64
+          ],
+          "xy_jitter_m": [
+            0.004,
+            0.004
+          ],
+          "rpy_rad": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "yaw_jitter_rad": 0.03
+        }
+      ],
+      "qualification_scope": "CPU geometry candidate only; require native settling, robot clearance and task success evidence."
+    },
+    "cloth_table": {
+      "title_zh": "布料工作台",
+      "description_zh": "自由布料平铺于桌面，右侧收纳托盘和压条；布料材质沿用显式PhysX参数，拖移评分尚未适配此初态族。",
+      "status": "prepared_unvalidated",
+      "native_qualified": false,
+      "supported_tasks": [],
+      "unsupported_task_intents": [
+        {
+          "intent": "cloth_table_drag",
+          "status": "unsupported",
+          "reason": "Requires a dedicated cloth task release and initial-relative displacement validation."
+        }
+      ],
+      "target_pose": {
+        "xy_m": [
+          0.45,
+          0.1
+        ],
+        "xy_jitter_m": [
+          0.014,
+          0.012
+        ],
+        "yaw_jitter_rad": 0.14
+      },
+      "instances": [
+        {
+          "id": "press_bar",
+          "catalog": "procedural_sequence",
+          "asset_id": "press_bar",
+          "kind": "objects",
+          "xy_m": [
+            0.74,
+            0.26
+          ],
+          "xy_jitter_m": [
+            0.004,
+            0.004
+          ],
+          "rpy_rad": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "yaw_jitter_rad": 0.03
+        },
+        {
+          "id": "storage_tray",
+          "catalog": "procedural_manipulation",
+          "asset_id": "storage_tray",
+          "kind": "fixtures",
+          "xy_m": [
+            0.72,
+            0.59
+          ],
+          "xy_jitter_m": [
+            0,
+            0
+          ],
+          "rpy_rad": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "yaw_jitter_rad": 0
+        }
+      ],
+      "qualification_scope": "CPU geometry candidate only; require native settling, robot clearance and task success evidence.",
+      "cloth": {
+        "enabled": true,
+        "origin_m": [
+          0.29,
+          0.25,
+          0.756
+        ],
+        "size_m": [
+          0.24,
+          0.24
+        ],
+        "cells_xy": [
+          20,
+          20
+        ],
+        "mass_kg": 0.03,
+        "quaternion_wxyz": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    }
+  },
+  "evaluation_protocol": {
+    "initialization": "export scene/task with explicit split+seed, freeze release before running controllers",
+    "runtime_seed": "Recorded only; it must equal the chosen variant seed in run metadata, but does not alter a frozen pose",
+    "candidate_variant_count": 36,
+    "native_qualified_variant_count": 0,
+    "development_evaluation_initial_states_disjoint": true
+  }
+}

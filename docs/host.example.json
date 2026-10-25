@@ -1,0 +1,21 @@
+{
+  "DEXBENCH_PYTHON": "/path/to/dexbench_python",
+  "DEXBENCH_DATA": "/path/to/dexbench_data",
+  "ISAAC_PYTHON_LAUNCHER": "/path/to/isaac_python_launcher",
+  "CUDA_VISIBLE_DEVICES": "GPU-YOUR-UUID",
+  "SONIC_PYTHON": "/path/to/sonic_python",
+  "SONIC_POLICY_DIR": "/path/to/sonic_policy_dir",
+  "XR_SDK_PATH": "/path/to/xr_sdk_path",
+  "SUPERDEX_ASSETS_PATH": "/path/to/superdex_assets_path",
+  "SIMPLE_ROOT": "/path/to/simple_root",
+  "FACTR_PORT": "/dev/serial/by-id/YOUR_FACTR_SERIAL",
+  "FACTR_CALIBRATION": "/path/to/factr_calibration",
+  "MANUS_SDK_PYTHON": "/path/to/manus_sdk_python",
+  "MANUS_PYTHON": "/path/to/manus_python",
+  "MANUS_SDK_VERSION": "3.2.0",
+  "MANUS_GLOVE_ID": "YOUR_GLOVE_ID",
+  "MANUS_CALIBRATION": "/path/to/manus_calibration",
+  "SHARPA_RETARGET_ROOT": "/path/to/sharpa_retarget_root",
+  "SHARPA_RETARGET_PYTHON": "/path/to/sharpa_retarget_python",
+  "PICO_SDK_LIBRARY": "/path/to/libPXREARobotSDK.so"
+}

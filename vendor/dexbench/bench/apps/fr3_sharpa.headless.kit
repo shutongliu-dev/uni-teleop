@@ -1,0 +1,83 @@
+[package]
+title = "FR3 SHARPA native Isaac Sim benchmark"
+description = "Local assets, PhysX dynamics and synchronous RTX cameras"
+version = "1.0.0"
+
+[dependencies]
+"isaacsim.core.api" = {}
+"isaacsim.core.version" = {}
+"isaacsim.simulation_app" = {}
+"isaacsim.asset.importer.urdf" = {}
+"omni.isaac.ml_archive" = { order = -100 }
+"omni.kit.loop-isaac" = {}
+"omni.physics.physx" = {}
+"omni.physics.stageupdate" = {}
+"omni.physx.tensors" = {}
+"omni.physx.fabric" = {}
+"omni.physx.commands" = {}
+"omni.replicator.core" = {}
+"omni.kit.material.library" = {}
+"omni.kit.viewport.rtx" = {}
+"omni.kit.viewport.utility" = {}
+"omni.kit.viewport.window" = {}
+"omni.kit.hydra_texture" = {}
+"omni.hydra.usdrt_delegate" = {}
+
+[settings]
+app.name = "FR3-SHARPA-IsaacSim"
+app.version = "6.1.0"
+app.content.emptyStageOnStart = true
+app.file.ignoreUnsavedStage = true
+app.enableDeveloperWarnings = false
+app.audio.enabled = false
+app.vulkan = true
+app.asyncRendering = false
+app.asyncRenderingLowLatency = false
+app.useFabricSceneDelegate = true
+app.runLoops.main.manualModeEnabled = true
+app.runLoops.main.rateLimitEnabled = false
+app.player.useFixedTimeStepping = false
+app.settings.fabricDefaultStageFrameHistoryCount = 3
+app.settings.persistent = false
+app.renderer.skipWhileMinimized = false
+app.renderer.sleepMsOnFocus = 0
+app.renderer.sleepMsOutOfFocus = 0
+app.renderer.waitIdle = true
+app.hydraEngine.waitIdle = true
+app.updateOrder.checkForHydraRenderComplete = 1000
+renderer.enabled = "rtx"
+renderer.multiGpu.enabled = false
+renderer.multiGpu.autoEnable = false
+renderer.gpuEnumeration.glInterop.enabled = false
+omni.replicator.asyncRendering = false
+exts."omni.replicator.core".Orchestrator.enabled = false
+exts."omni.kit.renderer.core".present.enabled = false
+rtx-transient.dlssg.enabled = false
+rtx.post.dlss.execMode = 2
+rtx.hydra.readTransformsFromFabricInRenderDelegate = true
+physics.updateToUsd = true
+physics.updateParticlesToUsd = true
+physics.updateVelocitiesToUsd = true
+isaac.startup.ros_bridge_extension = ""
+
+[settings.app.python]
+interceptSysStdOutput = false
+logSysStdOutput = false
+
+[settings.app.exts]
+folders = [
+    "${exe-path}/exts",
+    "${exe-path}/extscore",
+    "${exe-path}/../exts",
+    "${exe-path}/../extscache",
+    "${exe-path}/../extsDeprecated",
+    "${exe-path}/../apps",
+]
+
+[settings.persistent]
+app.stage.upAxis = "Z"
+physics.resetOnStop = true
+renderer.startupMessageDisplayed = true
+simulation.defaultMetersPerUnit = 1.0
+omni.replicator.captureOnPlay = false
+UJITSO.geometry = false

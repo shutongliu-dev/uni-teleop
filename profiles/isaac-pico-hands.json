@@ -1,0 +1,44 @@
+{
+  "description": "PICO 裸手 → Franka + SHARPA",
+  "cwd": "${ROOT}/vendor/dexbench",
+  "command": [
+    "bash",
+    "${ROOT}/vendor/dexbench/scripts/teleop/run.sh",
+    "--workbench-only",
+    "--physics-profile",
+    "cpu_rigid_v1",
+    "--no-task-scoring",
+    "--practice-contact-warnings",
+    "--profile",
+    "--mode",
+    "hands"
+  ],
+  "env": {
+    "DEXBENCH_PYTHON": "${DEXBENCH_PYTHON}",
+    "DEXBENCH_DATA": "${DEXBENCH_DATA}",
+    "DEXBENCH_RUNS": "${ROOT}/runs/isaac",
+    "ISAAC_PYTHON_LAUNCHER": "${ISAAC_PYTHON_LAUNCHER}",
+    "CUDA_VISIBLE_DEVICES": "${CUDA_VISIBLE_DEVICES}",
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "PICO_SDK_LIBRARY": "${PICO_SDK_LIBRARY}"
+  },
+  "checks": [
+    [
+      "${DEXBENCH_PYTHON}",
+      "executable"
+    ],
+    [
+      "${DEXBENCH_DATA}/MANIFEST.json",
+      "file"
+    ],
+    [
+      "${ISAAC_PYTHON_LAUNCHER}",
+      "executable"
+    ],
+    [
+      "${PICO_SDK_LIBRARY}",
+      "file"
+    ]
+  ]
+}

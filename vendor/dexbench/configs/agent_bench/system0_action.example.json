@@ -1,0 +1,37 @@
+{
+  "kind": "system0",
+  "action_id": "geometry_example_001",
+  "observation_sequence": 0,
+  "skill": "move_geometry",
+  "geometry": {
+    "wrist": {
+      "frame_id": "world",
+      "position_m": [
+        0.028408325776505903,
+        0.4005977317705791,
+        1.3159655404029849
+      ],
+      "quaternion_wxyz": [
+        2.5570433536069354e-16,
+        -0.939372714891209,
+        -0.34289780185635377,
+        3.1994001555964576e-16
+      ]
+    },
+    "fingertip_frame_id": "right_hand_flange",
+    "fingertip_positions_m": {
+      "thumb": [
+        0.015392455672196664,
+        0.12330547470427096,
+        0.13972058222909933
+      ],
+      "index": [
+        0.0010000955381525398,
+        0.030300479419032758,
+        0.22990899999859313
+      ]
+    }
+  },
+  "object_effect": "none",
+  "timeout_sim_s": 3.0
+}

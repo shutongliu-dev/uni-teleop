@@ -1,0 +1,9 @@
+{
+  "schema": "scence.release_pointer.v1",
+  "version": "rooms_20261017_v3",
+  "scene_manifest": "data://assets/scenes/scence_workrooms/rooms_20261017_v3/manifest.json",
+  "scene_manifest_sha256": "d46caac50ad083782a23facebb3f3a5ee359a8b85f7d0bd981d394894a927c7c",
+  "preview_directory": "data://demo/interface/scenes/rooms_20261017_v3",
+  "runtime": "Isaac Sim 6.1.0",
+  "scope": "Static furnished rooms with versioned runtime observation and surface-material profiles; no manipulation-task qualification"
+}

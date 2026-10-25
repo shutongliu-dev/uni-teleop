@@ -1,0 +1,44 @@
+{
+  "calibration_id": "REPLACE_AFTER_CORE_CALIBRATION",
+  "glove_calibrated": false,
+  "world_calibrated": false,
+  "world_frame_id": "bench_world",
+  "capture_frame_id": "manus_world",
+  "world_from_capture": {
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "quaternion_wxyz": [
+      1,
+      0,
+      0,
+      0
+    ]
+  },
+  "tracker_body_frame": "unassigned_tracker",
+  "tracker_from_wrist": {
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "quaternion_wxyz": [
+      1,
+      0,
+      0,
+      0
+    ]
+  },
+  "wrist_offset_calibrated": false,
+  "target_clock_id": "REPLACE_WITH_COLLECTOR_HOST_BOOT_CLOCK",
+  "clock_mappings": [],
+  "max_sample_age_ns": 150000000,
+  "max_tracker_skew_ns": 30000000,
+  "max_clock_uncertainty_ns": 5000000,
+  "operator_id": "operator_001",
+  "task_id": "04_cover_and_secure",
+  "retarget_version": "unassigned",
+  "robot_profile_id": "sharpa_w01_right"
+}

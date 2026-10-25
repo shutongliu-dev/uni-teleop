@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+exec "${UNI_TELEOP_PYTHON:-python3}" -B -m uni_teleop "$@"

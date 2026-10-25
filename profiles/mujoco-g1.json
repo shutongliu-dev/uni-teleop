@@ -1,0 +1,17 @@
+{
+  "description": "G1 仿真与相机基础自检（非全身遥操）",
+  "cwd": "${ROOT}/vendor/sonic-mujoco",
+  "command": [
+    "${SONIC_PYTHON}",
+    "${ROOT}/vendor/sonic-mujoco/scripts/run_sim.py",
+    "--robot",
+    "g1"
+  ],
+  "env": {},
+  "checks": [
+    [
+      "${SONIC_PYTHON}",
+      "executable"
+    ]
+  ]
+}

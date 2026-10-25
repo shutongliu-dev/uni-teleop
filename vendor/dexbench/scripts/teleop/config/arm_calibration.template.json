@@ -1,0 +1,13 @@
+{
+  "version": "factr_franka_fixed_v1",
+  "status": "unconfigured",
+  "source_kind": "hardware",
+  "leader_id": "REPLACE_WITH_STABLE_USB_SERIAL_ID",
+  "motor_ids": [1, 2, 3, 4, 5, 6, 7, 8],
+  "robot_joint_names": ["fr3_joint1", "fr3_joint2", "fr3_joint3", "fr3_joint4", "fr3_joint5", "fr3_joint6", "fr3_joint7"],
+  "robot_urdf_sha256": null,
+  "signs": [null, null, null, null, null, null, null],
+  "directions_verified": [false, false, false, false, false, false, false],
+  "leader_reference_rad": [null, null, null, null, null, null, null],
+  "robot_reference_rad": [null, null, null, null, null, null, null]
+}

@@ -1,0 +1,101 @@
+diff --git a/Assets/Resources/PicoSdkPCConfig.json b/Assets/Resources/PicoSdkPCConfig.json
+index 795a84b..99dda3e 100644
+--- a/Assets/Resources/PicoSdkPCConfig.json
++++ b/Assets/Resources/PicoSdkPCConfig.json
+@@ -1 +1 @@
+-{"general":{"region":"cn"},"account":{"access_token":""},"package":{"package_name":"com.xrobotoolkit.client","package_version_code":1,"package_version_name":"1.1.0"}}
+\ No newline at end of file
++{"general":{"region":"cn"},"account":{"access_token":""},"package":{"package_name":"com.xrobotoolkit.client.sonic","package_version_code":1,"package_version_name":"1.1.0"}}
+diff --git a/Assets/Scripts/UI/UICameraCtrlPC.cs b/Assets/Scripts/UI/UICameraCtrlPC.cs
+index 3c0b3c1..3502b71 100644
+--- a/Assets/Scripts/UI/UICameraCtrlPC.cs
++++ b/Assets/Scripts/UI/UICameraCtrlPC.cs
+@@ -1,2 +1,3 @@
+ using System;
++using System.Globalization;
+ using LitJson;
+@@ -4,2 +5,3 @@ using Robot;
+ using Unity.XR.PICO.TOBSupport;
++using Unity.XR.PXR;
+ using UnityEngine;
+@@ -10,2 +12,8 @@ public partial class UICameraCtrl
+     {
++        if (functionName == "HapticImpulse")
++        {
++            HandleHapticImpulse(value);
++            return;
++        }
++
+         if (!gameObject.activeSelf)
+@@ -159,2 +167,38 @@ public partial class UICameraCtrl
+     }
+-}
+\ No newline at end of file
++
++    private static void HandleHapticImpulse(string value)
++    {
++        try
++        {
++            value = value.Replace("\\", "");
++            JsonData json = JsonMapper.ToObject(value);
++            float left = Mathf.Clamp01(float.Parse(
++                json["left"].ToString(), CultureInfo.InvariantCulture));
++            float right = Mathf.Clamp01(float.Parse(
++                json["right"].ToString(), CultureInfo.InvariantCulture));
++            int duration = Mathf.Clamp(int.Parse(json["durationMs"].ToString()), 0, 250);
++            int frequency = Mathf.Clamp(int.Parse(json["frequencyHz"].ToString()), 50, 500);
++            SendHaptic(PXR_Input.VibrateType.LeftController, left, duration, frequency);
++            SendHaptic(PXR_Input.VibrateType.RightController, right, duration, frequency);
++        }
++        catch (Exception e)
++        {
++            Debug.LogError("HapticImpulse: " + e.Message);
++        }
++    }
++
++    private static void SendHaptic(
++        PXR_Input.VibrateType controller,
++        float amplitude,
++        int durationMs,
++        int frequencyHz)
++    {
++        if (amplitude <= 0)
++        {
++            return;
++        }
++
++        PXR_Input.SendHapticImpulse(controller, amplitude, durationMs, frequencyHz);
++        Debug.Log($"HapticImpulse {controller}: amplitude={amplitude:0.00}");
++    }
++}
+diff --git a/ProjectSettings/ProjectSettings.asset b/ProjectSettings/ProjectSettings.asset
+index b40c52e..436d3f5 100644
+--- a/ProjectSettings/ProjectSettings.asset
++++ b/ProjectSettings/ProjectSettings.asset
+@@ -15,3 +15,3 @@ PlayerSettings:
+   companyName: xrobotoolkit
+-  productName: XRoboToolkit
++  productName: XRoboToolkit SONIC
+   defaultCursor: {fileID: 0}
+@@ -138,3 +138,3 @@ PlayerSettings:
+   loadStoreDebugModeEnabled: 0
+-  bundleVersion: 1.1.1
++  bundleVersion: 1.1.8
+   preloadedAssets:
+@@ -164,3 +164,3 @@ PlayerSettings:
+   applicationIdentifier:
+-    Android: com.xrobotoolkit.client
++    Android: com.xrobotoolkit.client.sonic
+   buildNumber:
+@@ -265,4 +265,4 @@ PlayerSettings:
+   androidSplashScreen: {fileID: 0}
+-  AndroidKeystoreName: C:/Users/Admin/Documents/lyu20/user.keystore
+-  AndroidKeyaliasName: key1
++  AndroidKeystoreName:
++  AndroidKeyaliasName:
+   AndroidEnableArmv9SecurityFeatures: 0
+@@ -274,3 +274,3 @@ PlayerSettings:
+   androidUseLowAccuracyLocation: 0
+-  androidUseCustomKeystore: 1
++  androidUseCustomKeystore: 0
+   m_AndroidBanners:

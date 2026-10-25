@@ -1,0 +1,112 @@
+<mujoco model="g1_basket_loading">
+  <include file="common.xml"/>
+  <include file="../../robots/g1/g1_29dof_with_hand.xml"/>
+  <include file="carry_tables.xml"/>
+
+  <asset>
+    <material name="basket_collision" rgba="0.04 0.12 0.19 0"/>
+    <material name="basket_plastic" rgba="0.05 0.25 0.38 1"
+      specular="0.18" shininess="0.28"/>
+    <material name="load_red" rgba="0.72 0.10 0.08 1"/>
+    <material name="load_yellow" rgba="0.92 0.62 0.08 1"/>
+    <material name="load_green" rgba="0.18 0.55 0.25 1"/>
+    <material name="load_blue" rgba="0.10 0.38 0.76 1"/>
+    <material name="load_cardboard" rgba="0.55 0.35 0.16 1"/>
+    <material name="load_gray" rgba="0.32 0.34 0.36 1"/>
+  </asset>
+
+  <default>
+    <default class="basket_collision">
+      <geom density="0" friction="0.78 0.015 0.001"
+        solref="0.014 1" solimp="0.90 0.96 0.002"
+        material="basket_collision"/>
+    </default>
+    <default class="basket_visual">
+      <geom type="box" density="0" contype="0" conaffinity="0"
+        material="basket_plastic"/>
+    </default>
+    <default class="load_object">
+      <geom density="0" friction="0.68 0.012 0.001"
+        solref="0.012 1" solimp="0.90 0.96 0.002"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <body name="loading_basket" pos="0.95 -0.82 0.762">
+      <freejoint name="loading_basket_joint"/>
+      <inertial pos="0 0 0.10" mass="1.35"
+        diaginertia="0.045 0.065 0.085"/>
+
+      <!-- Stable five-piece collision shell with an open top. -->
+      <geom name="basket_bottom" class="basket_collision" type="box"
+        pos="0 0 0.018" size="0.18 0.26 0.018"/>
+      <geom name="basket_back" class="basket_collision" type="box"
+        pos="-0.185 0 0.12" size="0.015 0.26 0.12"/>
+      <geom name="basket_front" class="basket_collision" type="box"
+        pos="0.185 0 0.12" size="0.015 0.26 0.12"/>
+      <geom name="basket_left" class="basket_collision" type="box"
+        pos="0 0.265 0.12" size="0.18 0.015 0.12"/>
+      <geom name="basket_right" class="basket_collision" type="box"
+        pos="0 -0.265 0.12" size="0.18 0.015 0.12"/>
+
+      <!-- Ribs and rims give the basket a readable molded-plastic appearance. -->
+      <geom class="basket_visual" pos="0 0 0.018" size="0.18 0.26 0.018"/>
+      <geom class="basket_visual" pos="-0.19 0 0.225" size="0.018 0.275 0.018"/>
+      <geom class="basket_visual" pos="0.19 0 0.225" size="0.018 0.275 0.018"/>
+      <geom class="basket_visual" pos="0 0.27 0.225" size="0.19 0.018 0.018"/>
+      <geom class="basket_visual" pos="0 -0.27 0.225" size="0.19 0.018 0.018"/>
+      <geom class="basket_visual" pos="-0.19 -0.19 0.12" size="0.018 0.016 0.105"/>
+      <geom class="basket_visual" pos="-0.19 -0.065 0.12" size="0.018 0.016 0.105"/>
+      <geom class="basket_visual" pos="-0.19 0.065 0.12" size="0.018 0.016 0.105"/>
+      <geom class="basket_visual" pos="-0.19 0.19 0.12" size="0.018 0.016 0.105"/>
+      <geom class="basket_visual" pos="0.19 -0.19 0.12" size="0.018 0.016 0.105"/>
+      <geom class="basket_visual" pos="0.19 -0.065 0.12" size="0.018 0.016 0.105"/>
+      <geom class="basket_visual" pos="0.19 0.065 0.12" size="0.018 0.016 0.105"/>
+      <geom class="basket_visual" pos="0.19 0.19 0.12" size="0.018 0.016 0.105"/>
+      <geom class="basket_visual" pos="-0.115 0.27 0.12" size="0.016 0.018 0.105"/>
+      <geom class="basket_visual" pos="0 0.27 0.12" size="0.016 0.018 0.105"/>
+      <geom class="basket_visual" pos="0.115 0.27 0.12" size="0.016 0.018 0.105"/>
+      <geom class="basket_visual" pos="-0.115 -0.27 0.12" size="0.016 0.018 0.105"/>
+      <geom class="basket_visual" pos="0 -0.27 0.12" size="0.016 0.018 0.105"/>
+      <geom class="basket_visual" pos="0.115 -0.27 0.12" size="0.016 0.018 0.105"/>
+    </body>
+
+    <body name="load_can" pos="0.78 0.72 0.84">
+      <freejoint name="load_can_joint"/>
+      <inertial pos="0 0 0" mass="0.55" diaginertia="0.0012 0.0012 0.0008"/>
+      <geom name="load_can_geom" class="load_object" type="cylinder"
+        size="0.045 0.065" material="load_red"/>
+    </body>
+    <body name="load_bottle" pos="0.94 0.72 0.899">
+      <freejoint name="load_bottle_joint"/>
+      <inertial pos="0 0 0" mass="0.85" diaginertia="0.003 0.003 0.0012"/>
+      <geom name="load_bottle_geom" class="load_object" type="capsule"
+        size="0.047 0.09" material="load_blue"/>
+    </body>
+    <body name="load_box" pos="1.12 0.72 0.83">
+      <freejoint name="load_box_joint"/>
+      <inertial pos="0 0 0" mass="1.10" diaginertia="0.004 0.006 0.007"/>
+      <geom name="load_box_geom" class="load_object" type="box"
+        size="0.075 0.055 0.055" material="load_cardboard"/>
+    </body>
+    <body name="load_ball" pos="0.78 0.92 0.83">
+      <freejoint name="load_ball_joint"/>
+      <inertial pos="0 0 0" mass="0.40" diaginertia="0.0008 0.0008 0.0008"/>
+      <geom name="load_ball_geom" class="load_object" type="sphere"
+        size="0.060" material="load_yellow"/>
+    </body>
+    <body name="load_weight" pos="0.96 0.92 0.82">
+      <freejoint name="load_weight_joint"/>
+      <inertial pos="0 0 0" mass="2.20" diaginertia="0.005 0.007 0.008"/>
+      <geom name="load_weight_geom" class="load_object" type="box"
+        size="0.060 0.080 0.045" material="load_gray"/>
+    </body>
+    <body name="load_soft" pos="1.14 0.92 0.83">
+      <freejoint name="load_soft_joint"/>
+      <inertial pos="0 0 0" mass="0.75" diaginertia="0.002 0.003 0.003"/>
+      <geom name="load_soft_geom" class="load_object" type="ellipsoid"
+        size="0.070 0.055 0.065" material="load_green"
+        solref="0.035 1" solimp="0.82 0.94 0.006"/>
+    </body>
+  </worldbody>
+</mujoco>

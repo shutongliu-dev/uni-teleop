@@ -1,0 +1,21 @@
+{
+  "description": "PICO 手指 → SuperDex 发布端（需同时启动订阅端）",
+  "cwd": "${ROOT}/vendor/sonic-mujoco",
+  "command": [
+    "${SONIC_PYTHON}",
+    "${ROOT}/vendor/sonic-mujoco/scripts/run_pico_superdex_hands.py"
+  ],
+  "env": {
+    "SONIC_XR_SDK_DIR": "${XR_SDK_PATH}"
+  },
+  "checks": [
+    [
+      "${SONIC_PYTHON}",
+      "executable"
+    ],
+    [
+      "${XR_SDK_PATH}",
+      "dir"
+    ]
+  ]
+}

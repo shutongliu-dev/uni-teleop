@@ -1,0 +1,73 @@
+{
+  "description": "只测试 MANUS 手指，机械臂保持",
+  "cwd": "${ROOT}/vendor/dexbench",
+  "command": [
+    "bash",
+    "${ROOT}/vendor/dexbench/scripts/teleop/run_master_slave.sh",
+    "--workbench-only",
+    "--physics-profile",
+    "cpu_rigid_v1",
+    "--no-task-scoring",
+    "--practice-contact-warnings",
+    "--profile",
+    "--manus-hand-only",
+    "--no-video",
+    "--manus-sdk-python",
+    "${MANUS_SDK_PYTHON}",
+    "--manus-python",
+    "${MANUS_PYTHON}",
+    "--manus-sdk-version",
+    "${MANUS_SDK_VERSION}",
+    "--manus-glove-id",
+    "${MANUS_GLOVE_ID}",
+    "--manus-calibration",
+    "${MANUS_CALIBRATION}",
+    "--manus-retarget-root",
+    "${SHARPA_RETARGET_ROOT}",
+    "--manus-retarget-python",
+    "${SHARPA_RETARGET_PYTHON}"
+  ],
+  "env": {
+    "DEXBENCH_PYTHON": "${DEXBENCH_PYTHON}",
+    "DEXBENCH_DATA": "${DEXBENCH_DATA}",
+    "DEXBENCH_RUNS": "${ROOT}/runs/isaac",
+    "ISAAC_PYTHON_LAUNCHER": "${ISAAC_PYTHON_LAUNCHER}",
+    "CUDA_VISIBLE_DEVICES": "${CUDA_VISIBLE_DEVICES}",
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1"
+  },
+  "checks": [
+    [
+      "${DEXBENCH_PYTHON}",
+      "executable"
+    ],
+    [
+      "${DEXBENCH_DATA}/MANIFEST.json",
+      "file"
+    ],
+    [
+      "${ISAAC_PYTHON_LAUNCHER}",
+      "executable"
+    ],
+    [
+      "${MANUS_SDK_PYTHON}",
+      "dir"
+    ],
+    [
+      "${MANUS_PYTHON}",
+      "executable"
+    ],
+    [
+      "${MANUS_CALIBRATION}",
+      "file"
+    ],
+    [
+      "${SHARPA_RETARGET_ROOT}",
+      "dir"
+    ],
+    [
+      "${SHARPA_RETARGET_PYTHON}",
+      "executable"
+    ]
+  ]
+}

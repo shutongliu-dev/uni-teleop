@@ -1,0 +1,33 @@
+{
+  "description": "PICO 全身、头部、双手 → G1 / SONIC",
+  "cwd": "${ROOT}/vendor/sonic-mujoco",
+  "command": [
+    "${SONIC_PYTHON}",
+    "${ROOT}/vendor/sonic-mujoco/scripts/run_pico_teleop.py",
+    "--encoder",
+    "${SONIC_POLICY_DIR}/model_encoder.onnx",
+    "--decoder",
+    "${SONIC_POLICY_DIR}/model_decoder.onnx"
+  ],
+  "env": {
+    "SONIC_XR_SDK_DIR": "${XR_SDK_PATH}"
+  },
+  "checks": [
+    [
+      "${SONIC_PYTHON}",
+      "executable"
+    ],
+    [
+      "${SONIC_POLICY_DIR}/model_encoder.onnx",
+      "file"
+    ],
+    [
+      "${SONIC_POLICY_DIR}/model_decoder.onnx",
+      "file"
+    ],
+    [
+      "${XR_SDK_PATH}",
+      "dir"
+    ]
+  ]
+}

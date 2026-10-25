@@ -1,0 +1,417 @@
+{
+  "cloth_care.scene.json": {
+    "schema_version": "isaacsim-reusable-scene-v2",
+    "description": "Native surface cloth drops onto a collision-enabled cylindrical support; independent scene variant, not frozen benchmark task.",
+    "robot": {
+      "assets_root": "data://assets",
+      "base_position_m": [
+        0.0,
+        0.0,
+        0.77
+      ],
+      "mount_position_m": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mount_quaternion_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "arm_home_rad": [
+        1.5,
+        -0.5,
+        0.0,
+        -2.3,
+        0.0,
+        1.8,
+        0.8
+      ],
+      "arm_kp": 2000.0,
+      "arm_kd": 140.0,
+      "hand_kp": 3.0,
+      "hand_kd": 0.1
+    },
+    "physics": {
+      "dt_s": 0.0005,
+      "engine": "Isaac Sim native PhysX GPU",
+      "gravity_m_s2": [
+        0,
+        0,
+        -9.81
+      ]
+    },
+    "table": {
+      "position_m": [
+        0.35,
+        0.25,
+        0.725
+      ],
+      "half_extents_m": [
+        0.65,
+        0.55,
+        0.025
+      ],
+      "friction": 0.4
+    },
+    "objects": [
+      {
+        "id": "wooden_block",
+        "asset_id": "wooden_block",
+        "asset_root": "data://assets/task_parts/manipulation_collection/v2",
+        "position_m": [
+          0.35,
+          0.25,
+          0.774
+        ],
+        "quaternion_wxyz": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "friction": 0.65
+      }
+    ],
+    "cloth": {
+      "enabled": true,
+      "name": "cloth",
+      "origin_m": [
+        0.42,
+        0.03,
+        1.1
+      ],
+      "quaternion_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "size_m": [
+        0.4,
+        0.4
+      ],
+      "cells_xy": [
+        64,
+        64
+      ],
+      "mass_kg": 0.038461538461538464,
+      "friction": 0.45,
+      "self_contact": true
+    },
+    "constraints": {
+      "mount_status": "simulation-only uncalibrated identity; no adapter inertia included",
+      "right_hand_model_status": "public Wave/W01 provisional until hardware confirmation",
+      "object_pose_updates": "reset only; reference trajectories are not physics actions",
+      "fixed_or_attached_cloth_vertices": false,
+      "native_only": true
+    },
+    "workbench": {
+      "enabled": true,
+      "omit_front_edge_trim": true,
+      "props": false
+    },
+    "workcell_details": {
+      "enabled": true,
+      "reserve_xy_box": [
+        [
+          0.23,
+          -0.27
+        ],
+        [
+          0.85,
+          0.52
+        ]
+      ]
+    },
+    "fixtures": [
+      {
+        "id": "cloth_drape_cylinder",
+        "asset_id": "cloth_drape_cylinder",
+        "asset_root": "data://assets/task_parts/manipulation_collection/v2",
+        "position_m": [
+          0.6,
+          0.2,
+          0.75
+        ],
+        "friction": 0.5
+      }
+    ],
+    "isaacsim": {
+      "physics_dt_s": 0.0005,
+      "cloth_iterations": 32,
+      "cloth_linear_damping": 0.1,
+      "cloth_thickness_m": 0.001,
+      "cloth_youngs_modulus_pa": 2000000.0,
+      "cloth_poissons_ratio": 0.3,
+      "cloth_surface_bend_stiffness": 20000.0,
+      "cloth_contact_offset_m": 0.003,
+      "cloth_rest_offset_m": 0.0015,
+      "robot_self_collisions": true,
+      "filter_thumb_cmc_structure": true
+    }
+  },
+  "household_workcell.scene.json": {
+    "schema_version": "isaacsim-reusable-scene-v2",
+    "description": "Seven physical household/tool objects, open tray, peg rack and draping cylinder. No task evaluator claimed.",
+    "robot": {
+      "assets_root": "data://assets",
+      "base_position_m": [
+        0.0,
+        0.0,
+        0.77
+      ],
+      "mount_position_m": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mount_quaternion_wxyz": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "arm_home_rad": [
+        1.5,
+        -0.5,
+        0.0,
+        -2.3,
+        0.0,
+        1.8,
+        0.8
+      ],
+      "arm_kp": 2000.0,
+      "arm_kd": 140.0,
+      "hand_kp": 3.0,
+      "hand_kd": 0.1,
+      "hand_id": "sharpa_w01_right"
+    },
+    "physics": {
+      "dt_s": 0.0005,
+      "engine": "Isaac Sim native PhysX GPU",
+      "gravity_m_s2": [
+        0,
+        0,
+        -9.81
+      ]
+    },
+    "table": {
+      "position_m": [
+        0.35,
+        0.25,
+        0.725
+      ],
+      "half_extents_m": [
+        0.65,
+        0.55,
+        0.025
+      ],
+      "friction": 0.4
+    },
+    "objects": [
+      {
+        "id": "ceramic_mug",
+        "asset_id": "ceramic_mug",
+        "asset_root": "data://assets/task_parts/manipulation_collection/v2",
+        "position_m": [
+          0.37,
+          -0.07,
+          0.7928902833015522
+        ],
+        "quaternion_wxyz": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "friction": 0.65
+      },
+      {
+        "id": "small_bowl",
+        "asset_id": "small_bowl",
+        "asset_root": "data://assets/task_parts/manipulation_collection/v2",
+        "position_m": [
+          0.6,
+          0.08,
+          0.7682664191264181
+        ],
+        "quaternion_wxyz": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "friction": 0.65
+      },
+      {
+        "id": "capped_bottle",
+        "asset_id": "capped_bottle",
+        "asset_root": "data://assets/task_parts/manipulation_collection/v2",
+        "position_m": [
+          0.85,
+          -0.06,
+          0.8218388625592417
+        ],
+        "quaternion_wxyz": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "friction": 0.65
+      },
+      {
+        "id": "steel_can",
+        "asset_id": "steel_can",
+        "asset_root": "data://assets/task_parts/manipulation_collection/v2",
+        "position_m": [
+          0.84,
+          0.18,
+          0.79311684687827
+        ],
+        "quaternion_wxyz": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "friction": 0.65
+      },
+      {
+        "id": "wooden_block",
+        "asset_id": "wooden_block",
+        "asset_root": "data://assets/task_parts/manipulation_collection/v2",
+        "position_m": [
+          0.35,
+          0.25,
+          0.774
+        ],
+        "quaternion_wxyz": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "friction": 0.65
+      },
+      {
+        "id": "rubber_mallet",
+        "asset_id": "rubber_mallet",
+        "asset_root": "data://assets/task_parts/manipulation_collection/v2",
+        "position_m": [
+          0.55,
+          0.37,
+          0.806
+        ],
+        "quaternion_wxyz": [
+          0.7071067811865476,
+          0,
+          0.7071067811865476,
+          0
+        ],
+        "friction": 0.65
+      },
+      {
+        "id": "screwdriver",
+        "asset_id": "screwdriver",
+        "asset_root": "data://assets/task_parts/manipulation_collection/v2",
+        "position_m": [
+          0.8,
+          0.44,
+          0.768
+        ],
+        "quaternion_wxyz": [
+          0.7071067811865476,
+          0,
+          0.7071067811865476,
+          0
+        ],
+        "friction": 0.65
+      }
+    ],
+    "cloth": {
+      "enabled": false
+    },
+    "constraints": {
+      "mount_status": "simulation-only uncalibrated identity; no adapter inertia included",
+      "right_hand_model_status": "public Wave/W01 provisional until hardware confirmation",
+      "object_pose_updates": "reset only; reference trajectories are not physics actions",
+      "fixed_or_attached_cloth_vertices": false,
+      "native_only": true
+    },
+    "workbench": {
+      "enabled": true,
+      "omit_front_edge_trim": true,
+      "props": false
+    },
+    "workcell_details": {
+      "enabled": true,
+      "reserve_xy_box": [
+        [
+          0.23,
+          -0.27
+        ],
+        [
+          0.85,
+          0.52
+        ]
+      ]
+    },
+    "fixtures": [
+      {
+        "id": "storage_tray",
+        "asset_id": "storage_tray",
+        "asset_root": "data://assets/task_parts/manipulation_collection/v2",
+        "position_m": [
+          0.42,
+          0.65,
+          0.75
+        ],
+        "friction": 0.65
+      },
+      {
+        "id": "parts_rack",
+        "asset_id": "parts_rack",
+        "asset_root": "data://assets/task_parts/manipulation_collection/v2",
+        "position_m": [
+          0.03,
+          0.58,
+          0.75
+        ],
+        "friction": 0.65
+      },
+      {
+        "id": "cloth_drape_cylinder",
+        "asset_id": "cloth_drape_cylinder",
+        "asset_root": "data://assets/task_parts/manipulation_collection/v2",
+        "position_m": [
+          0.83,
+          0.65,
+          0.75
+        ],
+        "friction": 0.65
+      }
+    ],
+    "isaacsim": {
+      "physics_dt_s": 0.0005,
+      "cloth_iterations": 32,
+      "cloth_linear_damping": 0.1,
+      "cloth_thickness_m": 0.001,
+      "cloth_youngs_modulus_pa": 2000000.0,
+      "cloth_poissons_ratio": 0.3,
+      "cloth_surface_bend_stiffness": 20000.0,
+      "cloth_contact_offset_m": 0.003,
+      "cloth_rest_offset_m": 0.0015,
+      "robot_self_collisions": true,
+      "filter_thumb_cmc_structure": true
+    },
+    "embodiment_change": {
+      "hand_id": "sharpa_w01_right",
+      "source_task_unchanged": true,
+      "comparison_requires_separate_embodiment_stratum": true
+    }
+  }
+}

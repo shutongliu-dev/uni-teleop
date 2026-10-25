@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dexbench"
+version = "1.0.0"
+description = "Isaac Sim dexterous manipulation benchmark: shared bench runtime, fixed scenes with tasks, and model agents"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "numpy==2.5.3",
+  "scipy==1.18.1",
+  "trimesh==5.1.1",
+  "fastapi==0.143.0",
+  "uvicorn==0.54.0",
+  "websockets==17.2",
+  "pillow==12.3.0",
+  "httpx==0.28.1",
+]
+
+[project.optional-dependencies]
+response-report = ["matplotlib==3.11.2"]
+asset-build = [
+  "usd-core==25.11",
+  "pycollada==0.9.3",
+  "resolve-robotics-uri-py==0.5.1",
+]
+
+[dependency-groups]
+dev = ["pytest==9.1.1", "usd-core==25.11"]
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+include = ["scripts*", "bench*", "agent*", "scenes*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+"scenes" = ["catalog.json"]
+"scenes.workrooms" = ["current_release.json", "README.md", "*/*.py", "*/README.md", "*/RULES.md", "*/tasks/*/*.py"]
+"bench" = ["apps/*.kit"]
+"bench.adapters" = ["README.md"]
+"bench.adapters.manus" = ["examples/*.json"]
+"scripts" = ["isaac_python.sh"]
+"scripts.assets" = ["*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.uv]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+

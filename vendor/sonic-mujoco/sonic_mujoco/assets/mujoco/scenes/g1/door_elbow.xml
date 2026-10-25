@@ -1,0 +1,192 @@
+<mujoco model="g1_door_elbow">
+  <include file="common.xml"/>
+  <include file="../../robots/g1/g1_29dof_with_hand.xml"/>
+  <option integrator="implicitfast"/>
+
+  <asset>
+    <texture name="door_wood" type="2d"
+      file="../../textures/wood_table_001_diff_512.png"/>
+    <texture name="room_fabric" type="2d"
+      file="../../textures/terlenka_diff_1k.png"/>
+    <texture name="door_scan_color" type="2d"
+      file="../../textures/interior_door_basecolor.png"/>
+    <material name="door" texture="door_wood" texuniform="true"
+      texrepeat="1.2 2.8" rgba="0.43 0.29 0.20 1"
+      specular="0.08" shininess="0.12"/>
+    <material name="door_trim" rgba="0.31 0.23 0.18 1"
+      specular="0.06" shininess="0.10"/>
+    <material name="wall" rgba="0.73 0.70 0.65 1"
+      specular="0.02" shininess="0.04"/>
+    <material name="floor_lab" rgba="0.47 0.48 0.48 1"
+      reflectance="0.08"/>
+    <material name="floor_wood" texture="door_wood" texuniform="true"
+      texrepeat="5 4" rgba="0.68 0.57 0.45 1"
+      specular="0.05" shininess="0.08"/>
+    <material name="ceiling" rgba="0.90 0.89 0.86 1"/>
+    <material name="baseboard" rgba="0.82 0.80 0.76 1"/>
+    <material name="sofa" texture="room_fabric" texuniform="true"
+      texrepeat="2 2" rgba="0.39 0.48 0.53 1"/>
+    <material name="rug" texture="room_fabric" texuniform="true"
+      texrepeat="3 2" rgba="0.48 0.30 0.22 1"/>
+    <material name="paint_dark" rgba="0.18 0.22 0.23 1"/>
+    <material name="paint_warm" rgba="0.68 0.43 0.25 1"/>
+    <material name="metal" rgba="0.22 0.23 0.24 1"
+      metallic="0.55" roughness="0.30"/>
+    <material name="door_scan_visual" texture="door_scan_color"
+      specular="0.12" shininess="0.20"/>
+    <material name="door_collision" rgba="0.43 0.29 0.20 0"/>
+    <mesh name="interior_door_mesh" file="../../../meshes/interior_door.obj"/>
+  </asset>
+
+  <default>
+    <default class="door_contact">
+      <geom density="0" friction="0.62 0.012 0.001"
+        solref="0.012 1" solimp="0.90 0.97 0.002"/>
+    </default>
+    <default class="door_visual">
+      <geom density="0" contype="0" conaffinity="0"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <light pos="0.4 -1.1 2.8" dir="0.2 0.3 -1" directional="true"
+      diffuse="0.86 0.83 0.78"/>
+    <light pos="2.4 1.0 2.2" dir="-0.4 -0.2 -1" directional="true"
+      diffuse="0.42 0.43 0.45"/>
+    <geom name="floor" type="plane" size="0 0 0.05"
+      material="floor_lab" friction="1.0 0.01 0.001"/>
+
+    <!-- The door opens into a furnished 4.1 x 4.9 m room. Furniture stays
+         outside the 1.6 m central aisle so G1 can walk through naturally. -->
+    <body name="interior_room">
+      <geom name="room_floor" type="box" pos="3.75 0 0.006"
+        size="2.05 2.45 0.006" material="floor_wood"
+        friction="0.92 0.01 0.001"/>
+      <geom name="room_left_wall" type="box" pos="3.75 2.45 1.30"
+        size="2.05 0.06 1.30" material="wall"/>
+      <geom name="room_right_wall" type="box" pos="3.75 -2.45 1.30"
+        size="2.05 0.06 1.30" material="wall"/>
+      <geom name="room_back_wall" type="box" pos="5.80 0 1.30"
+        size="0.06 2.45 1.30" material="wall"/>
+      <geom name="room_ceiling" type="box" pos="3.75 0 2.62"
+        size="2.05 2.45 0.04" material="ceiling"/>
+
+      <geom type="box" pos="3.75 2.37 0.09"
+        size="2.05 0.025 0.07" material="baseboard"/>
+      <geom type="box" pos="3.75 -2.37 0.09"
+        size="2.05 0.025 0.07" material="baseboard"/>
+      <geom type="box" pos="5.72 0 0.09"
+        size="0.025 2.37 0.07" material="baseboard"/>
+
+      <geom name="room_rug" type="box" pos="4.05 0 0.042"
+        size="0.85 0.72 0.006" material="rug"
+        friction="1.05 0.01 0.001"/>
+
+      <body name="room_sofa" pos="4.45 1.83 0">
+        <geom name="room_sofa_base" type="box" pos="0 -0.08 0.30"
+          size="0.78 0.36 0.20" material="sofa"/>
+        <geom type="box" pos="0 0.20 0.67" size="0.78 0.13 0.38"
+          euler="-0.10 0 0" material="sofa"/>
+        <geom type="box" pos="-0.70 -0.08 0.52" size="0.10 0.36 0.30"
+          material="sofa"/>
+        <geom type="box" pos="0.70 -0.08 0.52" size="0.10 0.36 0.30"
+          material="sofa"/>
+        <geom type="box" pos="-0.36 -0.20 0.52" size="0.33 0.22 0.08"
+          material="sofa"/>
+        <geom type="box" pos="0.36 -0.20 0.52" size="0.33 0.22 0.08"
+          material="sofa"/>
+      </body>
+
+      <body name="room_dining_table" pos="4.50 -1.65 0">
+        <geom name="room_table" type="box" pos="0 0 0.73"
+          size="0.58 0.42 0.035" material="door"/>
+        <geom type="box" pos="-0.49 -0.33 0.36" size="0.035 0.035 0.36"
+          material="door_trim"/>
+        <geom type="box" pos="-0.49 0.33 0.36" size="0.035 0.035 0.36"
+          material="door_trim"/>
+        <geom type="box" pos="0.49 -0.33 0.36" size="0.035 0.035 0.36"
+          material="door_trim"/>
+        <geom type="box" pos="0.49 0.33 0.36" size="0.035 0.035 0.36"
+          material="door_trim"/>
+      </body>
+
+      <body name="room_sideboard" pos="5.50 1.05 0">
+        <geom type="box" pos="0 0 0.36" size="0.22 0.56 0.36"
+          material="door_trim"/>
+        <geom type="box" pos="-0.23 0 0.72" size="0.025 0.56 0.025"
+          material="door"/>
+      </body>
+
+      <!-- Thin decorative geoms are visual-only and do not create snag points. -->
+      <geom class="door_visual" type="box" pos="5.725 -0.82 1.55"
+        size="0.018 0.40 0.36" material="door_trim"/>
+      <geom class="door_visual" type="box" pos="5.70 -0.82 1.55"
+        size="0.012 0.34 0.30" material="paint_warm"/>
+      <geom class="door_visual" type="box" pos="5.725 0.88 1.52"
+        size="0.018 0.34 0.43" material="door_trim"/>
+      <geom class="door_visual" type="box" pos="5.70 0.88 1.52"
+        size="0.012 0.28 0.37" material="paint_dark"/>
+    </body>
+
+    <light pos="3.65 0 2.48" dir="0 0 -1" directional="false"
+      diffuse="0.74 0.70 0.64" specular="0.12 0.12 0.12"
+      cutoff="80" exponent="2"/>
+    <light pos="5.20 0.9 2.35" dir="-0.3 -0.2 -1" directional="false"
+      diffuse="0.42 0.40 0.36" cutoff="70" exponent="3"/>
+
+    <!-- A 94 cm by 210 cm residential doorway in a 12 cm wall. -->
+    <geom name="wall_left" type="box" pos="1.70 1.53 1.25"
+      size="0.06 1.00 1.25" material="wall"/>
+    <geom name="wall_right" type="box" pos="1.70 -1.53 1.25"
+      size="0.06 1.00 1.25" material="wall"/>
+    <geom name="wall_header" type="box" pos="1.70 0 2.30"
+      size="0.06 0.47 0.20" material="wall"/>
+    <geom name="frame_left" type="box" pos="1.64 0.51 1.05"
+      size="0.055 0.030 1.05" material="door_trim"/>
+    <geom name="frame_right" type="box" pos="1.64 -0.51 1.05"
+      size="0.055 0.030 1.05" material="door_trim"/>
+    <geom name="frame_header" type="box" pos="1.64 0 2.13"
+      size="0.055 0.53 0.030" material="door_trim"/>
+    <geom name="threshold" type="box" pos="1.54 0 0.004"
+      size="0.075 0.47 0.004" material="metal"
+      friction="0.85 0.01 0.001"/>
+
+    <!-- Visual proportions follow SAPIEN Door 9410. Primitive collision keeps
+         shoulder and forearm contact stable when the visual mesh is swapped. -->
+    <body name="door" pos="1.52 -0.45 0.018">
+      <joint name="door_hinge" type="hinge" axis="0 0 1"
+        range="-1.745 0.02" damping="1.6" frictionloss="2.8"
+        armature="0.04" limited="true"/>
+      <inertial pos="0 0.45 1.02" mass="25.0"
+        diaginertia="10.35 8.67 1.69"/>
+      <geom name="door_visual_mesh" class="door_visual" type="mesh"
+        mesh="interior_door_mesh" pos="0 0.45 0"
+        material="door_scan_visual"/>
+
+      <geom name="door_leaf" class="door_contact" type="box"
+        pos="0 0.45 1.02" size="0.022 0.45 1.02"
+        material="door_collision"/>
+      <geom class="door_visual" type="box" pos="-0.024 0.45 1.48"
+        size="0.010 0.31 0.34" material="door_collision"/>
+      <geom class="door_visual" type="box" pos="-0.024 0.45 0.63"
+        size="0.010 0.31 0.37" material="door_collision"/>
+      <geom class="door_visual" type="box" pos="0.024 0.45 1.48"
+        size="0.010 0.31 0.34" material="door_collision"/>
+      <geom class="door_visual" type="box" pos="0.024 0.45 0.63"
+        size="0.010 0.31 0.37" material="door_collision"/>
+
+      <geom name="door_handle_front" class="door_contact" type="capsule"
+        fromto="-0.085 0.76 1.00 -0.030 0.76 1.00" size="0.025"
+        material="door_collision"/>
+      <geom name="door_handle_back" class="door_contact" type="capsule"
+        fromto="0.030 0.76 1.00 0.085 0.76 1.00" size="0.025"
+        material="door_collision"/>
+      <geom class="door_visual" type="cylinder" pos="0 0.005 0.35"
+        size="0.025 0.075" material="metal"/>
+      <geom class="door_visual" type="cylinder" pos="0 0.005 1.02"
+        size="0.025 0.075" material="metal"/>
+      <geom class="door_visual" type="cylinder" pos="0 0.005 1.69"
+        size="0.025 0.075" material="metal"/>
+    </body>
+  </worldbody>
+</mujoco>

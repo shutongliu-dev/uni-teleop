@@ -1,0 +1,34 @@
+{
+  "description": "Example only. Freeze a new plan against an explicitly selected matching service; no saved runtime hashes or automatic queue.",
+  "bench_url": "http://127.0.0.1:8792",
+  "task_release": "data://datasets/REPLACE_WITH_FROZEN_CLOTH_RELEASE",
+  "tasks": [
+    "cloth_table_drag_y_05cm_candidate_01"
+  ],
+  "modes": [
+    "free_tool_agent"
+  ],
+  "visual_inputs": [
+    "rgbd"
+  ],
+  "tactile_inputs": [
+    "on"
+  ],
+  "seeds": [
+    0
+  ],
+  "repeat_ids": [
+    "r0"
+  ],
+  "model": "gpt-6-astra",
+  "reasoning_effort": "max",
+  "max_decisions": 128,
+  "max_actions": 128,
+  "max_output_tokens": null,
+  "sim_budget": null,
+  "wall_budget": null,
+  "model_timeout": null,
+  "http_timeout": null,
+  "program_timeout": null,
+  "expected_runtime_pins": {}
+}

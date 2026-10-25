@@ -1,0 +1,94 @@
+{
+  "schema_version": 2,
+  "profile_id": "juqiao-g1-sim2real-provisional-v2",
+  "layout_sha256": "276faa989c8696a4c056864cb9e6cb2339402cfca7112c62aa90ebb5b916eb5e",
+  "packet_size": 256,
+  "packet_dtype": "uint8",
+  "force_mapping_status": "provisional_unpaired_force_mapping",
+  "paired_force_calibrated": false,
+  "transfer": {
+    "input_quantity": "force",
+    "gain": 4.0,
+    "gamma": 1.0,
+    "offset": 0.0,
+    "attack_tau_s": 0.015,
+    "release_tau_s": 0.035,
+    "output_deadband_counts": 0.0,
+    "saturation_count": 255
+  },
+  "devices": [
+    {
+      "name": "vest",
+      "sample_rate_hz": 14.0,
+      "stale_timeout_s": 0.1,
+      "dropout_probability": 0.0,
+      "noise_std_counts": 0.4,
+      "phase_offset_s": 0.0
+    },
+    {
+      "name": "left_arm",
+      "sample_rate_hz": 14.0,
+      "stale_timeout_s": 0.1,
+      "dropout_probability": 0.0,
+      "noise_std_counts": 0.45,
+      "phase_offset_s": 0.0
+    },
+    {
+      "name": "right_arm",
+      "sample_rate_hz": 14.0,
+      "stale_timeout_s": 0.1,
+      "dropout_probability": 0.0,
+      "noise_std_counts": 0.45,
+      "phase_offset_s": 0.0
+    }
+  ],
+  "randomization": {
+    "gain_scale": {
+      "low": 0.92,
+      "high": 1.08
+    },
+    "sample_rate_scale": {
+      "low": 0.96,
+      "high": 1.1
+    },
+    "noise_std_counts": {
+      "low": 0.0,
+      "high": 0.1
+    },
+    "preload": {
+      "low": 0.0,
+      "high": 0.0
+    },
+    "residual_bias_counts": {
+      "low": 0.0,
+      "high": 0.0
+    }
+  },
+  "sensor_dynamics": {
+    "status": "provisional_unpaired_sensor_dynamics",
+    "spatial_first_ring_fraction": {
+      "low": 0.1,
+      "high": 0.2
+    },
+    "spatial_second_ring_fraction": {
+      "low": 0.0,
+      "high": 0.04
+    },
+    "randomize_source_phase": true,
+    "noise_ar1_rho": {
+      "low": 0.1,
+      "high": 0.3
+    },
+    "drift_std_counts": {
+      "low": 0.4,
+      "high": 0.9
+    },
+    "drift_time_constant_s": {
+      "low": 15.0,
+      "high": 60.0
+    },
+    "observation_delivery": null
+  },
+  "fixed_taxel_gain_variation": 0.08,
+  "fixed_device_rate_variation": 0.02
+}

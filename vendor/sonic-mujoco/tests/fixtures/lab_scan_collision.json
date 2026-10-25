@@ -1,0 +1,40 @@
+{
+  "version": 2,
+  "default_collision_geometry": "boxes",
+  "scan_units_per_meter": 1.0,
+  "scale_calibration": {
+    "status": "estimated",
+    "method": "synthetic_test_fixture",
+    "has_measured_reference": false
+  },
+  "geometry_provenance": {
+    "appearance": "synthetic_test_fixture",
+    "surface_geometry": "synthetic_test_fixture",
+    "training_depth": "none",
+    "training_depth_is_metric": false
+  },
+  "anchor_image": "synthetic.png",
+  "anchor_camera_to_world": [
+    [0.0, 0.0, -1.0, 0.0],
+    [-1.0, 0.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0, 1.0]
+  ],
+  "scan_up": [0.0, 0.0, 1.0],
+  "floor_plane": [0.0, 0.0, 1.0, 0.0],
+  "boxes": [
+    {
+      "name": "scan_collision_000",
+      "center": [100.0, 100.0, 100.0],
+      "rotation": [
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0]
+      ],
+      "size": [0.1, 0.1, 0.1]
+    }
+  ],
+  "parameters": {
+    "fixture": true
+  }
+}

@@ -1,0 +1,38 @@
+<mujoco model="g1_plush_carry">
+  <include file="common.xml"/>
+  <include file="../../robots/g1/g1_29dof_with_hand.xml"/>
+  <include file="carry_tables.xml"/>
+  <option integrator="implicitfast"/>
+
+  <asset>
+    <texture name="plush_color" type="2d"
+      file="../../textures/avocado_plush_scan.png"/>
+    <material name="plush_visual" texture="plush_color"
+      specular="0.02" shininess="0.03"/>
+    <material name="plush_collision" rgba="0.30 0.52 0.12 0"/>
+    <mesh name="plush_visual_mesh"
+      file="../../../meshes/avocado_plush_scan.obj"/>
+  </asset>
+
+  <worldbody>
+    <body name="carry_plush" pos="0.95 -0.82 1.132">
+      <freejoint name="carry_plush_joint"/>
+      <inertial mass="0.90" pos="0 0 -0.03"
+        diaginertia="0.060 0.045 0.035"/>
+
+      <!-- Radial sliders provide local indentation without free soft-body drift. -->
+      <flexcomp name="plush_flex" type="mesh" dim="3" dof="radial"
+        file="../../../meshes/avocado_plush.obj" origin="0 0 0"
+        scale="1.10 1.26 1" quat="0.7071068 0 0 0.7071068"
+        mass="0.60" radius="0.008" material="plush_collision">
+        <contact condim="3" friction="0.82 0.018 0.002"
+          solref="0.025 1" solimp="0.88 0.95 0.004"
+          internal="false" selfcollide="none"/>
+        <edge equality="true" solref="0.055 1"/>
+      </flexcomp>
+
+      <geom name="plush_visual" type="mesh" mesh="plush_visual_mesh"
+        material="plush_visual" density="0" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+</mujoco>

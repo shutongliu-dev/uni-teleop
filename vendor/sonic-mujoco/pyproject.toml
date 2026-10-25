@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sonic-mujoco"
+version = "0.1.0"
+description = "MuJoCo environments for Unitree G1 and H2 humanoids"
+requires-python = ">=3.10"
+dependencies = ["mujoco>=3.3,<4", "scipy>=1.10,<2"]
+
+[project.optional-dependencies]
+sonic = ["onnxruntime>=1.16,<1.24"]
+teleop = ["pyzmq>=25,<28", "PyOpenGL>=3.1,<4"]
+recording = ["av>=14,<18", "pyarrow>=16,<26", "pillow>=10,<13"]
+gr00t = [
+  "pyzmq>=25,<28",
+  "msgpack>=1,<2",
+  "msgpack-numpy>=0.4.8,<0.5",
+  "pillow>=10,<13",
+  "av>=14,<18",
+]
+
+[tool.setuptools.packages.find]
+include = ["sonic_mujoco*"]
+
+[tool.setuptools.package-data]
+sonic_mujoco = [
+  "assets/mujoco/robots/g1/*.xml",
+  "assets/mujoco/robots/g1/*.md",
+  "assets/mujoco/robots/g1/meshes/*.STL",
+  "assets/mujoco/robots/h2/*.xml",
+  "assets/mujoco/robots/h2/*.md",
+  "assets/mujoco/robots/h2/LICENSE",
+  "assets/mujoco/robots/h2/meshes/*.stl",
+  "assets/mujoco/meshes/*.obj",
+  "assets/mujoco/scenes/g1/*.xml",
+  "assets/mujoco/scenes/h2/*.xml",
+  "assets/mujoco/textures/*.md",
+  "assets/mujoco/textures/*.png",
+  "assets/pico/*.md",
+  "assets/pico/*.npz",
+]
