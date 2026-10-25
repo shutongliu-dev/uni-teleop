@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uni-teleop"
+version = "0.2.0"
+description = "Composable teleoperation devices, robot mappings and simulation backends"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+franka = ["numpy>=1.24", "scipy>=1.10", "pydantic>=2", "pillow>=10"]
+mujoco = ["mujoco>=3.3,<4", "numpy>=1.24", "scipy>=1.10", "pydantic>=2", "pillow>=10"]
+sonic = ["onnxruntime>=1.16", "pyzmq>=25"]
+test = ["pytest>=8"]
+
+[project.scripts]
+uni-teleop = "uni_teleop.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["uni_teleop*"]

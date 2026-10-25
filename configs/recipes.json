@@ -1,0 +1,349 @@
+{
+  "isaac-factr": {
+    "backend": "isaac",
+    "arm": "factr",
+    "hand": "trigger",
+    "robot": "franka-sharpa",
+    "description": "FACTR 七轴关节映射 → Franka；主臂扳机控制手",
+    "components": [
+      "isaac",
+      "factr"
+    ],
+    "entry": "master",
+    "args": [
+      "--no-video"
+    ],
+    "status": "device-verification-required"
+  },
+  "isaac-factr-manus": {
+    "backend": "isaac",
+    "arm": "factr",
+    "hand": "manus",
+    "robot": "franka-sharpa",
+    "description": "FACTR 七轴关节映射 + MANUS 手指",
+    "components": [
+      "isaac",
+      "factr",
+      "manus"
+    ],
+    "entry": "master",
+    "args": [
+      "--no-video"
+    ],
+    "status": "device-verification-required"
+  },
+  "isaac-pico-controllers": {
+    "backend": "isaac",
+    "arm": "pico-controller",
+    "hand": "trigger",
+    "robot": "franka-sharpa",
+    "description": "PICO 手柄 → Franka + SHARPA",
+    "components": [
+      "isaac",
+      "pico-native"
+    ],
+    "entry": "pico",
+    "args": [
+      "--mode",
+      "controllers"
+    ],
+    "status": "device-verification-required"
+  },
+  "isaac-pico-hands": {
+    "backend": "isaac",
+    "arm": "pico-hand",
+    "hand": "pico-hand",
+    "robot": "franka-sharpa",
+    "description": "PICO 裸手 → Franka + SHARPA",
+    "components": [
+      "isaac",
+      "pico-native"
+    ],
+    "entry": "pico",
+    "args": [
+      "--mode",
+      "hands"
+    ],
+    "status": "device-verification-required"
+  },
+  "isaac-pico-manus": {
+    "backend": "isaac",
+    "arm": "pico-controller",
+    "hand": "manus",
+    "robot": "franka-sharpa",
+    "description": "PICO 手柄控制机械臂 + MANUS 手指",
+    "components": [
+      "isaac",
+      "pico-native",
+      "manus"
+    ],
+    "entry": "pico",
+    "args": [
+      "--arm-source",
+      "pico",
+      "--mode",
+      "controllers"
+    ],
+    "status": "device-verification-required"
+  },
+  "isaac-manus": {
+    "backend": "isaac",
+    "arm": "none",
+    "hand": "manus",
+    "robot": "sharpa",
+    "description": "只测试 MANUS 手指，机械臂保持",
+    "components": [
+      "isaac",
+      "manus"
+    ],
+    "entry": "master",
+    "args": [
+      "--manus-hand-only",
+      "--no-video"
+    ],
+    "status": "device-verification-required"
+  },
+  "mujoco-pico": {
+    "backend": "mujoco",
+    "arm": "pico-body",
+    "hand": "pico-hand",
+    "robot": "g1",
+    "description": "PICO 全身、头部、双手 → G1 / SONIC",
+    "components": [
+      "mujoco",
+      "pico-xr",
+      "sonic"
+    ],
+    "entry": "run_pico_teleop.py",
+    "args": [],
+    "status": "device-verification-required"
+  },
+  "mujoco-g1": {
+    "backend": "mujoco",
+    "arm": "none",
+    "hand": "none",
+    "robot": "g1",
+    "description": "G1 仿真与相机基础自检（非全身遥操）",
+    "components": [
+      "mujoco"
+    ],
+    "entry": "run_sim.py",
+    "args": [
+      "--robot",
+      "g1"
+    ],
+    "status": "integration-tested"
+  },
+  "mujoco-h2": {
+    "backend": "mujoco",
+    "arm": "none",
+    "hand": "none",
+    "robot": "h2",
+    "description": "H2 31 轴仿真基础自检（无匹配全身策略）",
+    "components": [
+      "mujoco"
+    ],
+    "entry": "run_sim.py",
+    "args": [
+      "--robot",
+      "h2"
+    ],
+    "status": "integration-tested"
+  },
+  "pico-superdex-source": {
+    "backend": "source",
+    "arm": "none",
+    "hand": "pico-hand",
+    "robot": "superdex-publisher",
+    "description": "PICO 手指 → SuperDex 发布端（需同时启动订阅端）",
+    "components": [
+      "mujoco",
+      "pico-xr"
+    ],
+    "entry": "run_pico_superdex_hands.py",
+    "args": [],
+    "status": "device-verification-required"
+  },
+  "mujoco-simple": {
+    "backend": "mujoco",
+    "arm": "pico-body",
+    "hand": "pico-hand",
+    "robot": "simple-g1",
+    "description": "SIMPLE 外部场景适配入口",
+    "components": [
+      "mujoco",
+      "simple"
+    ],
+    "entry": "run_simple_teleop.py",
+    "args": [],
+    "status": "device-verification-required"
+  },
+  "mujoco-factr": {
+    "backend": "mujoco",
+    "arm": "factr",
+    "hand": "trigger",
+    "robot": "franka-sharpa",
+    "description": "FACTR 七轴关节映射 → Franka；主臂扳机控制手",
+    "components": [
+      "mujoco",
+      "franka-model",
+      "factr"
+    ],
+    "entry": "master",
+    "args": [
+      "--sandbox",
+      "--no-video"
+    ],
+    "status": "native-synthetic-tested",
+    "runtime": "franka"
+  },
+  "mujoco-factr-manus": {
+    "backend": "mujoco",
+    "arm": "factr",
+    "hand": "manus",
+    "robot": "franka-sharpa",
+    "description": "FACTR 七轴关节映射 + MANUS 手指",
+    "components": [
+      "mujoco",
+      "franka-model",
+      "factr",
+      "manus"
+    ],
+    "entry": "master",
+    "args": [
+      "--sandbox",
+      "--no-video"
+    ],
+    "status": "native-synthetic-tested",
+    "runtime": "franka"
+  },
+  "mujoco-pico-controllers": {
+    "backend": "mujoco",
+    "arm": "pico-controller",
+    "hand": "trigger",
+    "robot": "franka-sharpa",
+    "description": "PICO 手柄 → Franka + SHARPA",
+    "components": [
+      "mujoco",
+      "franka-model",
+      "pico-native"
+    ],
+    "entry": "pico",
+    "args": [
+      "--sandbox",
+      "--mode",
+      "controllers"
+    ],
+    "status": "native-synthetic-tested",
+    "runtime": "franka"
+  },
+  "mujoco-pico-hands": {
+    "backend": "mujoco",
+    "arm": "pico-hand",
+    "hand": "pico-hand",
+    "robot": "franka-sharpa",
+    "description": "PICO 裸手 → Franka + SHARPA",
+    "components": [
+      "mujoco",
+      "franka-model",
+      "pico-native"
+    ],
+    "entry": "pico",
+    "args": [
+      "--sandbox",
+      "--mode",
+      "hands"
+    ],
+    "status": "native-synthetic-tested",
+    "runtime": "franka"
+  },
+  "mujoco-pico-manus": {
+    "backend": "mujoco",
+    "arm": "pico-controller",
+    "hand": "manus",
+    "robot": "franka-sharpa",
+    "description": "PICO 手柄控制机械臂 + MANUS 手指",
+    "components": [
+      "mujoco",
+      "franka-model",
+      "pico-native",
+      "manus"
+    ],
+    "entry": "pico-manus",
+    "args": [
+      "--sandbox",
+      "--arm-source",
+      "pico",
+      "--mode",
+      "controllers"
+    ],
+    "status": "native-synthetic-tested",
+    "runtime": "franka"
+  },
+  "mujoco-manus": {
+    "backend": "mujoco",
+    "arm": "none",
+    "hand": "manus",
+    "robot": "sharpa",
+    "description": "只测试 MANUS 手指，机械臂保持",
+    "components": [
+      "mujoco",
+      "franka-model",
+      "manus"
+    ],
+    "entry": "master",
+    "args": [
+      "--sandbox",
+      "--manus-hand-only",
+      "--no-video"
+    ],
+    "status": "native-synthetic-tested",
+    "runtime": "franka"
+  },
+  "isaac-sonic": {
+    "backend": "isaac",
+    "arm": "pico-body",
+    "hand": "pico-hand",
+    "robot": "g1",
+    "description": "PICO 全身 + 双手 → G1 / SONIC，共用跨引擎控制循环",
+    "components": [
+      "isaac-native",
+      "pico-xr",
+      "sonic"
+    ],
+    "runtime": "sonic",
+    "entry": "sonic",
+    "args": [],
+    "status": "experimental-policy-transfer"
+  },
+  "mujoco-sonic": {
+    "backend": "mujoco",
+    "arm": "pico-body",
+    "hand": "pico-hand",
+    "robot": "g1",
+    "description": "PICO 全身 + 双手 → G1 / SONIC，共用跨引擎控制循环",
+    "components": [
+      "mujoco",
+      "pico-xr",
+      "sonic"
+    ],
+    "runtime": "sonic",
+    "entry": "sonic",
+    "args": [],
+    "status": "device-verification-required"
+  },
+  "superdex-hands": {
+    "backend": "superdex",
+    "arm": "none",
+    "hand": "zmq",
+    "robot": "superdex",
+    "description": "SuperDex 独立物理引擎订阅端（不属于 MuJoCo）",
+    "components": [
+      "mujoco",
+      "superdex"
+    ],
+    "entry": "run_superdex_hands.py",
+    "args": [],
+    "status": "device-verification-required"
+  }
+}

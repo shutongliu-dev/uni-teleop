@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from uni_teleop.__main__ import ROOT, expand, load_profile, missing_paths, plan
+from uni_teleop.catalog import recipes, configure, select
 
 
 class LauncherTests(unittest.TestCase):
@@ -17,9 +18,9 @@ class LauncherTests(unittest.TestCase):
 
     def test_every_profile_builds_without_importing_sdk(self):
         with tempfile.TemporaryDirectory() as tmp:
-            for profile in (ROOT / "profiles").glob("*.json"):
-                with self.subTest(profile=profile.stem):
-                    command, cwd, env, checks = plan(profile.stem, self.config(tmp))
+            for profile in recipes():
+                with self.subTest(profile=profile):
+                    command, cwd, env, checks = plan(profile, self.config(tmp))
                     self.assertTrue(Path(cwd).is_dir())
                     self.assertNotIn("${", " ".join(command))
                     self.assertNotIn("--leader-feedback", command)
@@ -36,8 +37,24 @@ class LauncherTests(unittest.TestCase):
     def test_snapshot_environment_is_replaced(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict("os.environ", {"PYTHONPATH": "/old", "ISAAC_BENCH_EXPERIENCE": "/old.kit"}):
             _, cwd, env, _ = plan("isaac-factr", self.config(tmp))
-            self.assertEqual(env["PYTHONPATH"], cwd)
+            self.assertIn(cwd, env["PYTHONPATH"].split(":"))
+            self.assertNotIn("/old", env["PYTHONPATH"])
             self.assertNotIn("ISAAC_BENCH_EXPERIENCE", env)
+
+    def test_saved_session_is_minimal_and_round_trips(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / 'session.json'
+            document = configure('mujoco-factr', p)
+            self.assertEqual(set(document['settings']), {'SONIC_PYTHON','DEXBENCH_DATA','FACTR_PORT','FACTR_CALIBRATION'})
+            self.assertEqual(p.stat().st_mode & 0o777, 0o600)
+            self.assertIn('uni_teleop.runtime.mujoco', plan(str(p))[0])
+            with self.assertRaises(FileExistsError): configure('mujoco-factr', p)
+
+    def test_arm_hand_routes_exist_for_both_backends(self):
+        for suffix in ('factr','factr-manus','pico-controllers','pico-hands','pico-manus','manus','sonic'):
+            a, b = recipes()['isaac-'+suffix], recipes()['mujoco-'+suffix]
+            for key in ('arm','hand','robot'): self.assertEqual(a[key], b[key])
+        self.assertFalse(select(backend='isaac', arm='factr', robot='g1'))
 
     def test_required_setting_error(self):
         with self.assertRaisesRegex(ValueError, "Missing DEVICE"):

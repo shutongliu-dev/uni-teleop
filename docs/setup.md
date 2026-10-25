@@ -1,84 +1,68 @@
-# 安装与本机配置
+# Installation
 
-统一 CLI 仅使用 Python 标准库，推荐 Python 3.10+。在仓库根运行 `./teleop`，无需安装
-全局 Python 包。运行环境相互隔离，不把 Isaac 的 USD/Python 与 MuJoCo 环境混装。
+从 checkout 使用 `./teleop`；它只使用 Python 标准库解析配置。仿真和 SDK 各在自己的 Python 环境中运行，**不要把 pip 安装的 Isaac、MuJoCo 和 MANUS SDK 混装到 Isaac 的 Python 中**。
 
-## Isaac / DexBench
-
-1. 安装 Isaac Sim 6.1 的 Linux 运行环境。`ISAAC_PYTHON_LAUNCHER` 指向其
-   `python.sh`，或已有兼容包装器 `python_compat.sh`。后者必须保留该环境的 USD/Python。
-2. 创建 CPU 环境并安装源码依赖：
-
-   ```bash
-   python3.12 -m venv local/dexbench-env
-   local/dexbench-env/bin/python -m pip install -e vendor/dexbench pytest
-   ```
-
-   将 `DEXBENCH_PYTHON` 指向这个环境。已有工作站可以直接引用现成 CPU 环境。
-3. 从 [DexBench releases](https://github.com/VVVVME50/dexbench/releases)
-   取 **data-v3** 数据包，按上游 SHA256SUMS 校验并解压；`DEXBENCH_DATA` 指向包含
-   `MANIFEST.json` 的目录。原始机器人与任务资产约数 GB，未重复提交到本仓库。
-4. `CUDA_VISIBLE_DEVICES` 填目标 NVIDIA GPU 的 UUID（`nvidia-smi -L` 可查）。
-
-`vendor/dexbench/scripts/isaac_python.sh` 会把冻结后的源码目录传给 Isaac。
-每次交互运行都在 `runs/isaac/` 保存独立源码快照，避免边改源码边运行。
-
-## FACTR 主臂
-
-- `FACTR_PORT` 使用 `/dev/serial/by-id/...` 稳定串口路径。
-- `FACTR_CALIBRATION` 指向本机已测量的七轴参考、符号和偏置文件。
-- 模板：[arm_calibration.template.json](../vendor/dexbench/scripts/teleop/config/arm_calibration.template.json)。
-  模板不能直接当成已完成标定。复制到 `local/` 后通过现场标定流程生成实际内容。
-- 串口权限与 USB 延迟按本机配置。切换任务不重记零点，不共享其他设备的序列号与标定。
-
-## MANUS + SHARPA
-
-使用官方 MANUS SDK 3.2.0 或 3.2.1、对应 Python 环境和有效许可。
-
-| 设置 | 内容 |
-|---|---|
-| `MANUS_SDK_PYTHON` | SDK 的 Python 目录 |
-| `MANUS_PYTHON` | 能加载该 SDK 的隔离 Python |
-| `MANUS_SDK_VERSION` | `3.2.0` 或 `3.2.1` |
-| `MANUS_GLOVE_ID` | 所选手套十进制 ID |
-| `MANUS_CALIBRATION` | 官方 Core 保存的标定 JSON |
-| `SHARPA_RETARGET_ROOT` | 官方 `retargeting_alg_release_V4.0` 目录 |
-| `SHARPA_RETARGET_PYTHON` | 已安装该优化器依赖的 Python |
-
-优化器来源：[sharpa-manus-sdk](https://github.com/sharpa-robotics/sharpa-manus-sdk)。
-许可与设备接收器是不同检查项；日志可能包含授权字段，不上传原始 SDK 日志。
-本仓库保留官方优化器进程适配层，不复制商业 SDK 或本机许可文件。
-
-## PICO
-
-Isaac 路线使用 ctypes 原生库，`PICO_SDK_LIBRARY` 指向 `libPXREARobotSDK.so`。
-SONIC 路线使用 XR Python 绑定，`XR_SDK_PATH` 指向包含 `xrobotoolkit_sdk*.so`
-与 `lib/libPXREARobotSDK.so` 的目录。对应 PC Service 和头显客户端需另外安装。
-两条路线均保留已有视频协议；切换视频服务后在头显端重新点击 Listen。
-
-## MuJoCo / SONIC
+## 1. MuJoCo + Franka
 
 ```bash
-cd vendor/sonic-mujoco
-uv sync --extra sonic --extra teleop --extra recording
+python3.12 -m venv .venv-mujoco
+.venv-mujoco/bin/pip install -e '.[mujoco]'
 ```
 
-把 `SONIC_PYTHON` 指向该目录 `.venv/bin/python`；`SONIC_POLICY_DIR` 指向包含
-`model_encoder.onnx`、`model_decoder.onnx` 的目录。基础 `mujoco-g1/h2` 自检不需权重。
-视频回传所需 GStreamer 系统组件及录制参数见原 SONIC README。
+设置 `SONIC_PYTHON` 为该环境的绝对 Python 路径。Franka 模型需要 DexBench v3 数据，设置 `DEXBENCH_DATA` 为含 `assets/` 的目录。模型读取 `assets/robots/assemblies/fr3_sharpa/isaacsim_6_1_v2/fr3_sharpa.urdf`；不改原数据。
 
-SuperDex 另需其资产包；设置 `SUPERDEX_ASSETS_PATH`。在两个终端分别运行：
+MuJoCo 当前只支持 `--sandbox` 便携工作台，recipe 已自动带上。不要通过 `--family/--task` 请求 DexBench 原场景；该任务迁移尚未实现。
+
+## 2. Isaac + Franka
+
+安装 Isaac Sim 6.1，设置 `ISAAC_PYTHON_LAUNCHER` 为其 Python 启动脚本。单独建立 CPU 环境安装 [DexBench Python 依赖](../backends/isaac/pyproject.toml)，设置 `DEXBENCH_PYTHON`。填写同一份 `DEXBENCH_DATA` 和通过 `nvidia-smi -L` 查询到的 GPU UUID。
+
+启动器会把本次公共模块和原生后端冻结到 `runs/isaac/<session>/source`，随后从快照运行。默认使用 CPU 刚体和关闭评分的练习配置。它与正式 benchmark 评分不是一回事。
+
+## 3. Devices
+
+先生成配置，按组合填字段：
 
 ```bash
-./teleop run mujoco-superdex --config local/host.json
-./teleop run pico-superdex-source --config local/host.json
+./teleop configure isaac-factr-manus --output local/isaac.json
+./teleop configure mujoco-factr-manus --output local/mujoco.json
 ```
 
-SIMPLE 使用独立安装和环境，设置 `SIMPLE_ROOT`；`mujoco-simple` 负责调用其原入口，
-不会自动下载全部 HSSD 场景。原工程的扫描重建、策略评测工具保留于 vendor 中，
-不作为已验证的统一遥操组合。
+| 设备 | 需要提供 | 检查重点 |
+|---|---|---|
+| FACTR | `FACTR_PORT`、`FACTR_CALIBRATION` | 使用 `/dev/serial/by-id/`；电机顺序、符号、零位必须与标定一致 |
+| PICO Franka | `PICO_SDK_LIBRARY` | XRoboToolkit 原生 SDK，沿用现有 PICO 客户端；同机 UDP 接收 |
+| PICO SONIC | `XR_SDK_PATH` | 可导入 XRoboToolkit Python 模块，机器人服务与客户端可用 |
+| MANUS | SDK 路径、SDK Python、手套 ID、官方标定文件 | Core/Integrated 授权、USB 权限、正确左右手；SDK 与 Core 不争抢设备 |
+| MANUS→SHARPA | 官方 V4 retarget 目录及其独立 Python | 版本与手部关节模型匹配；不会用闭合预设冒充手套数据 |
 
-`lab_scan` 依赖额外的现场重建碰撞 manifest 和它引用的资产；这些不属于 Git 中的
-基础模型。需要运行该场景或完整原测试时，显式设置
-`SONIC_RECONSTRUCTION_COLLISION=/path/to/lab_scan_collision.json`。该环境变量由启动器
-透传；不要把他人的现场扫描数据当作通用演示资产上传。
+MANUS 推荐先用 Core 验证并保存标定，再关闭占用设备的 Core 采集，启动遥操。设备开机灯亮不等于已有新鲜数据。
+
+## 4. SONIC / G1
+
+MuJoCo 使用 Python 3.10+：
+
+```bash
+.venv-mujoco/bin/pip install -e '.[sonic]' -e 'backends/mujoco[teleop]'
+./teleop configure mujoco-sonic --output local/sonic.json
+```
+
+填写 encoder/decoder 所在的 `SONIC_POLICY_DIR` 和 `XR_SDK_PATH`。`isaac-sonic` 使用 Isaac 自带 Python 和 MJCF importer，通过 PhysX 执行同一份 PD 命令。该环境需要可导入 `onnxruntime`、`zmq` 和 XRoboToolkit；先用外部 ZMQ 源也可以绕开本进程的 PICO SDK。
+
+Isaac 版本的 G1 策略迁移是实验性：已验证模型/状态/命令通路，尚未完成实机跟随、平衡、接触与策略效果验证。原有复杂 MuJoCo 场景请用 `mujoco-pico`，完整相机/录像流程仍保留在那里。
+
+## 5. Run
+
+```bash
+./teleop doctor local/mujoco.json
+./teleop run local/mujoco.json --dry-run
+./teleop run local/mujoco.json
+```
+
+`doctor` 检查路径，不会连接或使能电机，也不能证明手套已配对。额外运行参数放在 `--` 后；例如 Isaac 选择任务：
+
+```bash
+./teleop run local/isaac.json -- --family mechanical_assembly --task peg_insertion
+```
+
+`local/`、`runs/`、SDK、权重均不上传。配置中路径允许有空格，启动器直接传 argv，不经过 shell 求值。

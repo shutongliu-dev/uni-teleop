@@ -1,0 +1,224 @@
+{
+  "isaac": {
+    "settings": [
+      "DEXBENCH_PYTHON",
+      "DEXBENCH_DATA",
+      "ISAAC_PYTHON_LAUNCHER",
+      "CUDA_VISIBLE_DEVICES"
+    ],
+    "env": {
+      "DEXBENCH_PYTHON": "${DEXBENCH_PYTHON}",
+      "DEXBENCH_DATA": "${DEXBENCH_DATA}",
+      "DEXBENCH_RUNS": "${ROOT}/runs/isaac",
+      "ISAAC_PYTHON_LAUNCHER": "${ISAAC_PYTHON_LAUNCHER}",
+      "CUDA_VISIBLE_DEVICES": "${CUDA_VISIBLE_DEVICES}",
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1"
+    },
+    "checks": [
+      [
+        "${DEXBENCH_PYTHON}",
+        "executable"
+      ],
+      [
+        "${DEXBENCH_DATA}/MANIFEST.json",
+        "file"
+      ],
+      [
+        "${ISAAC_PYTHON_LAUNCHER}",
+        "executable"
+      ]
+    ]
+  },
+  "factr": {
+    "settings": [
+      "FACTR_PORT",
+      "FACTR_CALIBRATION"
+    ],
+    "args": [
+      "--leader-port",
+      "${FACTR_PORT}",
+      "--arm-calibration",
+      "${FACTR_CALIBRATION}"
+    ],
+    "checks": [
+      [
+        "${FACTR_PORT}",
+        "exists"
+      ],
+      [
+        "${FACTR_CALIBRATION}",
+        "file"
+      ]
+    ]
+  },
+  "manus": {
+    "settings": [
+      "MANUS_SDK_PYTHON",
+      "MANUS_PYTHON",
+      "MANUS_SDK_VERSION",
+      "MANUS_GLOVE_ID",
+      "MANUS_CALIBRATION",
+      "SHARPA_RETARGET_ROOT",
+      "SHARPA_RETARGET_PYTHON"
+    ],
+    "args": [
+      "--manus-sdk-python",
+      "${MANUS_SDK_PYTHON}",
+      "--manus-python",
+      "${MANUS_PYTHON}",
+      "--manus-sdk-version",
+      "${MANUS_SDK_VERSION}",
+      "--manus-glove-id",
+      "${MANUS_GLOVE_ID}",
+      "--manus-calibration",
+      "${MANUS_CALIBRATION}",
+      "--manus-retarget-root",
+      "${SHARPA_RETARGET_ROOT}",
+      "--manus-retarget-python",
+      "${SHARPA_RETARGET_PYTHON}"
+    ],
+    "checks": [
+      [
+        "${MANUS_SDK_PYTHON}",
+        "dir"
+      ],
+      [
+        "${MANUS_PYTHON}",
+        "executable"
+      ],
+      [
+        "${MANUS_CALIBRATION}",
+        "file"
+      ],
+      [
+        "${SHARPA_RETARGET_ROOT}",
+        "dir"
+      ],
+      [
+        "${SHARPA_RETARGET_PYTHON}",
+        "executable"
+      ]
+    ]
+  },
+  "pico-native": {
+    "settings": [
+      "PICO_SDK_LIBRARY"
+    ],
+    "env": {
+      "PICO_SDK_LIBRARY": "${PICO_SDK_LIBRARY}"
+    },
+    "checks": [
+      [
+        "${PICO_SDK_LIBRARY}",
+        "file"
+      ]
+    ]
+  },
+  "mujoco": {
+    "settings": [
+      "SONIC_PYTHON"
+    ],
+    "checks": [
+      [
+        "${SONIC_PYTHON}",
+        "executable"
+      ]
+    ]
+  },
+  "sonic": {
+    "settings": [
+      "SONIC_POLICY_DIR"
+    ],
+    "args": [
+      "--encoder",
+      "${SONIC_POLICY_DIR}/model_encoder.onnx",
+      "--decoder",
+      "${SONIC_POLICY_DIR}/model_decoder.onnx"
+    ],
+    "checks": [
+      [
+        "${SONIC_POLICY_DIR}/model_encoder.onnx",
+        "file"
+      ],
+      [
+        "${SONIC_POLICY_DIR}/model_decoder.onnx",
+        "file"
+      ]
+    ]
+  },
+  "pico-xr": {
+    "settings": [
+      "XR_SDK_PATH"
+    ],
+    "env": {
+      "SONIC_XR_SDK_DIR": "${XR_SDK_PATH}"
+    },
+    "checks": [
+      [
+        "${XR_SDK_PATH}",
+        "dir"
+      ]
+    ]
+  },
+  "superdex": {
+    "settings": [
+      "SUPERDEX_ASSETS_PATH"
+    ],
+    "args": [
+      "--assets-root",
+      "${SUPERDEX_ASSETS_PATH}"
+    ],
+    "checks": [
+      [
+        "${SUPERDEX_ASSETS_PATH}",
+        "dir"
+      ]
+    ]
+  },
+  "simple": {
+    "settings": [
+      "SIMPLE_ROOT"
+    ],
+    "args": [
+      "--simple-root",
+      "${SIMPLE_ROOT}"
+    ],
+    "checks": [
+      [
+        "${SIMPLE_ROOT}",
+        "dir"
+      ]
+    ]
+  },
+  "franka-model": {
+    "settings": [
+      "DEXBENCH_DATA"
+    ],
+    "env": {
+      "DEXBENCH_DATA": "${DEXBENCH_DATA}"
+    },
+    "checks": [
+      [
+        "${DEXBENCH_DATA}/assets/robots/assemblies/fr3_sharpa/isaacsim_6_1_v2/fr3_sharpa.urdf",
+        "file"
+      ]
+    ]
+  },
+  "isaac-native": {
+    "settings": [
+      "ISAAC_PYTHON_LAUNCHER",
+      "CUDA_VISIBLE_DEVICES"
+    ],
+    "checks": [
+      [
+        "${ISAAC_PYTHON_LAUNCHER}",
+        "executable"
+      ]
+    ],
+    "env": {
+      "CUDA_VISIBLE_DEVICES": "${CUDA_VISIBLE_DEVICES}",
+      "ISAAC_ALLOW_UNVALIDATED_DRIVER": "1"
+    }
+  }
+}
