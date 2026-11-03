@@ -71,3 +71,59 @@ python tools/verify_sources.py
 - MuJoCo Franka 是工作台练习场景，未迁移 DexBench 正式任务资产、评分、柔性体或完整接触证据链。
 - MuJoCo Franka 视频为复制 mono；Isaac 多视角、原 MuJoCo SONIC 场景 RGB-D/录像能力没有虚称为新路线的共同能力。
 - 历史 DexBench 12 项基线失败仍保留；本次没有跑全量套件或宣称全量全绿。
+
+## 独立 SHARPA 手 · 2026-11-01
+
+新增 `isaac-pico-manus-sharpa-hand` / `mujoco-pico-manus-sharpa-hand`。
+本次仅使用合成输入，没有连接 PICO/MANUS，也没有启动实体电机。
+
+| 检查 | 结果 |
+|---|---|
+| 统一入口与公共映射 | 15 项 unittest 通过：相对位姿、旋转方向、离合、分通道丢帧、重启重新锚定、优化器来源检查 |
+| 模型 | 仅右 SHARPA 子树、22 个手指关节；运动学签名与已安装的官方 SHARPA V4 优化器一致 |
+| MuJoCo 原生 | 200 步合成映射、400 个控制步的运动/桌面接触/退出接触检查通过；接触时 14 个 contact，最深约 3.20 mm |
+| Isaac 6.1 原生 | 160 步合成映射、400 个控制步的运动/桌面受阻/退出接触检查通过；没有 Franka 或机械臂 IK |
+| 窗口入口 | MuJoCo 80 步、Isaac 60 步合成输入窗口运行正常结束；不是实机操作者验收 |
+| 依赖与配置 | 两个 recipe 的本机 doctor 通过；Isaac 直接导入 URDF，不依赖 MuJoCo Python |
+
+接触检查中，两个后端的手掌在约 0.944 / 0.949 m 处被桌面阻挡，而目标为
+0.70 m；恢复目标后均回到 1.5 cm 容差内。悬空到达静态目标后位置误差
+MuJoCo 约 1.3e-9 m、Isaac 约 3.6e-6 m；这不是实体跟踪精度或任务成功率。
+测试条件为合成目标、固定桌面和单个方块，没有完成抓取任务验证。
+
+本机原始证据位于 `runs/floating_hand/`：`mujoco_smoke_01`、`mujoco_contact_01`、
+`mujoco_gui_01`、`isaac_smoke_03`、`isaac_contact_02`、`isaac_gui_01`。
+早期 `isaac_smoke_01` 的跨环境 MuJoCo 导入错误与 `isaac_smoke_02` 的物理视图
+失效日志保留；分别通过直接 URDF 导入、在物理初始化前设置重力支持修正。
+
+复查命令（分别使用各自仿真 Python；Isaac 使用 `python.sh`）：
+
+```bash
+python -m unittest discover -s tests -q
+PYTHONPATH="$PWD" python tests/native/check_floating_hand.py \
+  --backend mujoco --data /path/to/dexbench/data --output /tmp/sharpa-mujoco-check
+PYTHONPATH="$PWD" /path/to/isaac/python.sh tests/native/check_floating_hand.py \
+  --backend isaac --data /path/to/dexbench/data --output /tmp/sharpa-isaac-check
+```
+
+当前范围是一只右手、桌面显示、轨迹记录。左手、头显视频回传和真实设备端到端
+跟随尚未验证或接入；已有 Franka 和 G1 路线保持原入口。
+
+### Isaac 空格与暂停修复
+
+2026-11-01：空格改为遥操开始/暂停，移除本进程工具栏的同键物理暂停快捷键。
+物理时间线暂停时不提交关节目标和腕部控制力，恢复时重新锚定。
+原生回归在物理暂停中调用控制 200 次，恢复后最大位移 8.84 cm（目标位移 8.54 cm），
+运动、指关节、桌面接触及脱离接触检查通过。
+GUI 合成输入实测两次空格使遥操 true→false→true，物理始终运行，手掌位置有界。
+证据：`runs/floating_hand/isaac_pause_regression_absolute/check.json`、
+`runs/floating_hand/isaac_20261101_201118_1792501/space_check.json`。
+这些检查不代表实际手柄跟随或任务成功；首次相对输出路径的原生检查初始化失败，日志保留。
+
+### 独立手 PICO 视频
+
+2026-11-01：接入已有 FrameWriter / XRoboToolkit 视频协议，原生三路传感器捕获
+双目主视角和手内侧小窗，复用既有腕部安装参数及画中画合成。
+`runs/floating_hand/pico_video_wire_check/` 保存本地模拟客户端接收的 45 帧 H.264、
+接收统计和实际解码图片；已目视确认桌面、独立手和腕部小窗，左右眼有视差。
+此项验证涵盖原生渲染、编码、TCP 传输与解码，不等同实际头显显示确认。

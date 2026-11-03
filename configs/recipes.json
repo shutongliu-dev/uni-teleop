@@ -345,5 +345,41 @@
     "entry": "run_superdex_hands.py",
     "args": [],
     "status": "device-verification-required"
+  },
+  "isaac-pico-manus-sharpa-hand": {
+    "backend": "isaac",
+    "arm": "none",
+    "hand": "manus",
+    "wrist": "pico-controller",
+    "robot": "sharpa-floating",
+    "description": "PICO 手掌位姿 + MANUS 手指，独立右 SHARPA（无机械臂）",
+    "components": [
+      "isaac-native",
+      "franka-model",
+      "pico-native",
+      "manus"
+    ],
+    "runtime": "floating-hand",
+    "entry": "floating-hand",
+    "args": ["--video"],
+    "status": "native-synthetic-tested"
+  },
+  "mujoco-pico-manus-sharpa-hand": {
+    "backend": "mujoco",
+    "arm": "none",
+    "hand": "manus",
+    "wrist": "pico-controller",
+    "robot": "sharpa-floating",
+    "description": "PICO 手掌位姿 + MANUS 手指，独立右 SHARPA（无机械臂）",
+    "components": [
+      "mujoco",
+      "franka-model",
+      "pico-native",
+      "manus"
+    ],
+    "runtime": "floating-hand",
+    "entry": "floating-hand",
+    "args": [],
+    "status": "native-synthetic-tested"
   }
 }

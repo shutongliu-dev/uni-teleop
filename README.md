@@ -6,7 +6,7 @@
 
 uni-teleop 把**设备采集、机器人映射、仿真后端**分开。同一份 FACTR 标定、PICO 输入协议和 MANUS 手指映射可以用于两个仿真器；使用者选择设备组合，而不必先理解两个原始项目的目录。
 
-面向两类操作：**Franka＋SHARPA 桌面操作**，以及 **G1＋SONIC 全身遥操**。集成来源为 DexBench 和 sonic-mujoco，原始版本、修改与验证范围均保留在仓库中。
+面向 **Franka＋SHARPA 桌面操作**、**独立 SHARPA 手遥操**，以及 **G1＋SONIC 全身遥操**。集成来源为 DexBench 和 sonic-mujoco，原始版本、修改与验证范围均保留在仓库中。
 
 ## Choose your setup
 
@@ -17,6 +17,7 @@ uni-teleop 把**设备采集、机器人映射、仿真后端**分开。同一�
 | PICO 手柄 | 腕部位姿＋扳机开合 | `isaac-pico-controllers` | `mujoco-pico-controllers` |
 | PICO 裸手 | 腕部位姿＋手指 | `isaac-pico-hands` | `mujoco-pico-hands` |
 | PICO 手柄＋MANUS | 腕部位姿＋独立手指 | `isaac-pico-manus` | `mujoco-pico-manus` |
+| PICO 手柄＋MANUS，无机械臂 | 独立右 SHARPA 的位置、朝向、手指 | `isaac-pico-manus-sharpa-hand` | `mujoco-pico-manus-sharpa-hand` |
 | MANUS 单独测试 | 保持机械臂，控制手指 | `isaac-manus` | `mujoco-manus` |
 | PICO 全身＋双手 | G1 / SONIC | `isaac-sonic` **实验性** | `mujoco-sonic` |
 
@@ -42,6 +43,10 @@ cd uni-teleop
 换仿真后端时，选相同后缀的 recipe，例如 `isaac-factr-manus`。两个配置可复用同一份 FACTR 与 MANUS 标定文件；仿真 Python、数据目录等环境设置分别填写。`configure` 只生成当前组合需要的字段；所有 `local/` 文件默认被 Git 忽略。
 
 **Franka：**默认暂停，空格开始/暂停。PICO 手柄按住 grip 移动，松开重新抓取控制位置；MANUS 组合由手套控制手指。FACTR 使用保存的逐关节方向与偏置，Start 不偷偷重记零点。实体托举必须显式配置并启用。[操作与排错 →](docs/operation.md)
+
+**只显示手：**选择 `isaac-pico-manus-sharpa-hand` 或 `mujoco-pico-manus-sharpa-hand`。
+PICO 控制自由手掌，MANUS 控制 22 个手指关节；保留桌面接触，不加载 Franka。
+[独立手启动与操作 →](docs/floating_hand.md)
 
 ## Hardware & views
 

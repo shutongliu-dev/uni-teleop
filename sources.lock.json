@@ -1420,5 +1420,21 @@
         "uv.lock": "b3b52180a4def9ceff5d7cb0053f860964cb2a6f8a0572151d0b311057702497"
       }
     }
+  ],
+  "design_references": [
+    {
+      "name": "humanoid-wholebody-datasets",
+      "url": "https://github.com/loversinsnow/humanoid-wholebody-datasets.git",
+      "commit": "9eb55ebda687507b5e2fed8f5b620ed12ef0af78",
+      "usage": "Read-only design reference; source not vendored, no runtime dependency",
+      "consulted_files_sha256": {
+        "README.md": "b0160d2ec0e7db43e6edc3a01effc2182db550acd3cf273c43819824c5011ec9",
+        "hand_teleop/calibration.py": "ae76f54ad9b66d5be0c3a434ff771668e823041ca8bc86f5454245f9a0ee7d59",
+        "hand_teleop/transforms.py": "ab0077a54baf5e2b01d48a209e745ffc5f604a54b209d099159ea06d074e5942",
+        "hand_teleop/scene.py": "1631ef6f4e121a6a3e19dcfd0034434a814a553bcdc427eba11716973ae5d514",
+        "hand_teleop/models.py": "399daece74b5f197d51e35bb4c1b6b6b1ad8cac99d940612a6d3718b7128b413",
+        "hand_teleop/cli.py": "fea2a11612cbd701c33c8ebcc094e72f3e0eab8a1673a490c2c7c77ea66ec06d"
+      }
+    }
   ]
 }

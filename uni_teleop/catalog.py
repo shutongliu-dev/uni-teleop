@@ -34,7 +34,11 @@ def load_profile(name):
         profile["settings"].extend(piece["settings"])
     engine = recipe['backend'] if recipe['backend'] in ('isaac', 'mujoco') else 'mujoco'
     profile['cwd'] = '${ROOT}/backends/' + engine
-    if recipe.get('runtime') == 'sonic':
+    if recipe.get('runtime') == 'floating-hand':
+        interpreter = '${ISAAC_PYTHON_LAUNCHER}' if recipe['backend'] == 'isaac' else '${SONIC_PYTHON}'
+        profile['command'] = [interpreter, '-B', '-m', 'uni_teleop.runtime.floating_hand',
+                              '--backend', recipe['backend']]
+    elif recipe.get('runtime') == 'sonic':
         interpreter = '${ISAAC_PYTHON_LAUNCHER}' if recipe['backend'] == 'isaac' else '${SONIC_PYTHON}'
         profile['command'] = [interpreter, '-m', 'uni_teleop.runtime.sonic', '--backend', recipe['backend']]
     elif recipe["backend"] == "isaac":
