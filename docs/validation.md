@@ -127,3 +127,16 @@ GUI 合成输入实测两次空格使遥操 true→false→true，物理始终�
 `runs/floating_hand/pico_video_wire_check/` 保存本地模拟客户端接收的 45 帧 H.264、
 接收统计和实际解码图片；已目视确认桌面、独立手和腕部小窗，左右眼有视差。
 此项验证涵盖原生渲染、编码、TCP 传输与解码，不等同实际头显显示确认。
+
+## 依赖安装入口 · 2026-11-03
+
+新增 `dependencies/` 版本/来源清单及 `tools/setup_dependencies.py`。
+Python 辅助库安装到隔离环境；PICO C SDK 从固定官方提交下载并核对 SHA-256。
+MANUS / SHARPA 读取使用者已经获准取得的目录，不镜像专有 SDK 或用户标定。
+
+- 统一入口及依赖工具合计 **19 项 unittest 通过**；新增检查涵盖 SDK 根目录解析、
+  下载内容校验、损坏缓存重新获取和 V4 Python 版本不符时拒绝创建环境。
+- 实际新建 Python 3.12 MANUS 辅助环境，cffi 2.1.1、pycparser 3.12、pyzmq 27.2.0 安装成功。
+- 从官方提交下载 PICO 头文件、LICENSE 和 23,835,456 字节 C SDK，三个 SHA-256 均符合清单；
+  `--probe` 成功加载 ABI，DeviceState 为 16,384 字节，没有调用 SDK 初始化或连接设备。
+- 未重新安装 Isaac、MuJoCo 或 SHARPA 环境，未执行原生任务或实机遥操。

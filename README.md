@@ -10,6 +10,9 @@ uni-teleop 把**设备采集、机器人映射、仿真后端**分开。同一�
 
 ## Choose your setup
 
+首次安装可使用[依赖准备脚本](dependencies/README.md)：自动建立隔离环境、下载固定版本的 PICO SDK，
+并写入本机路径；MANUS SDK 和 SHARPA 优化器从使用者获准取得的目录接入。
+
 | 输入组合 | 控制对象 | Isaac Sim | MuJoCo |
 |---|---|---|---|
 | FACTR 主臂＋扳机 | 七轴关节＋手指开合 | `isaac-factr` | `mujoco-factr` |

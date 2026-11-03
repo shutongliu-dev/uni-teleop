@@ -1,0 +1,4 @@
+# Python-side dependencies for the MANUS 3.2.0 acquisition process.
+cffi==2.1.1
+pycparser==3.12
+pyzmq==27.2.0

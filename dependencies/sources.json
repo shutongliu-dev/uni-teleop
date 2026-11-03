@@ -1,0 +1,35 @@
+{
+  "pico": {
+    "repository": "https://github.com/XR-Robotics/XRoboToolkit-PC-Service",
+    "revision": "6386009475369615fa984bca0a6e9902cd81eb2a",
+    "platform": "Linux-x86_64",
+    "raw_base_url": "https://raw.githubusercontent.com/XR-Robotics/XRoboToolkit-PC-Service/6386009475369615fa984bca0a6e9902cd81eb2a/",
+    "files": [
+      {
+        "path": "LICENSE",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      },
+      {
+        "path": "RoboticsService/SDK/include/PXREARobotSDK.h",
+        "sha256": "4665952f6505d721fadff1c442fbed7fb3d0cc97637f3f18bdb75dac838f3dae"
+      },
+      {
+        "path": "RoboticsService/SDK/linux/64/libPXREARobotSDK.so",
+        "sha256": "2348e1b0bf7f05cd13d95d628f04237b6b9fc50c6008b82f9bf4b046fc9373e6"
+      }
+    ]
+  },
+  "manus": {
+    "version": "3.2.0",
+    "documentation": "https://docs.manus-meta.com/3.2.0/Plugins/SDK/getting%20started/",
+    "distribution": "Obtain the platform SDK from MANUS; not mirrored in this repository."
+  },
+  "sharpa": {
+    "version": "V4.0",
+    "python": "3.10",
+    "platform": "Linux-x86_64",
+    "repository": "https://github.com/sharpa-robotics/sharpa-manus-sdk",
+    "revision": "b87bff567c82905dd591d91f08be59fb90a604df",
+    "distribution": "Obtain from SHARPA under its License. Upload to public or shared repositories requires prior written permission."
+  }
+}

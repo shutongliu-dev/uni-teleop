@@ -2,6 +2,9 @@
 
 从 checkout 使用 `./teleop`；它只使用 Python 标准库解析配置。仿真和 SDK 各在自己的 Python 环境中运行，**不要把 pip 安装的 Isaac、MuJoCo 和 MANUS SDK 混装到 Isaac 的 Python 中**。
 
+可先使用[配套依赖脚本](../dependencies/README.md)建立 Python 环境、下载已固定校验值的 PICO C SDK，
+并导入本机授权的 MANUS SDK / SHARPA V4 路径。下面保留手动安装步骤。
+
 ## 1. MuJoCo + Franka
 
 ```bash
