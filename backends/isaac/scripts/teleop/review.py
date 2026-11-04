@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 from pathlib import Path
 import time
 
@@ -62,12 +63,16 @@ def check_release(root, family, task_id, release):
 
 
 class Recorder:
-    """Reuse existing readback and render; bounded asynchronous 1 Hz keyframes.
+    """Reuse existing readback and render; bounded asynchronous image sampling.
 
     State rows describe rigid objects and contact reports, not a complete soft-body
     replay. Human marks and task completion remain separate from these traces.
     """
-    def __init__(self, output):
+    def __init__(self, output, *, image_fps=15.):
+        if not math.isfinite(image_fps) or not 0 < image_fps <= 50:
+            raise ValueError('Recording image FPS must be finite and in (0, 50]')
+        self.image_fps = image_fps
+        self.first_image = self.last_image = None
         self.output = output
         (output / 'review_images').mkdir()
         self.stream = (output / 'review_states.jsonl').open('x', buffering=1)
@@ -83,9 +88,13 @@ class Recorder:
             ('sim_time_s', 'robot', 'objects', 'contacts', 'terminated', 'truncated')},
             'task_state': observation.get('task_state')}, allow_nan=False) + '\n')
 
-    def image(self, pixels, observation, episode):
+    def image_due(self, now=None):
+        now = time.monotonic() if now is None else now
+        return now >= self.next_image and (self.pending is None or self.pending.done())
+
+    def image(self, pixels, observation, episode, *, captured_ns=None):
         now = time.monotonic()
-        if now < self.next_image or (self.pending and not self.pending.done()):
+        if not self.image_due(now):
             return
         if self.pending:
             self.pending.result()  # Surface disk/encoding failures rather than silently losing evidence.
@@ -94,9 +103,20 @@ class Recorder:
         frame = Image.fromarray(pixels.copy())
         self.pending = self.pool.submit(frame.save, self.output / name, quality=80)
         self.images.write(json.dumps({'file': name, 'episode': episode,
-            'host_ns': time.monotonic_ns(), 'sim_time_s': observation['sim_time_s']}) + '\n')
+            'host_ns': captured_ns if captured_ns is not None else time.monotonic_ns(),
+            'sim_time_s': observation['sim_time_s']}) + '\n')
         self.count += 1
-        self.next_image = now + 1.
+        captured = captured_ns/1e9 if captured_ns is not None else now
+        if self.first_image is None:
+            self.first_image = captured
+        self.last_image = captured
+        self.next_image = captured + 1./self.image_fps
+
+    def image_stats(self):
+        duration = (self.last_image-self.first_image) if self.count > 1 else 0.
+        return {'target_fps': self.image_fps, 'frames': self.count,
+                'actual_fps': (self.count-1)/duration if duration > 0 else None,
+                'clock': 'host_monotonic', 'duplicates_inserted': False}
 
     def close(self):
         self.pool.shutdown(wait=True)
