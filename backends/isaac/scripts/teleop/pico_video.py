@@ -79,6 +79,8 @@ def receive_exact(connection: socket.socket, size: int) -> bytes | None:
 def connect_video(ip: str, port: int) -> socket.socket:
     connection = socket.create_connection((ip, port), timeout=3)
     # Bound shutdown if a connected headset stops consuming encoded frames.
+    connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 64 * 1024)
     connection.settimeout(2.0)
     return connection
 
@@ -100,6 +102,9 @@ class VideoBridge:
         self._timer = None
         self._video_socket = None
         self._lock = threading.Lock()
+        self._last_sequence = None
+        self._retry_timer = None
+        self._requested_config = None
 
     def run(self) -> None:
         host, port = self._listen.rsplit(":", 1)
@@ -135,20 +140,25 @@ class VideoBridge:
                                 self.GLib.idle_add(self._close)
                         except ValueError as error:
                             print(f"Ignored invalid PICO command: {error}", flush=True)
+                self.GLib.idle_add(self._close)
 
     def _open(self, config: CameraConfig) -> bool:
         self._close()
+        self._requested_config = config
+        self._last_sequence = None
         header = FRAME_HEADER.unpack(self._frames[: FRAME_HEADER.size])
         _, _, source_width, source_height, _ = header
         codec = "265" if config.hevc else "264"
-        bitrate = max(100, config.bitrate // 1000)
+        bitrate = min(6000, max(100, config.bitrate // 1000))
+        codec_options = "vbv-buf-capacity=100 " if codec == "264" else ""
         pipeline_text = (
             f"appsrc name=source is-live=true format=time do-timestamp=true "
+            f"max-buffers=1 max-bytes=0 max-time=0 leaky-type=downstream block=false "
             f"caps=video/x-raw,format=RGB,width={source_width},height={source_height},"
             f"framerate={config.fps}/1 ! videoconvert ! videoscale add-borders=true ! "
             f"video/x-raw,format=I420,width={config.width},height={config.height} ! "
             f"x{codec}enc tune=zerolatency speed-preset=ultrafast key-int-max=15 "
-            f"bitrate={bitrate} ! h{codec}parse config-interval=1 ! "
+            f"bitrate={bitrate} {codec_options}! h{codec}parse config-interval=1 ! "
             f"video/x-h{codec},stream-format=byte-stream,alignment=au ! "
             "appsink name=sink emit-signals=true sync=false max-buffers=1 drop=true"
         )
@@ -157,16 +167,17 @@ class VideoBridge:
             video_socket = connect_video(config.ip, config.port)
         except (OSError, self.GLib.Error) as error:
             print(f"Unable to open PICO video: {error}", flush=True)
+            self._schedule_retry()
             return False
         with self._lock:
             self._video_socket = video_socket
         self._pipeline = pipeline
-        pipeline.get_by_name("sink").connect("new-sample", self._send_sample)
+        pipeline.get_by_name("sink").connect("new-sample", self._send_sample, pipeline)
         pipeline.set_state(self.Gst.State.PLAYING)
         self._timer = self.GLib.timeout_add(max(1, 1000 // config.fps), self._push_frame)
         print(
             f"Streaming {config.width}x{config.height}@{config.fps} to "
-            f"{config.ip}:{config.port}",
+            f"{config.ip}:{config.port}; {bitrate} kbps, latest-only raw buffer, encode only new source frames",
             flush=True,
         )
         return False
@@ -176,17 +187,20 @@ class VideoBridge:
             return False
         first = FRAME_HEADER.unpack(self._frames[: FRAME_HEADER.size])
         magic, sequence, _, _, size = first
-        if magic != b"SMVF" or sequence % 2:
+        if magic != b"SMVF" or sequence % 2 or sequence == self._last_sequence:
             return True
         data = self._frames[FRAME_HEADER.size : FRAME_HEADER.size + size]
         if FRAME_HEADER.unpack(self._frames[: FRAME_HEADER.size])[1] != sequence:
             return True
+        self._last_sequence = sequence
         buffer = self.Gst.Buffer.new_allocate(None, size, None)
         buffer.fill(0, data)
         self._pipeline.get_by_name("source").emit("push-buffer", buffer)
         return True
 
-    def _send_sample(self, sink):
+    def _send_sample(self, sink, pipeline):
+        if pipeline is not self._pipeline:
+            return self.Gst.FlowReturn.FLUSHING
         sample = sink.emit("pull-sample")
         buffer = sample.get_buffer()
         success, mapping = buffer.map(self.Gst.MapFlags.READ)
@@ -201,18 +215,43 @@ class VideoBridge:
                     )
         except OSError as error:
             print(f"PICO video connection closed: {error}", flush=True)
-            self.GLib.idle_add(self._close)
+            self.GLib.idle_add(self._reconnect, pipeline)
         finally:
             buffer.unmap(mapping)
         return self.Gst.FlowReturn.OK
 
+    def _schedule_retry(self):
+        if self._requested_config is not None and self._retry_timer is None:
+            self._retry_timer = self.GLib.timeout_add(1000, self._retry)
+
+    def _retry(self):
+        self._retry_timer = None
+        config = self._requested_config
+        if config is not None:
+            self._open(config)  # New encoder emits fresh headers and IDR; no old backlog.
+        return False
+
+    def _reconnect(self, pipeline):
+        if pipeline is self._pipeline and self._requested_config is not None:
+            self._stop_stream()
+            self._schedule_retry()
+        return False
+
     def _close(self) -> bool:
+        self._requested_config = None
+        if self._retry_timer is not None:
+            self.GLib.source_remove(self._retry_timer)
+            self._retry_timer = None
+        self._stop_stream()
+        return False
+
+    def _stop_stream(self):
         if self._timer is not None:
             self.GLib.source_remove(self._timer)
             self._timer = None
-        if self._pipeline is not None:
-            self._pipeline.set_state(self.Gst.State.NULL)
-            self._pipeline = None
+        pipeline, self._pipeline = self._pipeline, None
+        if pipeline is not None:
+            pipeline.set_state(self.Gst.State.NULL)
         with self._lock:
             if self._video_socket is not None:
                 self._video_socket.close()
