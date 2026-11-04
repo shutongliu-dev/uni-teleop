@@ -5,7 +5,8 @@ from bench.evaluation.rigid_safety import RigidContactSafetyGuard
 
 
 class TeleopContactGuard:
-    def __init__(self, *, practice=False):
+    def __init__(self, *, practice=False, control_dt=.02):
+        self.control_dt = control_dt
         self.practice = practice
         self.trigger = self.warning = self.last_warning = None
         self.warning_windows = self.streak = 0
@@ -19,7 +20,7 @@ class TeleopContactGuard:
         if self.trigger is not None:
             return deepcopy(self.trigger)
         # Keep the strict validator, including complete substep receipt checks.
-        event = RigidContactSafetyGuard().observe(observation)
+        event = RigidContactSafetyGuard(control_dt=self.control_dt).observe(observation)
         self.warning = None
         if event is None:
             self.streak, self.previous_end = 0, None

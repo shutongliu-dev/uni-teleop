@@ -98,9 +98,8 @@ class FR3DexterousIsaacEnv:
             raise ValueError('Arm motion overrides require disabled task scoring')
         self.solver_type = physics_solver_type(self.options)
         self.enable_external_forces_every_iteration = physics_external_forces_every_iteration(self.options)
-        self.dt = float(self.options.get('physics_dt_s', self.scene_spec['physics']['dt_s']))
-        if self.dt <= 0 or abs(.02 / self.dt - round(.02 / self.dt)) > 1e-8:
-            raise ValueError('physics_dt_s must divide 20 ms control period')
+        from .timing import control_timing
+        self.dt, self.control_dt = control_timing(self.scene_spec)
         robot = self.scene_spec['robot']
         from .robot_registry import get_robot_spec
         # A scene without a pinned assembly uses the hand's v1-era assembly.
@@ -174,7 +173,7 @@ class FR3DexterousIsaacEnv:
                                                          instances=self.scene_spec['robot'].get('instances'))
         omni.usd.get_context().new_stage()
         self.stage = omni.usd.get_context().get_stage()
-        self.world = World(stage_units_in_meters=1., physics_dt=self.dt, rendering_dt=.02,
+        self.world = World(stage_units_in_meters=1., physics_dt=self.dt, rendering_dt=self.control_dt,
                            backend='torch', device=self.physics_device)
         context = self.world.get_physics_context()
         context.enable_gpu_dynamics(self.physics_device != 'cpu')
@@ -416,7 +415,7 @@ class FR3DexterousIsaacEnv:
     def action_spec(self):
         names = getattr(self, 'actuated_joint_names', self.joint_names)
         return {'type': 'joint_position_targets', 'joint_names': list(names),
-                'joint_limits_rad': {n: deepcopy(self.joint_limits[n]) for n in names}, 'duration_s': [.02, .02],
+                'joint_limits_rad': {n: deepcopy(self.joint_limits[n]) for n in names}, 'duration_s': [self.control_dt, self.control_dt],
                 'arm_joint_names': [n for n in names if n.startswith('fr3_')],
                 'hand_joint_names': [n for n in names if not n.startswith('fr3_')],
                 'initial_joint_positions_rad': {n: self.home[n] for n in names},
@@ -428,8 +427,8 @@ class FR3DexterousIsaacEnv:
     def _validate_action(self, action):
         if not isinstance(action, dict) or set(action) != {'joint_positions_rad', 'duration_s'}:
             raise ValueError('Action contains only complete joint_positions_rad and duration_s; object/cloth writes are reset-only')
-        if isinstance(action['duration_s'], bool) or action['duration_s'] != .02:
-            raise ValueError('The benchmark control period is fixed at 0.02 s')
+        if isinstance(action['duration_s'], bool) or action['duration_s'] != self.control_dt:
+            raise ValueError(f'Action duration must match control period {self.control_dt} s')
         q = action['joint_positions_rad']
         if not isinstance(q, dict) or set(q) != set(getattr(self, 'actuated_joint_names', self.joint_names)):
             raise ValueError('Supply exactly the active named robot joint targets from action_spec')
@@ -483,7 +482,7 @@ class FR3DexterousIsaacEnv:
         self.terminated = self.truncated = False
         self.reset_override = initial
         q = {**{n: self.home[n] for n in self.actuated_joint_names}, **initial.get('joint_positions_rad', {})}
-        self._validate_action({'joint_positions_rad': q, 'duration_s': .02})
+        self._validate_action({'joint_positions_rad': q, 'duration_s': self.control_dt})
         q = self._expand_mimic_targets(q)
         self._targets = np.asarray([[q[n] for n in self.joint_names]], dtype=np.float32)
         # World.reset performs a native initialization step. Restore the fixed
@@ -550,9 +549,11 @@ class FR3DexterousIsaacEnv:
         expanded = self._expand_mimic_targets(active)
         self._targets = np.asarray([[expanded[n] for n in self.joint_names]], dtype=np.float32)
         self._robot_view.set_dof_position_targets(self._tensor(self._targets), self._one)
-        return {'joint_positions_rad': active, 'duration_s': .02}
+        return {'joint_positions_rad': active, 'duration_s': self.control_dt}
 
     def step(self, action):
+        if getattr(self, '_visual_replay_only', False):
+            raise RuntimeError('Visual replay cannot resume physics or execute actions')
         self._validate_action(action)
         if self.terminated:
             raise RuntimeError('Episode terminated; reset before stepping')
@@ -566,7 +567,7 @@ class FR3DexterousIsaacEnv:
         native_start_step = self.world.current_time_step_index
         native_start_time = self.world.current_time
         # No pose, velocity, mesh, constraint, or attachment setters occur here.
-        for _ in range(round(.02 / self.dt)):
+        for _ in range(round(self.control_dt / self.dt)):
             self._current_step_time = self.time_s + self.dt
             if getattr(self, '_arm_gravity_mask', None) is not None:
                 gravity = self._robot_view.get_gravity_compensation_forces()
@@ -582,14 +583,14 @@ class FR3DexterousIsaacEnv:
             self._read_rigid_contacts()
             if getattr(self, '_task_reader', None) is not None:
                 self._sample_task_state(self._contact_reports[contact_start:])
-        if self.world.current_time_step_index - native_start_step != round(.02 / self.dt):
+        if self.world.current_time_step_index - native_start_step != round(self.control_dt / self.dt):
             raise RuntimeError('Native physics callback count differs from requested integration steps')
-        if not math.isclose(self.world.current_time - native_start_time, .02, abs_tol=1.e-8, rel_tol=0):
-            raise RuntimeError('Native physics elapsed time differs from 20 ms control interval')
-        if self._contact_sampling['sampled_substeps'] != round(.02 / self.dt):
+        if not math.isclose(self.world.current_time - native_start_time, self.control_dt, abs_tol=1.e-8, rel_tol=0):
+            raise RuntimeError('Native physics elapsed time differs from configured control interval')
+        if self._contact_sampling['sampled_substeps'] != round(self.control_dt / self.dt):
             raise RuntimeError('Native rigid contact sampling missed a physics substep')
         self._contact_sampling['complete'] = True
-        self.last_duration_s = .02
+        self.last_duration_s = self.control_dt
         self.truncated = self.time_s >= 120.
         return self.observation()
 
@@ -808,7 +809,7 @@ class FR3DexterousIsaacEnv:
                 'physics_device': self.physics_device,
                 'native_task_observer_enabled': self.task_observer_enabled,
                 'isaacsim_version': list(get_version()), 'kit_version': omni.kit.app.get_app().get_build_version(),
-                'device': self.device, 'physics_dt_s': self.dt, 'control_dt_s': .02,
+                'device': self.device, 'physics_dt_s': self.dt, 'control_dt_s': self.control_dt,
                 'native_physics_tensor_pipeline': deepcopy(self.runtime_physics_tensor_pipeline),
                 'native_readback_configuration': deepcopy(self.runtime_readback_configuration),
                 'native_readback_profile_resolution': deepcopy(self.readback_profile_resolution),
@@ -995,6 +996,11 @@ class FR3DexterousIsaacEnv:
             self.prepare_cameras()
         products = {camera: self._prepare_render_product(camera, width, height, include_depth=include_depth)
                     for camera in cameras}
+        # Hydra otherwise keeps rendering every product ever created, including
+        # recording cameras that are not due in this frame.
+        active_keys = {key for key, _ in products.values()}
+        for key, (product, _) in self._render_products.items():
+            product.hydra_texture.set_updates_enabled(key in active_keys)
         visual_state = None
         if getattr(self, '_task_reader', None) is not None:
             visual_state = self._task_reader.sync_visual_state()

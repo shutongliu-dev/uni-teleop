@@ -15,7 +15,10 @@ def exceeds_rigid_penetration(separation):
 
 
 class RigidContactSafetyGuard:
-    def __init__(self, *, required=True):
+    def __init__(self, *, required=True, control_dt=.02):
+        if not math.isfinite(control_dt) or control_dt <= 0:
+            raise ValueError("Invalid contact control window")
+        self.control_dt = control_dt
         self.required = required
         self.trigger = None
 
@@ -48,8 +51,8 @@ class RigidContactSafetyGuard:
         first, last, count = [sampling.get(k) for k in
             ('native_start_step_index', 'native_end_step_index', 'sampled_substeps')]
         if (dt <= 0 or not all(type(v) is int and v >= 0 for v in (first, last, count))
-                or count == 0 or last - first != count or abs(end - start - .02) > 1e-8
-                or abs(native_end - native_start - .02) > 1e-8 or abs(count * dt - .02) > 1e-8
+                or count == 0 or last - first != count or abs(end - start - self.control_dt) > 1e-8
+                or abs(native_end - native_start - self.control_dt) > 1e-8 or abs(count * dt - self.control_dt) > 1e-8
                 or abs(number(observation.get('sim_time_s')) - end) > 1e-8):
             raise ValueError('Native rigid-contact safety receipt does not cover one complete control window')
         rows = contacts.get('rigid')
