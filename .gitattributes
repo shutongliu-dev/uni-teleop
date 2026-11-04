@@ -1,0 +1,2 @@
+# Unified patches contain space-prefixed blank context lines; preserve their hashes.
+docs/provenance/*.patch whitespace=-blank-at-eol

@@ -1,0 +1,14 @@
+--- a/Model/tcpconnectionmodel.cpp
++++ b/Model/tcpconnectionmodel.cpp
+@@ -329,6 +329,11 @@
+ 
+ void DevConnSDK::TCPConnectionModel::onClientMsg(const TcpMessage& msg)
+ {
++    // A complete validated frame proves transport liveness even when the
++    // headset delays its separate heartbeat. Teleop freshness stays separate.
++    if (!m_uid.isEmpty())
++        m_currentHeartBeatTime = QDateTime::currentSecsSinceEpoch();
++
+     if(dealClientPack(msg) != NORMAL)
+     {
+         return;

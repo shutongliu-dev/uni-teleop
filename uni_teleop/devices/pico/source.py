@@ -9,6 +9,7 @@ import ctypes as C
 import json
 from pathlib import Path
 import queue
+import signal
 import socket
 import threading
 import time
@@ -94,12 +95,19 @@ def main():
     invalid_packets = duplicates = 0
     device = args.device
     clock = boot_id()
+    # Supervisors stop readers with SIGTERM. Let the finally block cancel the
+    # SDK subscription instead of leaving a stale stream in the PC service.
+    stopping = threading.Event()
+    previous_sigterm = signal.signal(signal.SIGTERM, lambda *_: stopping.set())
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as output:
         sdk.start()
         print('PICO bridge ready; connect the existing XRoboToolkit client.', flush=True)
         try:
-            while True:
-                epoch, stamp, sender, raw = sdk.pending.get()
+            while not stopping.is_set():
+                try:
+                    epoch, stamp, sender, raw = sdk.pending.get(timeout=0.25)
+                except queue.Empty:
+                    continue
                 try:
                     sender = sender.decode()
                     if device is not None and device != sender:
@@ -148,7 +156,10 @@ def main():
         except KeyboardInterrupt:
             pass
         finally:
-            sdk.close()
+            try:
+                sdk.close()
+            finally:
+                signal.signal(signal.SIGTERM, previous_sigterm)
             print(json.dumps({'frames': sequence, 'queue_drops': sdk.dropped}))
 
 

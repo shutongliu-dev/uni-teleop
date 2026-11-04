@@ -1419,6 +1419,17 @@
         "tests/test_univlat_env.py": "7c1278fc97a3150db061cf224c83bbe15e369d26f74c917c889b0d3827e0adcd",
         "uv.lock": "b3b52180a4def9ceff5d7cb0053f860964cb2a6f8a0572151d0b311057702497"
       }
+    },
+    {
+      "name": "xrobotoolkit-pc-service-liveness",
+      "url": "https://github.com/XR-Robotics/XRoboToolkit-PC-Service.git",
+      "commit": "85bac4dbc1fd5cef42c74a160d9c30aa3491f122",
+      "usage": "Local isolated DeviceConnectionManager build; upstream installation unchanged; binaries not vendored",
+      "consulted_files_sha256": {
+        "RoboticsService/DeviceConnectionManager/Model/tcpconnectionmodel.cpp": "88a058f37252c5777f6a16f9c9408fa92ffba17c31f3b1bff96e4a585d66b914"
+      },
+      "local_patch": "docs/provenance/xrobotoolkit-liveness.patch",
+      "local_patch_sha256": "a7ec76b74a063fb7cd73b1386309479a12eb16b904e86295c1eb84acb8094809"
     }
   ],
   "design_references": [
