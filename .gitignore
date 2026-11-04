@@ -27,3 +27,6 @@ backends/isaac/runtime/*
 backends/mujoco/.xrobotoolkit/
 backends/mujoco/.superdex/
 backends/mujoco/models/
+
+# Local interpreter link (directory globs do not cover symlinks).
+/backends/isaac/.venv
