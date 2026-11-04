@@ -220,5 +220,22 @@
       "CUDA_VISIBLE_DEVICES": "${CUDA_VISIBLE_DEVICES}",
       "ISAAC_ALLOW_UNVALIDATED_DRIVER": "1"
     }
+  },
+  "pedal-toggle": {
+    "settings": [
+      "PEDAL_EVENT"
+    ],
+    "checks": [
+      [
+        "${PEDAL_EVENT}",
+        "exists"
+      ]
+    ],
+    "args": [
+      "--pedal-device",
+      "${PEDAL_EVENT}",
+      "--pedal-key",
+      "61"
+    ]
   }
 }

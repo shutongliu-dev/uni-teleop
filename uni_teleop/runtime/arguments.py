@@ -24,9 +24,13 @@ def parser():
                         help='Unscored practice: report penetrations without pausing')
     result.add_argument('--physics-profile', choices=('scene', 'cpu_rigid_v1'), default='scene',
                         help='Explicit operator-only physics override; scene preserves the release configuration')
+    result.add_argument('--physics-dt', type=float, help='Isaac unscored practice physics substep in seconds')
+    result.add_argument('--control-dt', type=float, help='Isaac PICO unscored practice control period in seconds')
     result.add_argument('--mode', choices=('hands', 'controllers'), default='hands')
     result.add_argument('--bind', action='append', metavar='ROBOT=PICO', help='E.g. right=right or front=right')
     result.add_argument('--port', type=int, default=5557)
+    result.add_argument('--pedal-device', type=Path, help='Explicit Linux evdev pedal path; Isaac PICO controllers only')
+    result.add_argument('--pedal-key', type=int, default=61, help='Pedal Linux key code (default: F3=61)')
     result.add_argument('--scale', type=float, default=1.)
     result.add_argument('--control-point', choices=('wrist', 'pinch'), default='wrist',
                         help='Controller rotation pivot: wrist or fixed pinch-prepose center')
@@ -37,6 +41,10 @@ def parser():
     result.add_argument('--steps', type=int, default=0, help='Stop after this many native steps (0: interactive)')
     result.add_argument('--output', type=Path)
     result.add_argument('--camera', default='overview', help='Main stereo camera (default: fixed overview)')
+    result.add_argument('--operator-view', choices=('scene', 'rear'), default='scene',
+                        help='Isaac headset view; rear adds separate stereo cameras without changing episode cameras')
+    result.add_argument('--operator-inset', choices=('none', 'table'), default='none',
+                        help='Headset-only tabletop close-up; requires --operator-view rear')
     result.add_argument('--side-view', action='store_true', help='Fixed side overview for comparing leader and simulated arm posture')
     result.add_argument('--inset-camera', default='wrist', help='Mono picture-in-picture camera; use none to disable')
     result.add_argument('--rear-camera', action='store_true', help='Additional fixed desktop view from behind the arm toward the workbench')
@@ -48,5 +56,8 @@ def parser():
     result.add_argument('--no-video', action='store_true')
     result.add_argument('--seed', type=int, default=0)
     result.add_argument('--profile', action='store_true', help='Record render, mapping and native-step wall times in session evidence')
-    result.add_argument('--review-dir', type=Path, help='Existing human review campaign; record rigid states, contacts and 1 Hz keyframes')
+    result.add_argument('--deferred-recording', action='store_true', help='Isaac: archive rigid states each control step and render original cameras after stopping')
+    result.add_argument('--preview-scale', type=float, default=1., help='Isaac rear headset resolution scale; recording resolution remains unchanged')
+    result.add_argument('--review-dir', type=Path, help='Existing human review campaign; record rigid states, contacts and sampled images')
+    result.add_argument('--record-fps', type=float, default=15., help='Review image sampling target in wall-clock Hz (default: 15)')
     return result

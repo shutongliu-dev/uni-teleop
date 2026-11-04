@@ -126,6 +126,8 @@ class Controls:
             self.capture_reference(resume=True)
             return
         self.reference_request=None
+        if not self.joint_control:
+            self.recenter_requested = True
         self.mapper.set_active(True)
         if self.feedback:self.feedback.start_support(self.mapper)
 
@@ -223,6 +225,17 @@ class Controls:
 from uni_teleop.runtime.arguments import parser
 
 
+def update_control_view(view, mapper, frame, robot_poses):
+    """Establish the control basis even on ticks without a video render."""
+    needs_alignment = view.reference is None
+    head = frame.tracking.get('head') if frame else None
+    view.update(head, robot_poses)
+    if needs_alignment and head is not None:
+        from uni_teleop.mapping.franka.retarget import view_alignment_rotation
+        mapper.rotation = view_alignment_rotation(view.control_base, head)
+        mapper.anchors.clear()
+
+
 def load_inputs(args):
     if args.practice_contact_warnings and not (args.no_task_scoring or args.sandbox):
         raise ValueError('--practice-contact-warnings requires --no-task-scoring or --sandbox')
@@ -277,16 +290,38 @@ def load_inputs(args):
         scene, initial = deepcopy(scene), deepcopy(initial)
         scene['robot']['arm_home_rad'] = list(args.arm_home)
         initial.setdefault('joint_positions_rad', {}).update(zip(model.arm.names, args.arm_home))
+    if args.physics_dt is not None or args.control_dt is not None:
+        if not (args.no_task_scoring or args.sandbox):
+            raise ValueError('Custom timing requires unscored practice')
+        scene = deepcopy(scene)
+        scene['unscored_practice'] = True
+        options = scene.setdefault('isaacsim', {})
+        if args.physics_dt is not None:
+            options['physics_dt_s'] = args.physics_dt
+        if args.control_dt is not None:
+            options['control_dt_s'] = args.control_dt
+        from bench.simulation.isaacsim_backend.timing import control_timing
+        control_timing(scene)
     return scene, initial, release
 
 
 def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_factory=Retargeter, feedback=None):
+    if getattr(args, 'pedal_device', None) and (source_kind != 'xr_sdk' or args.mode != 'controllers' or args.start_active):
+        raise ValueError('Pedal requires paused-start Isaac PICO controllers')
+    if not 0.25 <= args.preview_scale <= 1 or (args.preview_scale != 1 and args.operator_view != 'rear'):
+        raise ValueError('Scaled preview requires rear operator view and scale in [0.25, 1]')
+    if args.deferred_recording and args.operator_view != 'rear':
+        raise ValueError('Deferred recording currently requires the separate rear operator view')
+    if args.control_dt is not None and mapper_factory is not Retargeter:
+        raise ValueError('Custom control timing currently supports the PICO retargeter only')
     from bench.simulation.isaacsim_backend.env import FR3DexterousIsaacEnv
     if not 0 < args.video_fps <= 50 or args.steps < 0 or min(args.width, args.height) < 64:
         raise ValueError('Invalid frame rate, image dimensions or step count')
     if not os.environ.get('CUDA_VISIBLE_DEVICES', '').startswith('GPU-'):
         raise ValueError('Select the NVIDIA GPU by UUID in CUDA_VISIBLE_DEVICES')
     scene, initial, release = load_inputs(args)
+    from bench.simulation.isaacsim_backend.timing import control_timing
+    physics_dt, control_dt = control_timing(scene)
     scene = apply_in_hand_wrist_camera(scene)
     if getattr(args,'side_view',False):
         if args.camera!='overview' or args.head_tracked:
@@ -331,8 +366,10 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
                   **({'native_task_observer_enabled': args.keep_task_observer} if args.no_task_scoring else {})},
               'wrist_camera_policy': {'version': 'in_hand_wrist_camera_v1', **IN_HAND_WRIST_CAMERA_V1},
               'side_overview':getattr(args,'side_view',False),
+              'operator_view': getattr(args, 'operator_view', 'scene'),
+              'operator_inset': getattr(args, 'operator_inset', 'none'),
               'contact_policy': 'practice_warning' if args.practice_contact_warnings else 'strict',
-              'practice_contact_limits': ({'penetration_stop_enabled': False, 'control_window_s': .02}
+              'practice_contact_limits': ({'penetration_stop_enabled': False, 'control_window_s': control_dt}
                   if args.practice_contact_warnings else None),
               'task_scoring': 'disabled_for_practice' if args.no_task_scoring else 'scene_default',
               'gpu_uuid': os.environ['CUDA_VISIBLE_DEVICES'],
@@ -349,7 +386,8 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
     (output/'scene.json').write_text(json.dumps(scene, indent=2)+'\n')
     (output/'initial_state.json').write_text(json.dumps(initial, indent=2)+'\n')
     write_report()
-    env = writer = controls = recorder = None
+    env = writer = controls = recorder = pedal = archive = None
+    archive_closed = False
     timing_totals = dict(render_s=0., mapping_s=0., step_s=0.)
     rendered_frames = 0
     stop_requested, signal_handlers = False, {}
@@ -360,13 +398,20 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
 
     receiver = receiver or Receiver(args.port)
     try:
+        if getattr(args, 'pedal_device', None):
+            from uni_teleop.devices.pedal import Pedal
+            pedal = Pedal(args.pedal_device, args.pedal_key)
+            report['pedal'] = {'mode': 'press_to_toggle', 'key_code': args.pedal_key,
+                               'resume': 'reanchor_controller_preserve_view'}
         if args.review_dir:
-            recorder = Recorder(output)
+            recorder = Recorder(output, image_fps=args.record_fps)
             append_event(args.review_dir, {'event': 'session_started', 'family': args.family,
                          'task': args.task, 'session': str(output.resolve())})
             report['review_release_sha256'] = review_digest
             report['review_recording'] = {'states': 'rigid objects, robot and contacts at control steps',
-                                         'images': '1 Hz main stereo-left composite; not continuous video',
+                                         'images': ('Deferred original camera PNGs' if args.deferred_recording else
+                                                    'Sampled original stereo-left composite; not headset view'),
+                                         'target_image_fps': args.record_fps,
                                          'soft_body_replay': False}
         faulthandler.dump_traceback_later(60)
         env = FR3DexterousIsaacEnv(scene, device='cuda:0', headless=args.headless,
@@ -384,6 +429,10 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
         mapper = mapper_factory(geometry, initial_targets, bindings, mode=args.mode, scale=args.scale,
                             tracking_grace_s=.3, hands_recovery=True,
                             control_point=args.control_point, lock_orientation=args.lock_orientation)
+        if isinstance(mapper, Retargeter):
+            mapper.control_dt = control_dt
+        report['control_timing'] = {'physics_dt_s': physics_dt, 'control_dt_s': control_dt,
+                                    'input_policy': 'latest_available_no_action_queue'}
         from uni_teleop.mapping.franka.controller_hand import VERSION as controller_hand_version
         report['controller_hand_mapping'] = controller_hand_version
         report['input_mapping'] = getattr(mapper, 'input_mapping', None)
@@ -395,16 +444,27 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
         view = StereoView(env, args.camera, width=args.width, height=args.height, head_tracked=args.head_tracked,
                           robot_poses=observation['robot'],
                           inset_camera=None if args.inset_camera == 'none' else args.inset_camera,
-                          rear_camera=args.rear_camera)
+                          rear_camera=args.rear_camera,
+                          operator_view=getattr(args, 'operator_view', 'scene'),
+                          operator_inset=getattr(args, 'operator_inset', 'none'), preview_scale=args.preview_scale)
+        if args.deferred_recording:
+            from uni_teleop.recording.deferred import StateArchive
+            from bench.simulation.isaacsim_backend.visual_replay import manifest, capture
+            replay_cameras = ['pico_left', 'pico_right'] + (['pico_inset'] if view.inset else [])
+            replay_manifest = manifest(env, replay_cameras)
+            archive = StateArchive(output, replay_manifest)
+            report['deferred_recording'] = {'schema': replay_manifest['schema'], 'status': 'recording',
+                                           'cameras': replay_cameras, 'sampling': 'each_control_step'}
         if not args.no_video:
-            writer = FrameWriter(args.width, args.height, listen=args.video_listen)
+            writer = FrameWriter(int(args.width*args.preview_scale), int(args.height*args.preview_scale), listen=args.video_listen)
         if not args.headless:
-            controls = Controls(mapper, inset=view.inset is not None, rear=args.rear_camera,
+            controls = Controls(mapper, inset=view.inset is not None and not view.operator_ops, rear=args.rear_camera,
                                 joint_control=getattr(mapper, 'control_space', None) == 'joint',feedback=feedback,
                                 capture_on_start=getattr(args,'capture_reference_on_start',False))
-        guard = TeleopContactGuard(practice=args.practice_contact_warnings)
+        guard = TeleopContactGuard(practice=args.practice_contact_warnings, control_dt=control_dt)
         reporter = HoldReporter()
         episode, next_video, armed_once = 0, 0., False
+        next_pause_log = 0.
         align_requested=getattr(args,'align_from_leader',False)
         left = right = None
         faulthandler.cancel_dump_traceback_later()
@@ -418,11 +478,16 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
                 tick = time.monotonic()
                 timings = dict(render_s=0., mapping_s=0., step_s=0.)
                 if controls and controls.reset_requested:
+                    if archive:
+                        view.update(None, observation['robot'])
+                        archive.append(capture(env, replay_cameras), {'host_ns': time.monotonic_ns(),
+                            'sim_time_s': observation['sim_time_s'], 'episode': episode,
+                            'action': None, 'event': 'terminal_before_reset'})
                     if feedback:feedback.request_feedback(False)
                     observation = env.reset(seed=args.seed, initial_state=initial)
                     mapper.acknowledge(initial_targets)
                     mapper.recalibrate()
-                    guard = TeleopContactGuard(practice=args.practice_contact_warnings)
+                    guard = TeleopContactGuard(practice=args.practice_contact_warnings, control_dt=control_dt)
                     episode += 1
                     if recorder:
                         recorder.state(observation, episode, event='reset')
@@ -432,6 +497,14 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
                     view.recenter()
                     controls.recenter_requested = False
                 frame = receiver.read()
+                if pedal:
+                    from uni_teleop.mapping.franka.pedal import toggle_pedal
+                    for _ in range(pedal.poll()):
+                        event = toggle_pedal(mapper, frame, now_ns=time.monotonic_ns(),
+                                             view_ready=view.reference is not None)
+                        log.write(json.dumps({'event': 'pedal', 'action': event,
+                                              'host_ns': time.monotonic_ns()})+'\n')
+                        log.flush()
                 if align_requested or (controls and controls.align_requested):
                     if feedback:feedback.request_feedback(False)
                     mapper.set_active(False)
@@ -456,7 +529,7 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
                             mapper.acknowledge(initial_targets)
                             mapper.recalibrate()
                             mapper.status='Simulation aligned to leader; Start to follow fixed joints'
-                            guard=TeleopContactGuard(practice=args.practice_contact_warnings)
+                            guard=TeleopContactGuard(practice=args.practice_contact_warnings, control_dt=control_dt)
                             episode+=1
                             if recorder:recorder.state(observation,episode,event='leader_alignment')
                             report['leader_initialization']=receipt
@@ -466,23 +539,24 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
                         align_requested=False
                         if controls:controls.align_requested=False
                         log.flush()
-                # Align operator motion to the initial view, not the robot base.
-                if view.reference is None and frame is not None and frame.tracking['head'] is not None:
-                    from uni_teleop.mapping.franka.retarget import pose_matrix
-                    mapper.rotation = view.base[:3, :3] @ pose_matrix(frame.tracking['head'])[:3, :3].T
-                    mapper.anchors.clear()  # A late first head pose changes axes; re-anchor without jumping.
-                if time.monotonic() >= next_video:
+                update_control_view(view, mapper, frame, observation['robot'])
+                record_due = recorder is not None and archive is None and recorder.image_due()
+                if time.monotonic() >= next_video or record_due:
                     rendering = time.monotonic()
                     view.update(frame.tracking['head'] if frame else None, observation['robot'])
-                    left, right = view.render(mapper.control_points(observation['joint_positions_rad']))
-                    if recorder:
-                        recorder.image(left, observation, episode)
+                    captured_ns = time.monotonic_ns()
+                    recorded = view.render(mapper.control_points(observation['joint_positions_rad']),
+                                           include_recording=record_due)
+                    if recorded[0] is not None:
+                        left, right = recorded
+                    if record_due:
+                        recorder.image(recorded[0], observation, episode, captured_ns=captured_ns)
                     if controls:
-                        controls.show_frame(view.frames['pico_left'], view.frames.get('pico_inset'),
+                        controls.show_frame(view.operator_eyes[0], None if view.operator_ops else view.frames.get('pico_inset'),
                                             view.frames.get('pico_rear'))
                     if writer:
                         writer.check()
-                        writer.publish(left, right)
+                        writer.publish(*view.operator_eyes)
                     timings['render_s'] = time.monotonic()-rendering
                     timing_totals['render_s'] += timings['render_s']
                     rendered_frames += 1
@@ -527,15 +601,40 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
                 if args.start_active and frame is not None and not armed_once:
                     mapper.set_active(True)
                     armed_once = True
-                targets = mapper.command(frame, observation['joint_positions_rad'], now_ns=time.monotonic_ns())
+                awaiting_view_alignment = getattr(args, 'operator_view', 'scene') == 'rear' and view.reference is None
+                if awaiting_view_alignment:
+                    mapper.set_active(False)
+                    mapper.status = 'Enable PICO Head tracking, face the view, then press Start'
+                    targets = dict(mapper.acknowledged)
+                else:
+                    targets = mapper.command(frame, observation['joint_positions_rad'], now_ns=time.monotonic_ns())
                 if controls:
                     controls.complete_reference_capture()
                 # A slow IK/render must not turn an expired sample into a fresh command.
-                if frame is not None and time.monotonic_ns()-frame.host_ns > 150_000_000:
+                if not awaiting_view_alignment and frame is not None and time.monotonic_ns()-frame.host_ns > 150_000_000:
                     targets = mapper.hold(receiver.read(), now_ns=time.monotonic_ns())
                 timings['mapping_s'] = time.monotonic()-mapping
                 timing_totals['mapping_s'] += timings['mapping_s']
-                action = {'joint_positions_rad': targets, 'duration_s': .02}
+                if not mapper.armed or getattr(mapper, 'interrupted', False):
+                    # Render/UI keep running above; paused controls freeze physics,
+                    # episode time, and state/action recording together.
+                    if time.monotonic() >= next_pause_log:
+                        log.write(json.dumps({'event': 'paused', 'host_ns': time.monotonic_ns(),
+                            'episode': episode, 'sim_time_s': observation['sim_time_s'],
+                            'status': mapper.status, 'armed': mapper.armed,
+                            'input_health': receiver.health()})+'\n')
+                        log.flush()
+                        next_pause_log = time.monotonic()+1.
+                    time.sleep(max(0., control_dt-(time.monotonic()-tick)))
+                    continue
+                action = {'joint_positions_rad': targets, 'duration_s': control_dt}
+                if archive:
+                    view.update(frame.tracking['head'] if frame else None, observation['robot'])
+                    archive.append(capture(env, replay_cameras), {
+                        'host_ns': time.monotonic_ns(), 'sim_time_s': observation['sim_time_s'],
+                        'episode': episode, 'action': action, 'armed': mapper.armed,
+                        'input_sequence': frame.sequence if frame else None,
+                        'input_host_ns': frame.host_ns if frame else None})
                 stepping = time.monotonic()
                 guard.assert_can_step()
                 observation = env.step(action)
@@ -567,7 +666,12 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
                        if args.profile else {})}, allow_nan=False)+'\n')
                 if guard.warning or trigger or observation['truncated']:
                     log.flush()
-                time.sleep(max(0., .02-(time.monotonic()-tick)))
+                time.sleep(max(0., control_dt-(time.monotonic()-tick)))
+        if archive:
+            view.update(frame.tracking['head'] if frame else None, observation['robot'])
+            archive.append(capture(env, replay_cameras), {'host_ns': time.monotonic_ns(),
+                'sim_time_s': observation['sim_time_s'], 'episode': episode,
+                'action': None, 'event': 'terminal'})
         report.update(elapsed_wall_s=time.monotonic()-started, elapsed_sim_s=observation['sim_time_s'],
                       safety_trigger=guard.trigger, contact_warning_windows=guard.warning_windows,
                       last_contact_warning=guard.last_warning, input_rejections=receiver.rejected,
@@ -591,11 +695,21 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
         raise
     finally:
         faulthandler.cancel_dump_traceback_later()
+        if pedal:
+            pedal.close()
         if recorder:
             try:
                 recorder.close()
+                report['review_image_sampling'] = recorder.image_stats()
             except Exception as error:
                 report['recording_error'] = str(error)
+        if archive:
+            try:
+                archive.close()
+                archive_closed = True
+                report['deferred_recording'].update(status='saved', frames=archive.count)
+            except Exception as error:
+                report['deferred_recording'].update(status='error', error=str(error))
         # Kit fast shutdown exits the interpreter: seal receipts before close().
         report['finished_utc'] = datetime.now(timezone.utc).isoformat()
         write_report()
@@ -607,6 +721,17 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
             if writer:
                 writer.close()
             receiver.close()
+            if archive_closed and report['status'] in ('stopped', 'interrupted'):
+                from scripts.teleop.render_recording import render_archive
+                report['deferred_recording']['status'] = 'rendering'
+                write_report()
+                try:
+                    report['deferred_recording']['render'] = render_archive(env, output)
+                    report['deferred_recording']['status'] = 'complete'
+                except Exception as error:
+                    report['deferred_recording'].update(status='render_error', error=str(error))
+                    print('Deferred render failed; state archive retained:', error, flush=True)
+                write_report()
         finally:
             if env:
                 env.close()

@@ -381,5 +381,57 @@
     "entry": "floating-hand",
     "args": [],
     "status": "native-synthetic-tested"
+  },
+  "isaac-pico-controllers-pedal": {
+    "backend": "isaac",
+    "arm": "pico-controller",
+    "hand": "trigger",
+    "robot": "franka-sharpa",
+    "description": "PICO 手柄 + 脚踏离合 → Franka + SHARPA",
+    "components": [
+      "isaac",
+      "pico-native",
+      "pedal-toggle"
+    ],
+    "entry": "pico",
+    "args": [
+      "--mode",
+      "controllers"
+    ],
+    "status": "device-verification-required"
+  },
+  "isaac-pico-controllers-pedal-deferred": {
+    "backend": "isaac",
+    "arm": "pico-controller",
+    "hand": "trigger",
+    "robot": "franka-sharpa",
+    "description": "PICO + 踏板 → Franka + SHARPA；低分辨率预览、刚体状态记录及离线补渲染",
+    "components": [
+      "isaac",
+      "pico-native",
+      "pedal-toggle"
+    ],
+    "entry": "pico",
+    "args": [
+      "--mode",
+      "controllers",
+      "--operator-view",
+      "rear",
+      "--operator-inset",
+      "table",
+      "--no-task-scoring",
+      "--physics-profile",
+      "cpu_rigid_v1",
+      "--physics-dt",
+      "0.004",
+      "--control-dt",
+      "0.04",
+      "--deferred-recording",
+      "--preview-scale",
+      "0.75",
+      "--video-fps",
+      "20"
+    ],
+    "status": "device-verification-required"
   }
 }

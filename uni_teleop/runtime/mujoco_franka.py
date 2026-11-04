@@ -11,6 +11,14 @@ from uni_teleop.mapping.franka.retarget import Retargeter
 
 
 def run(args, *, receiver=None, source_kind='xr_sdk', mapper_factory=Retargeter, feedback=None):
+    if getattr(args, 'deferred_recording', False) or getattr(args, 'preview_scale', 1.) != 1.:
+        raise ValueError('Deferred recording and scaled preview require Isaac')
+    if getattr(args, 'physics_dt', None) is not None or getattr(args, 'control_dt', None) is not None:
+        raise ValueError('Custom timing is currently supported only by Isaac PICO')
+    if getattr(args, 'pedal_device', None):
+        raise ValueError('Pedal control is currently supported only by Isaac PICO controllers')
+    if getattr(args, 'operator_view', 'scene') != 'scene' or getattr(args, 'operator_inset', 'none') != 'none':
+        raise ValueError('--operator-view rear is currently supported only by Isaac')
     from bench.control.factory import public_robot_geometry, robot_configuration
     from scenes.teleop_sandbox import inputs
     from uni_teleop.backends.mujoco.franka import FrankaWorkbench
