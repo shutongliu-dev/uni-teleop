@@ -98,7 +98,8 @@ class _CameraMount:
 
 class StereoView:
     def __init__(self, env, camera='wrist', *, width=640, height=480, ipd=.064,
-                 head_tracked=False, robot_poses=None, inset_camera=None, rear_camera=False):
+                 head_tracked=False, robot_poses=None, inset_camera=None, rear_camera=False,
+                 operator_view='scene', operator_inset='none', preview_scale=1.):
         from pxr import Gf
         spec = env.cameras[camera]
         if head_tracked and spec['kind'] != 'world':
@@ -112,6 +113,27 @@ class StereoView:
         self.relative = np.eye(4)
         # Operator-only cameras preserve the source optics and leave scene cameras intact.
         self.ops = {side: self.mount.camera('pico_'+side, width, height) for side in ('left', 'right')}
+        self.operator_ops = {}
+        self.operator_base = None
+        self.operator_inset_op = None
+        if operator_inset not in ('none', 'table') or (operator_inset != 'none' and operator_view != 'rear'):
+            raise ValueError('The table operator inset requires the rear operator view')
+        if operator_view not in ('scene', 'rear'):
+            raise ValueError('Unknown operator view')
+        preview_width, preview_height = int(width*preview_scale), int(height*preview_scale)
+        if operator_view == 'rear':
+            from uni_teleop.video.isaac_camera import rear_camera_pose
+            eye, target = rear_camera_pose(env.scene_spec, lateral_m=.65, height_m=1.40)
+            world = Gf.Matrix4d().SetLookAt(Gf.Vec3d(*eye), Gf.Vec3d(*target), Gf.Vec3d(0, 0, 1)).GetInverse()
+            self.operator_base = np.array(world).T
+            self.operator_ops = {side: self.mount.camera('pico_operator_'+side, preview_width, preview_height)
+                                 for side in ('left', 'right')}
+        if operator_inset == 'table':
+            from uni_teleop.video.isaac_camera import table_closeup_pose
+            self.operator_inset_op = self.mount.camera('pico_operator_table', preview_width//2, preview_height//2)
+            eye, target = table_closeup_pose(env.scene_spec)
+            world = Gf.Matrix4d().SetLookAt(Gf.Vec3d(*eye), Gf.Vec3d(*target), Gf.Vec3d(0, 0, 1)).GetInverse()
+            self.operator_inset_op.Set(world)
         self.inset = None
         self.rear_op = None
         if inset_camera and inset_camera != camera:
@@ -137,6 +159,10 @@ class StereoView:
         self.reference = None
         self.relative = np.eye(4)
 
+    @property
+    def control_base(self):
+        return self.base if self.operator_base is None else self.operator_base
+
     def update(self, head, robot_poses=None):
         self.base = self.mount.matrix(robot_poses)
         if head is not None:
@@ -150,29 +176,66 @@ class StereoView:
             eye[0, 3] = sign*self.ipd/2
             world = self.base @ self.relative @ eye
             self.ops[side].Set(self.Gf.Matrix4d(world.T.tolist()))
+            if self.operator_ops:
+                world = self.operator_base @ self.relative @ eye
+                self.operator_ops[side].Set(self.Gf.Matrix4d(world.T.tolist()))
 
         if self.inset:
             world = self.inset.matrix(robot_poses)
             self.inset_op.Set(self.Gf.Matrix4d(world.T.tolist()))
 
-    def render(self, markers=()):
-        cameras = ('pico_left', 'pico_right') + (('pico_inset',) if self.inset else ())
+    def render(self, markers=(), *, include_recording=True):
+        original = include_recording or not self.operator_ops
+        cameras = (('pico_left', 'pico_right') + (('pico_inset',) if self.inset else ())) if original else ()
         if self.rear_op is not None:
             cameras += ('pico_rear',)
+        if self.operator_ops:
+            cameras += ('pico_operator_left', 'pico_operator_right')
+        if self.operator_inset_op is not None:
+            cameras += ('pico_operator_table',)
         # Render all views at their own resolution in one non-physics update.
         frames = self.env.render_many(cameras)
         if markers:
             for side, op in self.ops.items():
                 name = 'pico_'+side
-                frames[name] = control_point_overlay(frames[name], markers, np.array(op.Get()).T, self.mount.focal_ratio)
-            if self.inset:
+                if name in frames:
+                    frames[name] = control_point_overlay(frames[name], markers, np.array(op.Get()).T, self.mount.focal_ratio)
+            for side, op in self.operator_ops.items():
+                name = 'pico_operator_'+side
+                if name in frames:
+                    frames[name] = control_point_overlay(frames[name], markers, np.array(op.Get()).T, self.mount.focal_ratio)
+            if self.inset and original:
                 frames['pico_inset'] = control_point_overlay(frames['pico_inset'], markers,
                     np.array(self.inset_op.Get()).T, self.inset.focal_ratio)
         self.frames = frames
-        eyes = frames['pico_left'], frames['pico_right']
-        if self.inset:
-            return tuple(picture_in_picture(eye, frames['pico_inset'], self.inset_label) for eye in eyes)
+        eyes = (frames['pico_left'], frames['pico_right']) if original else (None, None)
+        operator_eyes = ((frames['pico_operator_left'], frames['pico_operator_right'])
+                         if self.operator_ops else eyes)
+        if self.inset and original:
+            eyes = tuple(picture_in_picture(eye, frames['pico_inset'], self.inset_label) for eye in eyes)
+            if not self.operator_ops:
+                operator_eyes = eyes
+        self.operator_eyes = operator_eyes
+        if self.operator_inset_op is not None:
+            self.operator_eyes = tuple(operator_panels(eye, frames['pico_operator_table'], 'TABLE DETAIL')
+                                       for eye in operator_eyes)
         return eyes
+
+
+def operator_panels(main, detail, label):
+    """Fit the full stereo image above a separate mono detail panel; no overlay."""
+    from PIL import Image, ImageDraw, ImageOps
+    height, width = main.shape[:2]
+    canvas = Image.new('RGB', (width, height), (18, 22, 26))
+    main_height = height * 2 // 3
+    full = ImageOps.contain(Image.fromarray(main), (width, main_height), Image.Resampling.LANCZOS)
+    canvas.paste(full, ((width-full.width)//2, 0))
+    y = main_height + 20
+    closeup = ImageOps.contain(Image.fromarray(detail), (width, height-y-4), Image.Resampling.LANCZOS)
+    x = (width-closeup.width)//2
+    ImageDraw.Draw(canvas).text((x, main_height+4), label, fill=(230, 235, 240))
+    canvas.paste(closeup, (x, y))
+    return np.asarray(canvas).copy()
 
 
 def picture_in_picture(main, inset, label):

@@ -12,7 +12,7 @@ from copy import deepcopy
 import numpy as np
 
 
-def rear_camera_pose(scene):
+def rear_camera_pose(scene, *, lateral_m=.30, height_m=1.10):
     """Fixed over-shoulder view, oriented from the robot base toward the table."""
     base = np.asarray(scene['robot']['base_position_m'], dtype=float)
     table = scene['table']
@@ -23,8 +23,23 @@ def rear_camera_pose(scene):
     forward = forward / distance if distance > 1e-6 else np.array([1., 0.])
     side = np.array([-forward[1], forward[0]])
     eye = base.copy()
-    eye[:2] += -.85 * forward + .30 * side
-    eye[2] = max(base[2], target[2]) + 1.10
+    eye[:2] += -.85 * forward + lateral_m * side
+    eye[2] = max(base[2], target[2]) + height_m
+    return eye, target
+
+
+
+def table_closeup_pose(scene):
+    """Near-horizontal tabletop view, keeping the operator view's azimuth."""
+    main_eye, main_target = rear_camera_pose(scene, lateral_m=.65, height_m=1.40)
+    table = scene['table']
+    surface = table['position_m'][2] + table['half_extents_m'][2]
+    target = np.asarray(table['position_m'], dtype=float).copy()
+    target[2] = surface + .10
+    back = main_eye - main_target
+    eye = target.copy()
+    eye[:2] += .80 * back[:2] / np.linalg.norm(back[:2])
+    eye[2] = surface + .16
     return eye, target
 
 

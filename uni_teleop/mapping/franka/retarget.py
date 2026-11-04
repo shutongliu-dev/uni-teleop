@@ -24,6 +24,20 @@ def pose_matrix(value):
     return result
 
 
+def view_alignment_rotation(camera_world, head_pose):
+    """Map headset right/up/back axes onto the displayed USD camera axes."""
+    return np.asarray(camera_world)[:3, :3] @ pose_matrix(head_pose)[:3, :3].T
+
+
+def relative_pose_target(human, human_zero, robot_zero, rotation, scale=1., *, rotate=True):
+    """Apply controller translation and spatial rotation in one shared basis."""
+    target = robot_zero.copy()
+    target[:3, 3] += scale * rotation @ (human[:3, 3]-human_zero[:3, 3])
+    if rotate:
+        target[:3, :3] = rotation @ human[:3, :3] @ human_zero[:3, :3].T @ rotation.T @ robot_zero[:3, :3]
+    return target
+
+
 def wrist_matrix(geometry):
     wrist = geometry['wrist']
     result = np.eye(4)
@@ -128,6 +142,7 @@ class Retargeter:
     """
     def __init__(self, geometry, initial, bindings, *, mode='hands', scale=1., rotation=XR_TO_WORLD, tracking_grace_s=0., hands_recovery=False,
                  control_point='wrist', lock_orientation=False, arm_only=False):
+        self.control_dt = .02
         self.models = geometry.sides if hasattr(geometry, 'sides') else {'right': geometry}
         if not bindings or not set(bindings) <= self.models.keys() or not set(bindings.values()) <= {'left', 'right'}:
             raise ValueError('Bind robot hand names to left/right PICO inputs')
@@ -337,10 +352,8 @@ class Retargeter:
                 continue
             human_zero, robot_zero, fingers = self.anchors[name]
             rotation = self.rotation
-            target = robot_zero.copy()
-            target[:3, 3] += self.scale * rotation @ (human[:3, 3]-human_zero[:3, 3])
-            if self.mode != 'controllers' or not self.lock_orientation:
-                target[:3, :3] = rotation @ human[:3, :3] @ human_zero[:3, :3].T @ rotation.T @ robot_zero[:3, :3]
+            target = relative_pose_target(human, human_zero, robot_zero, rotation, self.scale,
+                                          rotate=self.mode != 'controllers' or not self.lock_orientation)
             if self.mode == 'controllers' and self.control_point == 'pinch':
                 target[:3, 3] += (robot_zero[:3, :3] - target[:3, :3]) @ self.grasp_offsets[name]
             wrist = {'frame_id': 'world', 'position_m': target[:3, 3].tolist(),
@@ -371,7 +384,7 @@ class Retargeter:
             self.status = 'tracking; IK budget exhausted — affected targets held'
         if self.mode == 'controllers' and not self.anchors:
             self.status = 'ready — hold grip to move'
-        # Keep the native 20 ms period and original URDF limits. Never catch up a
+        # Use the configured simulation control period and original URDF limits. Never catch up a
         # slow render by skipping integration or applying a large joint jump.
         return {n: self.acknowledged[n] + float(np.clip(v-self.acknowledged[n],
-                    -self.velocity[n]*.02, self.velocity[n]*.02)) for n, v in desired.items()}
+                    -self.velocity[n]*self.control_dt, self.velocity[n]*self.control_dt)) for n, v in desired.items()}
