@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from bench.evaluation.cloth.cloth_robot_collision import SCHEMA,audit_cloth_robot,piece_in_body,state_digest,transform_xyzw,verify_native_pose,cooked_piece_geometry,reanalyse_export
+from bench.evaluation.cloth.cloth_robot_collision import compare_native_bounds
 
 
 def box():
@@ -140,7 +141,11 @@ def test_raw_plane_support_hull_boundary_disagreement_is_not_silently_passed(x,e
     with pytest.raises(ValueError,match='contain'):piece_in_body(piece,np.eye(4))
     derived=cooked_piece_geometry(piece)
     assert derived['planes']==piece['planes']
-    assert derived['representation_difference']['raw_planes_max_vertex_support_violation_m']==pytest.approx(.2)
+    difference=derived['representation_difference']
+    assert difference['measurement_space']=='unscaled_mesh_prim_local'
+    assert difference['raw_planes_max_vertex_support_violation_prim_local_units']==pytest.approx(.2)
+    assert difference['support_hull_volume_prim_local_units_cubed']==pytest.approx(8.)
+    assert not any(key.endswith(('_m','_m3')) for key in difference)
     data[0]['colliders'][0]['pieces']=[derived]
     report=audit_cloth_robot(*data)
     assert report['status']==expected
@@ -177,3 +182,70 @@ def test_reanalysis_preserves_original_failure_and_raw_plane_values():
 def test_reanalysis_never_clears_unrelated_native_failures(change):
     export=saved_native_fixture();change(export)
     assert reanalyse_export(export)['status']=='unchecked'
+
+
+@pytest.mark.parametrize('error',[0.,.5e-5,2.e-5])
+@pytest.mark.parametrize('rotated',[False,True])
+def test_metric_bounds_unit_scale_preserves_original_comparison(error,rotated):
+    bounds=np.array([[-1.,-2.,-3.],[1.,2.,3.]])
+    queried=bounds.copy();queried[1,0]+=error
+    matrix=transform_xyzw([4,5,6,0,0,np.sqrt(.5),np.sqrt(.5)]) if rotated else np.eye(4)
+    result=compare_native_bounds(bounds,queried,matrix)
+    raw=float(abs(bounds-queried).max())
+    assert result['bounds_max_abs_error_m']==pytest.approx(raw,abs=1e-18)
+    assert (result['bounds_max_abs_error_m']<=1e-5)==(raw<=1e-5)
+    assert result['cooked_prim_local_aabb']==bounds.tolist()
+    assert result['native_query_prim_local_aabb']==queried.tolist()
+
+
+@pytest.mark.parametrize('scale,error,passed',[(.001,1.1444091796875e-5,True),(1000.,2.e-8,False)])
+def test_metric_bounds_small_and_large_scale_do_not_inherit_raw_unit_decision(scale,error,passed):
+    bounds=np.array([[-1.,-1.,-1.],[1.,1.,1.]])
+    query=bounds.copy();query[1,0]+=error
+    result=compare_native_bounds(bounds,query,np.diag([scale,scale,scale,1.]))
+    assert (result['bounds_max_abs_error_prim_local']<=1e-5) is not passed
+    assert (result['bounds_max_abs_error_m']<=1e-5) is passed
+    assert result['bounds_verification_tolerance_m']==1e-5
+
+
+def test_metric_bounds_nonuniform_scale_uses_each_actual_axis_length():
+    bounds=np.array([[-1.,-1.,-1.],[1.,1.,1.]])
+    query=bounds.copy();query[0,0]-=2.e-4;query[1,1]+=2.e-8
+    result=compare_native_bounds(bounds,query,np.diag([.001,1000.,1.,1.]))
+    assert result['bounds_abs_error_metric_axes_m'][0][0]==pytest.approx(2.e-7)
+    assert result['bounds_abs_error_metric_axes_m'][1][1]==pytest.approx(2.e-5)
+    assert result['bounds_max_abs_error_m']>result['bounds_verification_tolerance_m']
+
+
+@pytest.mark.parametrize('fault',['nonfinite','inverted','shape','degenerate','shear','reflection'])
+def test_metric_bounds_rejects_unverifiable_bounds_or_transform(fault):
+    bounds=np.array([[-1.,-1.,-1.],[1.,1.,1.]])
+    query=bounds.copy();matrix=np.eye(4)
+    if fault=='nonfinite':query[0,0]=np.nan
+    elif fault=='inverted':query[0,0]=2
+    elif fault=='shape':query=query[0]
+    elif fault=='degenerate':matrix[0,0]=0
+    elif fault=='shear':matrix[0,1]=.5
+    else:matrix[0,0]=-1
+    with pytest.raises(ValueError):compare_native_bounds(bounds,query,matrix)
+
+
+@pytest.mark.parametrize('scale,error,expected',[(.001,1.1444091796875e-5,'complete'),(1000.,2.e-8,'unchecked')])
+def test_saved_export_reanalysis_uses_same_metric_bounds(scale,error,expected):
+    export=saved_native_fixture()
+    export['colliders'][0]['mesh_to_body_column_matrix']=np.diag([scale,scale,scale,1.]).tolist()
+    export['queries'][0]['colliders'][0]['aabb_max'][0]+=error
+    before=deepcopy(export);result=reanalyse_export(export)
+    assert result['status']==expected and export==before
+    assert result['colliders'][0]['bounds_verification_frame']=='metric_collider_axes'
+
+
+def test_scaled_saved_reanalysis_preserves_original_bounds_failure():
+    export=saved_native_fixture();export['status']='unchecked'
+    export['colliders'][0]['mesh_to_body_column_matrix']=np.diag([.001,.001,.001,1.]).tolist()
+    export['queries'][0]['colliders'][0]['aabb_max'][0]+=1.1444091796875e-5
+    export['issues']=[{'path':export['colliders'][0]['path'],'reason':'native_bounds_or_coordinate_convention_mismatch'}]
+    before=deepcopy(export);result=reanalyse_export(export)
+    assert result['status']=='unchecked' and result['issues']==export['issues']
+    assert result['original_assessment']['issues']==export['issues'] and export==before
+    assert result['colliders'][0]['bounds_max_abs_error_m']<1e-5

@@ -1,7 +1,9 @@
 """Native Isaac Sim environment: USD stage, PhysX dynamics, RTX rendering.
 
 SimulationApp owns the Kit lifecycle. Only joint drive targets are accepted
-during step; all direct state writes are confined to reset. Ground-truth
+as actions. Pose/velocity writes are confined to reset; an explicit scene
+opt-in may update carried liquid mass properties from its conserved volume.
+Ground-truth
 observations intentionally match the engine-independent SequenceEvaluator.
 """
 from __future__ import annotations
@@ -18,7 +20,7 @@ import traceback
 import numpy as np
 
 from .cameras import LEGACY_CAMERAS, aimed_link_matrix, link_camera_matrix, look_at_matrix, resolve_cameras
-from .contact_precision import aggregation_metadata, summarize_contact_groups
+from .contact_precision import aggregation_metadata, summarize_normal_impulses
 from .robot_registry import hand_actuator_values
 from bench.paths import DATA_ROOT, load_json
 
@@ -36,11 +38,50 @@ def _np(value):
     return np.asarray(value).copy()
 
 
+def contact_view_patterns(scene_info):
+    """Keep each declared actor once in the native contact filter inventory."""
+    sensors = list(scene_info['robot_link_paths'].values()) + [
+        item['path'] for item in scene_info['objects'].values()]
+    if len(set(sensors)) != len(sensors):
+        raise RuntimeError('Native contact sensors contain duplicate actor paths')
+    supports = list(scene_info.get('support_paths', ['/World/Table', '/World/Ground']))
+    fixtures = [path for item in scene_info['fixtures'].values()
+                for path in item.get('contact_filter_paths', item['collision_paths'])]
+    # Fixed-mesh adaptation includes fixture actors in support_paths as well.
+    # Union before constructing PhysX columns, preserving first-occurrence order;
+    # never deduplicate tensor results or drop a distinct physical filter.
+    return sensors, list(dict.fromkeys(sensors + supports + fixtures))
+
+
+def contact_view_paths(view):
+    """Read the actual column mapping; ambiguous native columns fail closed."""
+    sensors = list(view.sensor_paths)
+    raw_filters = list(view.filter_paths)
+    filters = ([list(raw_filters) for _ in sensors] if raw_filters and isinstance(raw_filters[0], str)
+               else [list(row) for row in raw_filters])
+    if (len(sensors) != view.sensor_count or len(filters) != view.sensor_count
+            or any(len(row) != view.filter_count for row in filters)):
+        raise RuntimeError('Native contact view path mapping does not match its tensor dimensions')
+    if len(set(sensors)) != len(sensors) or any(len(set(row)) != len(row) for row in filters):
+        raise RuntimeError('Native contact view returned duplicate actor paths')
+    return sensors, filters
+
+
 def physics_solver_type(options):
     """Select a release-owned solver; omission preserves the existing TGS stage."""
     selected = options.get('solver_type', 'TGS')
     if not isinstance(selected, str) or selected not in ('TGS', 'PGS'):
         raise ValueError('isaacsim.solver_type must be TGS or PGS')
+    return selected
+
+
+def named_cloth_initialization(scene):
+    """An explicit opt-in preserves the native authored-cloth warmup state."""
+    selected = scene.get('named_cloth_initialization', 'tensor-reset')
+    if selected not in ('tensor-reset', 'author-only'):
+        raise ValueError('named_cloth_initialization must be tensor-reset or author-only')
+    if selected == 'author-only' and not scene.get('cloths'):
+        raise ValueError('author-only initialization requires named cloths')
     return selected
 
 
@@ -74,16 +115,20 @@ class FR3DexterousIsaacEnv:
     def __init__(self, scene_spec, *, device='cuda:0', headless=True,
                  render_width=1280, render_height=720):
         self.scene_spec = deepcopy(scene_spec)
+        from .geometry import named_cloth_specs
+        # Reject malformed opt-in cloth collections before opening a GPU/Kit.
+        named_cloth_specs(self.scene_spec)
+        named_cloth_initialization(self.scene_spec)
         self.device = str(device)
         from .native_task_bundle import task_observer_enabled
         self.task_observer_enabled = task_observer_enabled(self.scene_spec)
         from .readback_profile import CPU_RIGID, resolve_profile
         self.readback_profile_resolution = resolve_profile(self.scene_spec)
         self.native_readback_profile = self.readback_profile_resolution['profile']
-        self.physics_device = 'cpu' if self.native_readback_profile == CPU_RIGID else self.device
+        self.physics_device = "cpu" if self.native_readback_profile == CPU_RIGID else self.device
         self.tensor_device = self.physics_device
         if not self.device.startswith('cuda:'):
-            raise ValueError('Select a CUDA device for native RTX rendering')
+            raise ValueError('Native surface deformables require CUDA PhysX GPU dynamics')
         self.render_width, self.render_height = int(render_width), int(render_height)
         # Scene-supplied cameras; a scene without a `cameras` block resolves to
         # the legacy overview/task pair, authored and rendered as before.
@@ -107,6 +152,9 @@ class FR3DexterousIsaacEnv:
         self.mimic_joints = self.hand_spec['mimic_joints']
         if robot.get('mount_position_m', self.hand_spec['mount_translation_m']) != self.hand_spec['mount_translation_m'] or robot.get('mount_quaternion_wxyz', self.hand_spec['mount_quaternion_wxyz']) != self.hand_spec['mount_quaternion_wxyz']:
             raise ValueError('Mount must match the selected versioned hand assembly')
+        if ('mounts_by_side' in self.hand_spec
+                and robot.get('mounts_by_side', self.hand_spec['mounts_by_side']) != self.hand_spec['mounts_by_side']):
+            raise ValueError('Side-specific mounts must match the selected versioned assembly')
         gpu = int(self.device.split(':')[1])
         # Opt-in single-device mode: CUDA_VISIBLE_DEVICES names one GPU and the
         # renderer is chosen by CUDA index, so rendering and physics share that
@@ -130,6 +178,7 @@ class FR3DexterousIsaacEnv:
         if not self.experience_path.is_file():
             raise FileNotFoundError(f'Isaac bench experience is missing: {self.experience_path}')
         self.allow_unvalidated_driver = os.environ.get('ISAAC_ALLOW_UNVALIDATED_DRIVER') == '1'
+        self.disable_crashreporter = os.environ.get('ISAAC_DISABLE_CRASHREPORTER') == '1'
         from .render_sync import startup_arguments
         extra_args = startup_arguments()
         if self.allow_unvalidated_driver:
@@ -140,6 +189,7 @@ class FR3DexterousIsaacEnv:
                                   'height': self.render_height, 'multi_gpu': False,
                                   **gpu_selection, 'physics_gpu': gpu,
                                   'renderer': 'RayTracedLighting', 'fast_shutdown': True,
+                                  **({'enable_crashreporter': False} if self.disable_crashreporter else {}),
                                   'extra_args': extra_args}, experience=str(self.experience_path))
         try:
             self._initialize()
@@ -160,7 +210,7 @@ class FR3DexterousIsaacEnv:
 
         settings = carb.settings.get_settings()
         if self.physics_device == 'cpu':
-            settings.set_int('/persistent/physics/numThreads', 0)
+            settings.set_int('/physics/overrideGPUDynamics', 0)
         # Keep native solver -> USD synchronization enabled for real rendering.
         settings.set_bool('/physics/updateToUsd', True)
         settings.set_bool('/physics/updateVelocitiesToUsd', True)
@@ -190,7 +240,12 @@ class FR3DexterousIsaacEnv:
         api.CreateGpuFoundLostAggregatePairsCapacityAttr(2**14)
         api.CreateGpuTotalAggregatePairsCapacityAttr(2**18)
         self.scene_info = build_scene(self.stage, self.scene_spec, self.robot_usd,
-                                      physics_scene_path=context.prim_path)
+                                      physics_scene_path=context.prim_path, robot_source=self.robot_source)
+        from .particle_surfaces import ParticleSurfaceRenderer
+        self._particle_surface_renderer = ParticleSurfaceRenderer(self.stage, device=self.device)
+        self._particle_surface_renderer.configure_refraction(settings,
+            volume_visual_bindings=self.scene_spec.get('native_task_bundle', {}).get('volume_visual_bindings'),
+            packet_visual_bindings=self.scene_spec.get('native_task_bundle', {}).get('packet_visual_bindings'))
         from .arm_motion import configure_arm_motion
         self.unrestricted_arm_joints = configure_arm_motion(
             self.stage, self.scene_info['joint_paths'], self.options.get('arm_motion_policy'))
@@ -346,6 +401,17 @@ class FR3DexterousIsaacEnv:
             if view.count != 1:
                 raise RuntimeError(f'PhysX rigid body missing: {name}')
         self.object_names = list(self._object_views)
+        self._liquid_payload = None
+        self._liquid_payload_dry_mass_rebinding = []
+        payload_spec = self.scene_spec.get('reduced_liquid_payload')
+        if payload_spec is not None:
+            reduced = self.scene_spec.get('native_task_bundle', {}).get('reduced_dynamics')
+            if not reduced:
+                raise ValueError('Native liquid payload requires an explicit frozen reduced dynamics provider')
+            from .reduced_liquid_payload import NativeLiquidPayload, parameterized_dry_masses
+            payload_spec, self._liquid_payload_dry_mass_rebinding = parameterized_dry_masses(payload_spec, reduced)
+            self._liquid_payload = NativeLiquidPayload(payload_spec, self._object_views, self._tensor,
+                physical_particle_sets=bool(self.scene_info.get('native_task_bundle', {}).get('particle_sets')))
         if self._task_readback is not None:
             self._task_readback.bind_views(self._object_views)
         self._fixed_actor_view = None
@@ -361,24 +427,10 @@ class FR3DexterousIsaacEnv:
             if not hasattr(self, '_fixed_actor_guard'):
                 self._fixed_actor_guard = FixedActorGuard(actual, transforms)
             self._fixed_actor_guard.check(actual, transforms)
-        sensors = list(self.scene_info['robot_link_paths'].values()) + [x['path'] for x in self.scene_info['objects'].values()]
-        # Support surfaces are scene-defined: the legacy pair for a workbench
-        # scene, the room floor and solid furniture for a structured room.
-        supports = list(self.scene_info.get('support_paths', ['/World/Table', '/World/Ground']))
-        filters = sensors + supports + [p for x in self.scene_info['fixtures'].values()
-                                        for p in x.get('contact_filter_paths', x['collision_paths'])]
+        sensors, filters = contact_view_patterns(self.scene_info)
         self._rigid_contacts = self._sim_view.create_rigid_contact_view(
             sensors, filter_patterns=[filters] * len(sensors), max_contact_data_count=32768)
-        self._contact_sensor_paths = list(self._rigid_contacts.sensor_paths)
-        raw_filters = list(self._rigid_contacts.filter_paths)
-        if raw_filters and isinstance(raw_filters[0], str):
-            self._contact_filter_paths = [raw_filters] * len(self._contact_sensor_paths)
-        else:
-            self._contact_filter_paths = [list(row) for row in raw_filters]
-        if (len(self._contact_sensor_paths) != self._rigid_contacts.sensor_count or
-            len(self._contact_filter_paths) != self._rigid_contacts.sensor_count or
-            any(len(row) != self._rigid_contacts.filter_count for row in self._contact_filter_paths)):
-            raise RuntimeError('Native contact view path mapping does not match its tensor dimensions')
+        self._contact_sensor_paths, self._contact_filter_paths = contact_view_paths(self._rigid_contacts)
         self._soft_views, self._soft_initial = {}, {}
         for name, info in self.scene_info.get('soft_bodies', {}).items():
             view = self._sim_view.create_volume_deformable_body_view(info['path'])
@@ -406,6 +458,94 @@ class FR3DexterousIsaacEnv:
             actual = _np(self._cloth_view.get_simulation_nodal_positions())[0]
             if actual.shape != self._cloth_initial.shape:
                 raise RuntimeError(f'Cloth vertex topology changed: {actual.shape} != {self._cloth_initial.shape}')
+        self._initialize_named_cloths()
+
+    def _initialize_named_cloths(self):
+        """One native view per cloth preserves topology, identity and reset state."""
+        from .geometry import cloth_initial_vertices, named_cloth_specs
+        specs = named_cloth_specs(self.scene_spec)
+        infos = self.scene_info.get('cloths', {})
+        if set(specs) != set(infos):
+            raise RuntimeError('Authored named cloth inventory differs from the scene specification')
+        self._cloth_views, self._cloth_initials, self.cloth_triangles = {}, {}, {}
+        for name, info in infos.items():
+            view = self._sim_view.create_surface_deformable_body_view(info['path'])
+            if view.count != 1:
+                raise RuntimeError(f'PhysX did not create the named surface deformable {name}')
+            initial = cloth_initial_vertices(specs[name], info['rest_vertices'])
+            actual = _np(view.get_simulation_nodal_positions())[0]
+            if actual.shape != initial.shape:
+                raise RuntimeError(f'Cloth {name} vertex topology changed: {actual.shape} != {initial.shape}')
+            self._cloth_views[name], self._cloth_initials[name] = view, initial
+            self.cloth_triangles[name] = info['triangles'].copy()
+        self.cloth_names = list(self._cloth_views)
+        self.has_named_cloths = bool(self.cloth_names)
+        self._cloth_visuals = {}
+        for name, spec in specs.items():
+            if 'visual_thickness_m' not in spec:
+                continue
+            from .cloth_visuals import ClosedClothVisual
+            info = infos[name]
+            thickness = float(spec['visual_thickness_m'])
+            physical = float(info['material']['omniphysics:surfaceThickness'])
+            if not np.isclose(thickness, physical, rtol=0., atol=1.e-8):
+                raise ValueError('Cloth visual thickness must match declared physical material thickness')
+            positions = _np(self._cloth_views[name].get_simulation_nodal_positions())[0]
+            if 'visual_profile' in spec:
+                # Render-only opt-in: a hash-pinned baked fabric appearance for
+                # this exact rest mesh and frozen dye. Physics is untouched.
+                from .fabric_visuals import FabricClothVisual, load_visual_profile
+                visual = FabricClothVisual(self.stage, info['path'], name, info['triangles'],
+                    info['rest_vertices'], thickness, load_visual_profile(spec['visual_profile']),
+                    positions, dye_linear_rgb=info['visual_color'])
+            else:
+                visual = ClosedClothVisual(self.stage, info['path'], name, info['triangles'],
+                    info['rest_vertices'], thickness, info['visual_color'],
+                    spec.get('visual_texture_paths'), positions,
+                    texture_tile_size_m=spec.get('visual_texture_tile_size_m'),
+                    **({'visual_face_groups': spec['visual_face_groups']} if 'visual_face_groups' in spec else {}))
+            self._cloth_visuals[name] = visual
+            info['visual_skin'] = visual.metadata
+
+    def _validated_named_cloth_reset(self, supplied):
+        if not isinstance(supplied, dict):
+            raise ValueError('Reset cloths_vertices_m must map cloth ids to world-space vertices')
+        originals = getattr(self, '_cloth_initials', {})
+        if set(supplied) - set(originals):
+            raise ValueError('Reset contains an unknown named cloth')
+        points_by_id = {}
+        for name, initial in originals.items():
+            points = np.asarray(supplied.get(name, initial), dtype=np.float32)
+            if points.shape != initial.shape or not np.isfinite(points).all():
+                raise ValueError(f'Reset cloth {name} vertices must match its original finite Nx3 mesh')
+            if named_cloth_initialization(self.scene_spec) == 'author-only' and not np.array_equal(points, initial):
+                raise ValueError('author-only cloth reset must match the authored scene; create a fresh episode for new geometry')
+            points_by_id[name] = points.copy()
+        return points_by_id
+
+    def _reset_named_cloths(self, points_by_id):
+        # Called only from reset after every member has been validated. This is
+        # deliberately not an action/public state-write endpoint.
+        if named_cloth_initialization(self.scene_spec) == 'author-only':
+            # World.reset has already performed native initialization. Writing
+            # q/qd here discards that state and creates a large contact impulse.
+            self.named_cloth_initialization_receipt = {
+                'mode': 'author-only', 'native_warmup_preserved': True,
+                'position_write_calls': 0, 'velocity_write_calls': 0,
+                'native_world_time_s': float(self.world.current_time),
+                'native_physics_step_index': int(self.world.current_time_step_index)}
+            return
+        for name, points in points_by_id.items():
+            view = self._cloth_views[name]
+            view.set_simulation_nodal_positions(self._tensor(points[None, ...]), self._one)
+            view.set_simulation_nodal_velocities(self._tensor(np.zeros_like(points)[None, ...]), self._one)
+
+    def _named_cloth_observation(self, state):
+        return {name: {'enabled': True, 'vertices_m': state[f'cloth_{name}_q'].tolist(),
+                       'velocities_m_s': state[f'cloth_{name}_qd'].tolist(),
+                       'triangles': self.cloth_triangles[name].tolist(),
+                       'centroid_m': state[f'cloth_{name}_q'].mean(axis=0).tolist()}
+                for name in getattr(self, 'cloth_names', [])}
 
     def _tensor(self, value, device=None):
         import torch
@@ -428,7 +568,7 @@ class FR3DexterousIsaacEnv:
         if not isinstance(action, dict) or set(action) != {'joint_positions_rad', 'duration_s'}:
             raise ValueError('Action contains only complete joint_positions_rad and duration_s; object/cloth writes are reset-only')
         if isinstance(action['duration_s'], bool) or action['duration_s'] != self.control_dt:
-            raise ValueError(f'Action duration must match control period {self.control_dt} s')
+            raise ValueError('The benchmark control period is fixed at 0.02 s')
         q = action['joint_positions_rad']
         if not isinstance(q, dict) or set(q) != set(getattr(self, 'actuated_joint_names', self.joint_names)):
             raise ValueError('Supply exactly the active named robot joint targets from action_spec')
@@ -449,17 +589,31 @@ class FR3DexterousIsaacEnv:
     def reset(self, seed=0, initial_state=None):
         """The only entry point permitted to directly initialize physical state."""
         initial = deepcopy(initial_state or {})
-        if set(initial) - {'objects', 'cloth_vertices_m', 'joint_positions_rad', 'soft_body_nodes_m'}:
+        author_only = named_cloth_initialization(self.scene_spec) == 'author-only'
+        receipt = getattr(self, 'named_cloth_initialization_receipt', {})
+        if author_only and self._reset_count and (
+                getattr(self, 'time_s', None) != 0. or
+                int(self.world.current_time_step_index) != receipt.get('native_physics_step_index')):
+            # The episode worker constructs a fresh env per episode. Reusing
+            # live cloth USD would preserve the preceding episode's shape.
+            raise ValueError('author-only cloth initialization requires a fresh environment per episode')
+        if set(initial) - {'objects', 'cloth_vertices_m', 'cloths_vertices_m', 'joint_positions_rad', 'soft_body_nodes_m'}:
             raise ValueError('Unknown reset state fields')
+        named_cloth_reset = self._validated_named_cloth_reset(initial.get('cloths_vertices_m', {}))
         if set(initial.get('soft_body_nodes_m', {})) - set(getattr(self, 'soft_body_names', [])):
             raise ValueError('Reset contains an unknown soft body')
         if set(initial.get('objects', {})) - set(self.object_names):
             raise ValueError('Reset contains an unknown task object')
         task_readback = getattr(self, '_task_readback', None)
         bundle = self.scene_info.get('native_task_bundle')
+        volume_author_only = bool(bundle and bundle.get('volume_bodies'))
+        if volume_author_only and self._reset_count and (
+                self.time_s != 0. or int(self.world.current_time_step_index) !=
+                self._task_reader.volumes.initialization['native_step']):
+            raise ValueError('Native task volumes require a fresh environment per episode; live node reset is forbidden')
         if bundle and set(initial.get('objects', {})) & set(bundle['objects']):
             raise ValueError('Referenced mechanism resets must use their frozen assembly poses')
-        if (self._reset_count or (task_readback is not None and task_readback.has_particles)
+        if ((self._reset_count and not (author_only or volume_author_only)) or (task_readback is not None and task_readback.has_particles)
                 or (bundle is not None and bundle['particle_sets'])):
             # Stop before restoring source state. Reattach with the declared
             # readback profile and recreate every native tensor handle.
@@ -511,8 +665,12 @@ class FR3DexterousIsaacEnv:
                 raise ValueError(f'Invalid reset object pose: {name}')
             quat /= np.linalg.norm(quat)
             tf = np.asarray([[*pos, *quat[[1, 2, 3, 0]]]], dtype=np.float32)
-            self._object_views[name].set_transforms(self._tensor(tf), self._one)
-            self._object_views[name].set_velocities(self._tensor(np.zeros((1, 6), dtype=np.float32)), self._one)
+            if volume_author_only and name in bundle['objects']:
+                # Preserve coupled native initialization, including the rigid endpoint.
+                pos = _np(self._object_views[name].get_transforms())[0, :3]
+            else:
+                self._object_views[name].set_transforms(self._tensor(tf), self._one)
+                self._object_views[name].set_velocities(self._tensor(np.zeros((1, 6), dtype=np.float32)), self._one)
             self._initial_objects[name] = pos.copy()
         if self.has_cloth:
             points = np.asarray(initial.get('cloth_vertices_m', self._cloth_initial), dtype=np.float32)
@@ -522,6 +680,7 @@ class FR3DexterousIsaacEnv:
             self._cloth_view.set_simulation_nodal_velocities(self._tensor(np.zeros_like(points)[None, ...]), self._one)
         elif 'cloth_vertices_m' in initial:
             raise ValueError('This task has no cloth')
+        self._reset_named_cloths(named_cloth_reset)
         for name, view in self._soft_views.items():
             nodes = np.asarray(initial.get('soft_body_nodes_m', {}).get(name, self._soft_initial[name]), dtype=np.float32)
             if nodes.shape != self._soft_initial[name].shape or not np.isfinite(nodes).all():
@@ -537,8 +696,12 @@ class FR3DexterousIsaacEnv:
             task_readback.invalidate()
         self._begin_contact_sampling(baseline=True)
         if bundle and self.task_observer_enabled:
+            if getattr(self, '_liquid_payload', None) is not None:
+                self._liquid_payload.begin_episode()
             from .native_task_bundle import NativeTaskReader
-            self._task_reader = NativeTaskReader(self.stage, bundle, self.scene_spec['native_task_bundle'], world=self.world)
+            self._task_reader = NativeTaskReader(self.stage, bundle, self.scene_spec['native_task_bundle'],
+                                                 world=self.world, simulation_view=self._sim_view)
+            self._task_reader.bind_volume_robot_geometry(self)
             self._sample_task_state([], baseline=True)
         return self.observation()
 
@@ -552,8 +715,8 @@ class FR3DexterousIsaacEnv:
         return {'joint_positions_rad': active, 'duration_s': self.control_dt}
 
     def step(self, action):
-        if getattr(self, '_visual_replay_only', False):
-            raise RuntimeError('Visual replay cannot resume physics or execute actions')
+        if getattr(self, "_visual_replay_only", False):
+            raise RuntimeError("Visual replay cannot resume physics or execute actions")
         self._validate_action(action)
         if self.terminated:
             raise RuntimeError('Episode terminated; reset before stepping')
@@ -585,8 +748,8 @@ class FR3DexterousIsaacEnv:
                 self._sample_task_state(self._contact_reports[contact_start:])
         if self.world.current_time_step_index - native_start_step != round(self.control_dt / self.dt):
             raise RuntimeError('Native physics callback count differs from requested integration steps')
-        if not math.isclose(self.world.current_time - native_start_time, self.control_dt, abs_tol=1.e-8, rel_tol=0):
-            raise RuntimeError('Native physics elapsed time differs from configured control interval')
+        if not np.isclose(self.world.current_time - native_start_time, self.control_dt, atol=1.e-8, rtol=0):
+            raise RuntimeError('Native physics elapsed time differs from 20 ms control interval')
         if self._contact_sampling['sampled_substeps'] != round(self.control_dt / self.dt):
             raise RuntimeError('Native rigid contact sampling missed a physics substep')
         self._contact_sampling['complete'] = True
@@ -609,7 +772,7 @@ class FR3DexterousIsaacEnv:
         if used >= self._rigid_contacts.max_contact_data_count:
             raise RuntimeError('Native rigid contact buffer reached capacity; evidence may be truncated')
         force, normal, separation = _np(force[:used]).reshape(-1), _np(normal[:used]), _np(separation[:used]).reshape(-1)
-        pairs = []
+        rows = []
         seen = set()
         for i, j in active:
             actor0, actor1 = self._contact_sensor_paths[i], self._contact_filter_paths[i][j]
@@ -617,15 +780,12 @@ class FR3DexterousIsaacEnv:
             if key in seen:
                 continue
             seen.add(key)
-            pairs.append((actor0, actor1, int(starts[i,j]), int(counts[i,j])))
-        summaries = summarize_contact_groups(force, normal,
-            [p[2] for p in pairs], [p[3] for p in pairs])
-        rows = []
-        for (actor0, actor1, start, count), summary in zip(pairs, summaries):
+            start, count = int(starts[i,j]), int(counts[i,j])
+            f, n, sep = force[start:start+count], normal[start:start+count], separation[start:start+count]
             rows.append({'time_s': self._current_step_time,
                 'actor0': actor0, 'actor1': actor1, 'collider0': None, 'collider1': None,
-                'point_count': count, **summary,
-                'min_separation_m': float(separation[start:start+count].min()),
+                'point_count': count, **summarize_normal_impulses(f, n),
+                'min_separation_m': float(sep.min()),
                 'impulse_components': 'normal_only', 'collider_identity_available': False})
         return rows
 
@@ -635,6 +795,10 @@ class FR3DexterousIsaacEnv:
         self._task_reader.sample(objects=objects, contacts=contacts, time_s=self.time_s,
             native_time_s=self.world.current_time, native_step=self.world.current_time_step_index,
             physics_dt_s=self.dt, baseline=baseline)
+        if getattr(self, '_liquid_payload', None) is not None:
+            state = json.loads(json.dumps(self._task_reader.reduced_dynamics.on_observe(), allow_nan=False))
+            self._liquid_payload.sync(state, native_time_s=float(self.world.current_time),
+                native_step=int(self.world.current_time_step_index), baseline=baseline)
 
     def _begin_contact_sampling(self, *, baseline=False):
         """Record actual acquisitions, including empty-contact substeps."""
@@ -652,9 +816,9 @@ class FR3DexterousIsaacEnv:
         sampling = self._contact_sampling
         step, native_time = int(self.world.current_time_step_index), float(self.world.current_time)
         if (sampling['complete'] or step != sampling['native_end_step_index'] + 1
-                or not math.isclose(native_time - sampling['native_end_time_s'], self.dt, abs_tol=1.e-9, rel_tol=0)
-                or not math.isclose(self.time_s - sampling['end_sim_time_s'], self.dt, abs_tol=1.e-9, rel_tol=0)
-                or not math.isclose(self._current_step_time, self.time_s, abs_tol=1.e-9, rel_tol=0)):
+                or not np.isclose(native_time - sampling['native_end_time_s'], self.dt, atol=1.e-9, rtol=0)
+                or not np.isclose(self.time_s - sampling['end_sim_time_s'], self.dt, atol=1.e-9, rtol=0)
+                or not np.isclose(self._current_step_time, self.time_s, atol=1.e-9, rtol=0)):
             raise RuntimeError('Native contact acquisition clock is stale, skipped or inconsistent')
         exchange = getattr(self, '_contact_exchange', None)
         public_time = float(self.time_s)
@@ -682,6 +846,8 @@ class FR3DexterousIsaacEnv:
         point_vel = _np(self._cloth_view.get_simulation_nodal_velocities())[0] if self.has_cloth else np.empty((0, 3))
         soft = {name: (_np(view.get_simulation_nodal_positions())[0], _np(view.get_simulation_nodal_velocities())[0])
                 for name, view in getattr(self, '_soft_views', {}).items()}
+        cloths = {name: (_np(view.get_simulation_nodal_positions())[0], _np(view.get_simulation_nodal_velocities())[0])
+                  for name, view in getattr(self, '_cloth_views', {}).items()}
         fixed = {}
         if getattr(self, '_fixed_actor_view', None) is not None:
             fixed = {'kinematic_support_q': _np(self._fixed_actor_view.get_transforms()),
@@ -690,9 +856,16 @@ class FR3DexterousIsaacEnv:
                 if getattr(self, '_task_readback', None) is not None else {})
         task_particles = (self._task_reader.capture_particles()
                           if getattr(self, '_task_reader', None) is not None else {})
-        return {**fixed, **task, **task_particles, 'joint_q': q, 'joint_qd': qd, 'joint_target_q': self._targets[0].copy(),
+        task_volumes = (self._task_reader.volumes.capture()
+                        if getattr(self, '_task_reader', None) is not None else {})
+        liquid_payload = (self._liquid_payload.capture()
+                          if getattr(self, '_liquid_payload', None) is not None else {})
+        return {**fixed, **task, **task_particles, **task_volumes, **liquid_payload,
+                'joint_q': q, 'joint_qd': qd, 'joint_target_q': self._targets[0].copy(),
                 **{f'soft_{name}_q': nodes for name, (nodes, _) in soft.items()},
                 **{f'soft_{name}_qd': velocities for name, (_, velocities) in soft.items()},
+                **{f'cloth_{name}_q': nodes for name, (nodes, _) in cloths.items()},
+                **{f'cloth_{name}_qd': velocities for name, (_, velocities) in cloths.items()},
                 'body_q': np.concatenate([body, objects]), 'body_qd': np.concatenate([body_vel, object_vel]),
                 'object_q': objects, 'object_qd': object_vel,
                 'particle_q': points, 'particle_qd': point_vel, 'time_s': np.asarray(self.time_s),
@@ -745,10 +918,10 @@ class FR3DexterousIsaacEnv:
                 'cloth': {'enabled': self.has_cloth, 'vertices_m': points.tolist(),
                           'velocities_m_s': state['particle_qd'].tolist(), 'triangles': self.triangles.tolist(),
                           'centroid_m': points.mean(axis=0).tolist() if len(points) else None},
+                **({'cloths': self._named_cloth_observation(state)} if getattr(self, 'cloth_names', []) else {}),
                 'contacts': {'source': 'PhysX stage-bound rigid contact tensor; normal impulses',
                              'scope': 'Robot/task rigid-body pairs against robot, objects, table, ground and fixture colliders; every physics substep',
-                             'rigid': [dict(row, impulse_vector_ns=list(row['impulse_vector_ns']))
-                                       for row in self._contact_reports], 'errors': list(self._contact_errors),
+                             'rigid': deepcopy(self._contact_reports), 'errors': list(self._contact_errors),
                              'sampling': deepcopy(self._contact_sampling),
                              'cloth_contact_reporting': 'unavailable; not replaced by geometric proximity',
                              'rigid_contact_point_count': sum(x['point_count'] for x in self._contact_reports),
@@ -779,6 +952,9 @@ class FR3DexterousIsaacEnv:
         if info['cloth']:
             info['cloth'].pop('triangles')
             info['cloth'].pop('rest_vertices')
+        for cloth in info.get('cloths', {}).values():
+            cloth['vertex_count'] = len(cloth.pop('rest_vertices'))
+            cloth['triangle_count'] = len(cloth.pop('triangles'))
         for soft in info.get('soft_bodies', {}).values():
             for key in ('tets', 'surface_triangles', 'rest_vertices'):
                 soft[key] = np.asarray(soft.pop(key)).shape
@@ -804,8 +980,7 @@ class FR3DexterousIsaacEnv:
             robot_usd, robot_usd_sha256 = str(self.robot_usd), digest(self.robot_usd)
             import_record = {'path': str(manifests[None]), 'sha256': digest(manifests[None]), 'snapshot': snapshots[None]}
         return {'robot_model': 'FR3 + ' + self.hand_spec['label'], 'hand_spec': deepcopy(self.hand_spec),
-                'physics_engine': ('Isaac Sim native PhysX CPU rigid dynamics' if self.physics_device == 'cpu'
-                                   else 'Isaac Sim native PhysX GPU rigid dynamics and surface deformables'),
+                'physics_engine': ('Isaac Sim native PhysX CPU rigid dynamics' if self.physics_device == 'cpu' else 'Isaac Sim native PhysX GPU rigid dynamics and surface deformables'),
                 'physics_device': self.physics_device,
                 'native_task_observer_enabled': self.task_observer_enabled,
                 'isaacsim_version': list(get_version()), 'kit_version': omni.kit.app.get_app().get_build_version(),
@@ -814,6 +989,14 @@ class FR3DexterousIsaacEnv:
                 'native_readback_configuration': deepcopy(self.runtime_readback_configuration),
                 'native_readback_profile_resolution': deepcopy(self.readback_profile_resolution),
                 'native_state_tensor_device': str(self._native_tensor_device),
+                **({'named_cloth_initialization': deepcopy(self.named_cloth_initialization_receipt)}
+                   if hasattr(self, 'named_cloth_initialization_receipt') else {}),
+                **({'task_volume_initialization': deepcopy(self._task_reader.volumes.initialization)}
+                   if self._task_reader is not None and self._task_reader.volumes.info else {}),
+                **({'reduced_liquid_payload': self._liquid_payload.metadata()}
+                   if getattr(self, '_liquid_payload', None) is not None else {}),
+                **({'reduced_liquid_payload_dry_mass_rebinding': deepcopy(self._liquid_payload_dry_mass_rebinding)}
+                   if getattr(self, '_liquid_payload_dry_mass_rebinding', None) else {}),
                 'physics_solver': {
                     'profile_selection': self.solver_type,
                     'usd_readback': self.stage.GetPrimAtPath(self.world.get_physics_context().prim_path)
@@ -829,6 +1012,7 @@ class FR3DexterousIsaacEnv:
                                   if self.single_cuda_device else {'mode': 'physical_index'}),
                 'experience': {'path': str(self.experience_path), 'sha256': digest(self.experience_path)},
                 'driver_verification_disabled': self.allow_unvalidated_driver,
+                'crashreporter_disabled': self.disable_crashreporter,
                 'driver_support_status': ('Unvalidated host-driver compatibility experiment; not vendor-supported qualification.'
                                           if self.allow_unvalidated_driver else 'Native RTX driver verification enabled.'),
                 'scene_spec': deepcopy(self.scene_spec), 'scene_info': info,
@@ -868,8 +1052,7 @@ class FR3DexterousIsaacEnv:
                 'trained_rl_connected': False, 'manus_hardware_connected': False,
                 'material_calibrated': False, 'mount_calibrated': False,
                 'capture_state_scope': 'Observed physical arrays; not a complete solver checkpoint.',
-                'collision_mode': ('PhysX CPU' if self.physics_device == 'cpu' else 'PhysX GPU')
-                                  + '; speculative rigid CCD, swept CCD disabled',
+                'collision_mode': 'PhysX GPU; speculative rigid CCD, swept CCD disabled',
                 'contact_evidence': {'source': 'stage-bound PhysX RigidContactView.get_contact_data(dt=1)',
                                      'sensor_paths': self._contact_sensor_paths, 'filter_paths': self._contact_filter_paths,
                                      'capacity_points': self._rigid_contacts.max_contact_data_count,
@@ -885,6 +1068,78 @@ class FR3DexterousIsaacEnv:
                 'native_isaacsim_app': True, 'standalone_newton_runtime_used': False,
                 'reset_override': deepcopy(self.reset_override),
                 'sources_sha256': {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in source_files}}
+
+
+
+
+    def _camera_mount_paths(self):
+        links = self.scene_info['robot_link_paths']
+        frames = self.scene_info.get('robot_frame_paths', {})
+        if set(links) & set(frames):
+            raise ValueError('A nonphysical camera frame aliases a native rigid body')
+        return {**links, **frames}
+
+    def _camera_prim_path(self, camera):
+        """Where a camera's prim lives: world-fixed, or under its mount link.
+
+        A wrist camera is a child of the hand link, so it rides the arm with no
+        per-step work and cannot be desynchronised from the physical state.
+        """
+        spec = self.cameras[camera]
+        if spec['kind'] == 'world':
+            return '/World/Cameras/' + camera
+        if camera in self._link_camera_paths:
+            return self._link_camera_paths[camera]
+        link = spec['mount_link']
+        links = self._camera_mount_paths()
+        if link not in links:
+            raise ValueError(f'Camera {camera!r} mounts on unknown robot link {link!r}; '
+                             f'available: {sorted(links)}')
+        path = f'{links[link]}/bench_camera_{camera}'
+        self._link_camera_paths[camera] = path
+        return path
+
+    def _author_cameras(self):
+        """Create every declared camera prim once, after the robot is imported."""
+        from pxr import Gf, UsdGeom
+        for name, spec in self.cameras.items():
+            path = self._camera_prim_path(name)
+            if self.stage.GetPrimAtPath(path):
+                continue
+            camera = UsdGeom.Camera.Define(self.stage, path)
+            if spec['kind'] == 'world':
+                matrix = look_at_matrix(spec['eye'], spec['target'])
+                clipping = tuple(spec.get('clipping_m', (.01, 100.)))
+            elif spec.get('aim_target_m') is not None:
+                # Aimed wrist camera: its local transform is solved from the mount
+                # link's *world* pose, so it frames the workspace rather than
+                # depending on the link's own axis convention. The link's world
+                # transform is required here - GetLocalTransformation() returns a
+                # parent-relative transform and would misplace the camera. It stays
+                # a child of the link and rides the hand afterwards.
+                link = self._camera_mount_paths()[spec['mount_link']]
+                link_prim = self.stage.GetPrimAtPath(link)
+                if not link_prim:
+                    raise ValueError(f'Camera {name!r} mount link prim is missing: {link}')
+                from pxr import Usd
+                link_world = UsdGeom.XformCache(Usd.TimeCode.Default()).GetLocalToWorldTransform(link_prim)
+                matrix = aimed_link_matrix(link_world, spec['offset_xyz_m'], spec['aim_target_m'],
+                                           float(spec.get('standoff_m', 0.)))
+                clipping = tuple(spec['clipping_m'])
+            else:
+                matrix = link_camera_matrix((spec['offset_rpy_rad'][0], spec['offset_rpy_rad'][1],
+                                             spec['offset_rpy_rad'][2], spec['offset_xyz_m']))
+                clipping = tuple(spec['clipping_m'])
+            UsdGeom.Xformable(camera).AddTransformOp().Set(matrix)
+            camera.CreateFocalLengthAttr(float(spec['focal_length_mm']))
+            # Missing aperture fields retain the frozen legacy USD defaults.
+            if 'horizontal_aperture_mm' in spec:
+                camera.CreateHorizontalApertureAttr(spec['horizontal_aperture_mm'])
+            if 'vertical_aperture_mm' in spec:
+                camera.CreateVerticalApertureAttr(spec['vertical_aperture_mm'])
+            camera.CreateClippingRangeAttr(Gf.Vec2f(*clipping))
+        return {name: self._camera_prim_path(name) for name in self.cameras}
+
 
     def render(self, camera='overview', width=None, height=None):
         """Return actual RTX pixels; rendering does not advance physics time."""
@@ -911,67 +1166,6 @@ class FR3DexterousIsaacEnv:
                 not np.array_equal(before[key], after[key]) for key in before):
             raise RuntimeError('RGB-D/RGB rendering changed physical state')
         return frame
-
-    def _camera_prim_path(self, camera):
-        """Where a camera's prim lives: world-fixed, or under its mount link.
-
-        A wrist camera is a child of the hand link, so it rides the arm with no
-        per-step work and cannot be desynchronised from the physical state.
-        """
-        spec = self.cameras[camera]
-        if spec['kind'] == 'world':
-            return '/World/Cameras/' + camera
-        if camera in self._link_camera_paths:
-            return self._link_camera_paths[camera]
-        link = spec['mount_link']
-        links = self.scene_info['robot_link_paths']
-        if link not in links:
-            raise ValueError(f'Camera {camera!r} mounts on unknown robot link {link!r}; '
-                             f'available: {sorted(links)}')
-        path = f'{links[link]}/bench_camera_{camera}'
-        self._link_camera_paths[camera] = path
-        return path
-
-    def _author_cameras(self):
-        """Create every declared camera prim once, after the robot is imported."""
-        from pxr import Gf, UsdGeom
-        for name, spec in self.cameras.items():
-            path = self._camera_prim_path(name)
-            if self.stage.GetPrimAtPath(path):
-                continue
-            camera = UsdGeom.Camera.Define(self.stage, path)
-            if spec['kind'] == 'world':
-                matrix = look_at_matrix(spec['eye'], spec['target'])
-                clipping = tuple(spec.get('clipping_m', (.01, 100.)))
-            elif spec.get('aim_target_m') is not None:
-                # Aimed wrist camera: its local transform is solved from the mount
-                # link's *world* pose, so it frames the workspace rather than
-                # depending on the link's own axis convention. The link's world
-                # transform is required here - GetLocalTransformation() returns a
-                # parent-relative transform and would misplace the camera. It stays
-                # a child of the link and rides the hand afterwards.
-                link = self.scene_info['robot_link_paths'][spec['mount_link']]
-                link_prim = self.stage.GetPrimAtPath(link)
-                if not link_prim:
-                    raise ValueError(f'Camera {name!r} mount link prim is missing: {link}')
-                from pxr import Usd
-                link_world = UsdGeom.XformCache(Usd.TimeCode.Default()).GetLocalToWorldTransform(link_prim)
-                matrix = aimed_link_matrix(link_world, spec['offset_xyz_m'], spec['aim_target_m'],
-                                           float(spec.get('standoff_m', 0.)))
-                clipping = tuple(spec['clipping_m'])
-            else:
-                matrix = link_camera_matrix((spec['offset_rpy_rad'][0], spec['offset_rpy_rad'][1],
-                                             spec['offset_rpy_rad'][2], spec['offset_xyz_m']))
-                clipping = tuple(spec['clipping_m'])
-            UsdGeom.Xformable(camera).AddTransformOp().Set(matrix)
-            camera.CreateFocalLengthAttr(float(spec['focal_length_mm']))
-            # Missing aperture fields retain the frozen legacy USD defaults.
-            if 'horizontal_aperture_mm' in spec:
-                camera.CreateHorizontalApertureAttr(spec['horizontal_aperture_mm'])
-            if 'vertical_aperture_mm' in spec:
-                camera.CreateVerticalApertureAttr(spec['vertical_aperture_mm'])
-            camera.CreateClippingRangeAttr(Gf.Vec2f(*clipping))
-        return {name: self._camera_prim_path(name) for name in self.cameras}
 
     def prepare_cameras(self):
         """Author declared camera mounts without allocating render products or stepping."""
@@ -1002,17 +1196,27 @@ class FR3DexterousIsaacEnv:
         for key, (product, _) in self._render_products.items():
             product.hydra_texture.set_updates_enabled(key in active_keys)
         visual_state = None
+        for name, visual in getattr(self, '_cloth_visuals', {}).items():
+            visual.sync(_np(self._cloth_views[name].get_simulation_nodal_positions())[0])
         if getattr(self, '_task_reader', None) is not None:
             visual_state = self._task_reader.sync_visual_state()
+        surface_renderer = getattr(self, '_particle_surface_renderer', None)
+        particle_surfaces = surface_renderer.sync() if surface_renderer else []
         # World.render updates every active product; prepare all cameras first.
         for _ in range(max(warmup for _, warmup in products.values())):
+            if surface_renderer:
+                surface_renderer.hide_native_surfaces()
             self.world.render()
         self.render_sync = verify_settings(carb.settings.get_settings())
         if (self.world.current_time_step_index != physics_step_before or
                 self.world.current_time != native_time_before):
             raise RuntimeError('Rendering unexpectedly advanced native PhysX; frame/state mapping is invalid')
-        return {camera: self._read_render_product(key, include_depth=include_depth, visual_state=visual_state)
-                for camera, (key, _) in products.items()}
+        frames = {camera: self._read_render_product(key, include_depth=include_depth, visual_state=visual_state)
+                  for camera, (key, _) in products.items()}
+        if particle_surfaces:
+            for frame in frames.values():
+                frame['particle_surfaces'] = particle_surfaces
+        return frames
 
     def _prepare_render_product(self, camera, width, height, *, include_depth):
         import omni.replicator.core as rep

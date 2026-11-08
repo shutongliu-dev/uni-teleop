@@ -394,6 +394,137 @@ def test_harness_requires_assembly_before_removal_and_support_for_each_lead():
     assert result['success']
 
 
+def _place_harness_assignment(task, frame, targets, reversed_groups=()):
+    """Scoring-only states and signed contacts for an explicit two-end bijection."""
+    p = task['asset_metadata']['task_parameters']
+    actors, fixtures = task['asset_metadata']['actors'], task['asset_metadata']['fixtures']
+    goals = {goal['actor']: goal for goal in p['seating_goals']}
+    rows = []
+    for group in p['flexible_groups']:
+        ids = group['actor_ids']
+        reverse = group['id'] in reversed_groups
+        destination_ids = ids[::-1] if reverse else ids
+        for name, destination in zip(ids, destination_ids):
+            frame['objects'][name]['position_m'] = list(targets[destination])
+            frame['objects'][name]['quaternion_wxyz'] = [0., 0., 0., 1.] if reverse else [1., 0., 0., 0.]
+        endpoints = [ids[0], ids[-1]]
+        for actor, target in zip(endpoints, endpoints[::-1] if reverse else endpoints):
+            rows.append((actors[actor], fixtures[goals[target]['contact_ids'][0]]))
+        rows.append((actors[ids[1]], fixtures['workplate']))
+    return [dict(actor0=a, actor1=b, impulse_magnitude_sum_ns=.001,
+        impulse_vector_ns=[0., 0., .001], min_separation_m=0., time_s=0.) for a, b in rows]
+
+
+@pytest.mark.parametrize('reversed_groups', [(), ('red',), ('blue',), ('red', 'blue')])
+def test_equivalent_harness_endpoints_accept_all_four_assignments_and_then_removal(reversed_groups):
+    task, frame, observer, evaluator, targets = fixture('nist_wire_harness')
+    rows = _place_harness_assignment(task, frame, targets, reversed_groups)
+    result = advance(frame, observer, evaluator, duration=.2, rows=rows)
+    assert not observer.on_observe()['detail']['assembly_confirmed']
+    result = advance(frame, observer, evaluator, duration=.14, rows=rows)
+    summary = observer.on_observe()
+    assert result['status'] == 'ongoing' and summary['phase'] == 'removing'
+    assert summary['detail']['assembly_confirmed'] and len(summary['events']) == 1
+    for group, detail in summary['detail']['endpoint_matching'].items():
+        assert detail == {'complete': True,
+                          'assignment': 'reversed' if group in reversed_groups else 'forward'}
+    for obj in frame['objects'].values():
+        obj['position_m'][0] += .35
+        obj['position_m'][1] -= .06
+    result = advance(frame, observer, evaluator, rows=contacts(task, 'tray'))
+    assert result['success'] and len(observer.on_observe()['events']) == 1
+
+
+@pytest.mark.parametrize('fault', [
+    'duplicate_terminal', 'cross_color', 'missing_contact', 'wrong_terminal_contact',
+    'table_support_only', 'zero_load', 'reversed_without_half_turn', 'shortcut',
+])
+def test_harness_endpoint_equivalence_does_not_remove_physical_gates(fault):
+    task, frame, observer, evaluator, targets = fixture('nist_wire_harness')
+    rows = _place_harness_assignment(task, frame, targets, ('red',))
+    paths = task['asset_metadata']['actors']
+    fixtures = task['asset_metadata']['fixtures']
+    if fault == 'duplicate_terminal':
+        frame['objects']['red_3']['position_m'] = list(frame['objects']['red_0']['position_m'])
+        for row in rows:
+            if row['actor0'] == paths['red_3']:
+                row['actor1'] = fixtures['red_3_socket']
+    elif fault == 'cross_color':
+        for i in range(4):
+            frame['objects'][f'red_{i}']['position_m'], frame['objects'][f'blue_{i}']['position_m'] = (
+                frame['objects'][f'blue_{i}']['position_m'], frame['objects'][f'red_{i}']['position_m'])
+        for row in rows:
+            if row['actor1'].endswith('_socket'):
+                row['actor1'] = row['actor1'].replace('red_', 'tmp_').replace('blue_', 'red_').replace('tmp_', 'blue_')
+    elif fault == 'missing_contact':
+        rows = [row for row in rows if row['actor0'] != paths['red_0']]
+    elif fault in ('wrong_terminal_contact', 'table_support_only', 'zero_load'):
+        row = next(row for row in rows if row['actor0'] == paths['red_0'])
+        if fault == 'wrong_terminal_contact':
+            row['actor1'] = fixtures['red_0_socket']
+        elif fault == 'table_support_only':
+            row['actor1'] = fixtures['workplate']
+        else:
+            row.update(impulse_magnitude_sum_ns=0., impulse_vector_ns=[0., 0., 0.])
+    elif fault == 'reversed_without_half_turn':
+        for name in ('red_0', 'red_3'):
+            frame['objects'][name]['quaternion_wxyz'] = [1., 0., 0., 0.]
+    else:
+        frame['objects']['red_1']['position_m'] = [.066, .12, .8]
+        frame['objects']['red_2']['position_m'] = [.033, .06, .8]
+    result = advance(frame, observer, evaluator, rows=rows)
+    summary = observer.on_observe()
+    assert result['status'] == 'ongoing' and not summary['detail']['assembly_confirmed']
+    assert summary['events'] == []
+    if fault == 'shortcut':
+        assert not summary['detail']['flexible_groups']['red']['ordered_route']
+    else:
+        assert not summary['detail']['endpoint_matching']['red']['complete']
+
+
+def test_harness_matching_is_explicit_without_mutating_frozen_asset_metadata():
+    task, _, _, _, _ = fixture('nist_wire_harness')
+    metadata = deepcopy(task['asset_metadata'])
+    config = rules.evaluation_configuration('nist_wire_harness', metadata, physics_dt_s=.002)
+    assert metadata == task['asset_metadata'] == config['metadata']
+    policy = config['harness_endpoint_matching']
+    assert policy['terminal_occupancy'] == 'one_endpoint_per_terminal'
+    assert policy['groups'][0]['endpoint_actor_ids'] == ['red_0', 'red_3']
+    assert policy['groups'][0]['seating_goal_ids'] == ['red_0', 'red_3']
+    assert policy['groups'][0]['assignments'][1]['world_z_rotation_rad'] == math.pi
+    task['evaluation']['harness_endpoint_matching']['groups'][0]['assignments'][1]['world_z_rotation_rad'] = 0.
+    with pytest.raises(ValueError, match='differ'):
+        NativeTaskObserver(task)
+
+
+@pytest.mark.parametrize('fault', ['closed', 'missing_seat', 'shared_terminal', 'indirect_support', 'axis_only'])
+def test_harness_matching_rejects_inapplicable_metadata(fault):
+    task, _, _, _, _ = fixture('nist_wire_harness')
+    metadata = deepcopy(task['asset_metadata'])
+    p = metadata['task_parameters']
+    if fault == 'closed':
+        p['flexible_groups'][0]['closed'] = True
+    elif fault == 'missing_seat':
+        p['seating_goals'].pop()
+    elif fault == 'shared_terminal':
+        p['seating_goals'][1]['contact_ids'] = p['seating_goals'][0]['contact_ids'][:]
+        p['seating_goals'][1]['support_ids'] = p['seating_goals'][0]['support_ids'][:]
+    elif fault == 'indirect_support':
+        p['seating_goals'][0]['support_via_flexible_group'] = 'red'
+    else:
+        p['seating_goals'][0]['orientation_axis_only'] = True
+    with pytest.raises(ValueError, match='[Hh]arness'):
+        rules.evaluation_configuration('nist_wire_harness', metadata, physics_dt_s=.002)
+
+
+def test_task6_and_task7_public_contracts_remain_byte_identical():
+    assert rules.digest(rules.public_rules('nist_connector_insertion')) == 'e14e9e2431dcf1c452e4ba788ed1ffa44c673094138deba6e8256db162cea443'
+    assert rules.digest(rules.public_rules('nist_belt_drive_assembly')) == '4d44ea98edb1de79239193fe516163ab9eb7c78caa9a74b6ba676f1e45016d94'
+    for task_id in rules.TASK_IDS[:2]:
+        task, _, _, _, _ = fixture(task_id)
+        assert 'harness_endpoint_matching' not in task['evaluation']
+
+
 @pytest.mark.parametrize('fault', ['step', 'clock', 'missing_body', 'stale_contact'])
 def test_missing_or_corrupt_native_samples_are_unknown_not_physical_failure(fault):
     task, frame, observer, evaluator, _ = fixture()

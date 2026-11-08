@@ -46,7 +46,7 @@ def load_profile(name):
                               "--source", recipe["entry"], "--"]
         arguments[:0] = ["--workbench-only", "--physics-profile", "cpu_rigid_v1",
                          "--no-task-scoring", "--practice-contact-warnings", "--profile"]
-        if name == "isaac-pico-manus":
+        if recipe.get("arm") == "pico-controller" and recipe.get("hand") == "manus":
             profile["env"]["PICO_TELEOP_ENTRYPOINT"] = "scripts.teleop.master_slave_isaac"
     elif recipe.get('runtime') == 'franka':
         profile['command'] = ['${SONIC_PYTHON}', '-B', '-m', 'uni_teleop.runtime.mujoco',

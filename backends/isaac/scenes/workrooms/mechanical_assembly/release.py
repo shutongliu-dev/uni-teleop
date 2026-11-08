@@ -49,6 +49,8 @@ def asset_inventory(scene):
             path = Path(spec['asset_root'])/name
             if path.is_file():
                 hashes[str(path.resolve())] = digest(path)
+    from .desktop_dressing import scene_dependencies
+    hashes.update(scene_dependencies(scene))
     for path, value in hashes.items():
         checked(path, value)
     return {p: {'sha256': h} for p, h in sorted(hashes.items())}

@@ -89,20 +89,24 @@ def test_invalid_receipt_can_preserve_known_metrics_without_inventing_missing_va
         TerminalScoringContract.model_validate(declaration() | {'private_state': PRIVATE_MARKER})
 
 
-def frozen_height():
-    definition = task_definition('living_room', 'tower_building')
-    root = Path(definition['source_release']['path'])
-    assert digest(root/'release_manifest.json') == definition['source_release']['manifest_sha256']
+def frozen_height(configuration='single_arm', robot_profile=None):
+    definition = task_definition('living_room', 'tower_building', robot_profile=robot_profile)
+    selected = definition['robot_configurations'][configuration]['source_release']
+    root = Path(selected['path'])
+    assert digest(root/'release_manifest.json') == selected['manifest_sha256']
     task = load_json(root/'task.json')
     return root, task
 
 
-def test_frozen_v5_compatibility_is_exact_and_keeps_release_and_rules_unchanged():
-    root, task = frozen_height()
+@pytest.mark.parametrize('robot_profile', ['original', 'l_mount'])
+@pytest.mark.parametrize('configuration', ['single_arm', 'dual_same_side', 'dual_opposed'])
+def test_frozen_height_compatibility_is_exact_and_keeps_release_and_rules_unchanged(configuration, robot_profile):
+    root, task = frozen_height(configuration, robot_profile)
     before = {name: digest(root/name) for name in ('task.json', 'rules.json', 'release_manifest.json')}
     original = deepcopy(task)
     contract = terminal_scoring_contract(task)
     assert contract['score_unit'] == 'm' and contract['objective'] == 'maximize'
+    assert contract == terminal_scoring_contract(frozen_height()[1])
     assert terminal_scoring_contract(task_inputs(root, 'tower_building', seed=17)[2]) == contract
     public = project_task_rules(task, scoring_contract=contract)
     assert public['scoring_contract'] == contract
@@ -112,6 +116,8 @@ def test_frozen_v5_compatibility_is_exact_and_keeps_release_and_rules_unchanged(
     changed['evaluation']['physics_dt_s'] = .001
     assert terminal_scoring_contract(changed) is None
     assert terminal_scoring_contract({'id': 'tower_building'}) is None
+    assert terminal_scoring_contract({'schema_version': 'living-room-task-v1',
+                                     'id': 'tower_building'}) is None
     assert before == {name: digest(root/name) for name in before}
 
 

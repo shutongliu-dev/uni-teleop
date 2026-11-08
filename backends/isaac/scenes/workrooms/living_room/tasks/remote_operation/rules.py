@@ -5,7 +5,8 @@ import json
 import math
 
 LEGACY_RULES_VERSION = 'living_room_remote_operation_rules_v2'
-RULES_VERSION = 'living_room_remote_operation_rules_v3'
+MANUAL_TV_RULES_VERSION = 'living_room_remote_operation_rules_v3'
+RULES_VERSION = 'living_room_remote_operation_rules_v4'
 LEGACY_RULES = {
     'schema': LEGACY_RULES_VERSION, 'status': 'implemented_reference', 'competitive': False,
     'instruction_zh': '把背面朝上的遥控器翻正，用同一只手握持并依次按下公布的两个按键，'
@@ -38,7 +39,7 @@ LEGACY_RULES = {
 
 RULES = deepcopy(LEGACY_RULES)
 RULES.update(
-    schema=RULES_VERSION,
+    schema=MANUAL_TV_RULES_VERSION,
     instruction_zh='把背面朝上的遥控器翻正，用同一只手悬空握持遥控器，完整按下并松开电源键开启电视；'
                    '保持电视连续开机至少10秒，再完整按下并松开电源键关闭电视，'
                    '最后将遥控器按正确朝向放回收纳架，松手并保持稳定至少0.300秒。',
@@ -59,6 +60,16 @@ RULES.update(
               'table_drop': 'Recover by actual regrasp.', 'table_assisted_flip': True, 'regrasp': True},
     randomization=['Physical reset poses are fixed; the power-on/10-second/power-off/return goal is independent of seed.'])
 RULES['buttons']['no_credit'].remove('Simultaneous ambiguous keys')
+MANUAL_TV_RULES = deepcopy(RULES)
+RULES.update(schema=RULES_VERSION,
+    instruction_zh='拿起正面朝上的遥控器，用同一只手悬空握持遥控器，完整按下、松开红色电源键开启电视；'
+                   '电视显示10秒倒计时，到时自动关机。最后将遥控器按正确朝向放回收纳架，松手稳定至少0.300秒。',
+    stages=['power_on', 'countdown', 'automatic_power_off', 'return_to_holder'],
+    randomization=['遥控器正面朝上，物理初态固定；10秒倒计时和归架目标不随seed改变。'])
+RULES['television'].update(automatic_power_off=True, initial_remote_face_up=True,
+    countdown='Visible native-simulation-time countdown; automatically off after one uninterrupted 10-second interval.')
+RULES['success']['all_of'][2] = 'The native 10-second countdown automatically turns the television off; keep this completed-cycle credit while returning the remote.'
+RULES['success']['automatic_power_off'] = True
 
 
 BUTTON_IDS = ('power', 'confirm')
@@ -81,7 +92,52 @@ def thresholds():
         minimum_handheld_clearance_m=.005, max_time_s=120., max_actions=6000)
 
 
-def referee_contract():
+def geometry_configuration(asset_metadata=None):
+    """Bind declared physical dimensions without changing scoring tolerances.
+
+    The missing-marker branch is exactly the historical geometry. New releases
+    must hash the variant USD, its metadata and this function together.
+    """
+    result = {'remote_local_bounds_m': [[-.0275, -.080, -.0104], [.0275, .080, .0135]],
+        'holder_opening_xy_m': [.067, .172], 'holder_liner_z_m': .007,
+        'table_top_z_m': .78, 'workspace_bounds_m': [[.05, -.7, .72], [1.25, .7, 1.95]]}
+    metadata = asset_metadata or {}
+    if 'geometry_variant' not in metadata:
+        if metadata and (metadata.get('remote', {}).get('shell_size_xyz_m') != [.055, .16, .02]
+                or metadata.get('remote', {}).get('envelope_xyz_m') != [.055, .16, .0239]
+                or metadata.get('holder', {}).get('opening_xy_m') != [.067, .172]):
+            raise ValueError('Scorer geometry requires the published 160 x 55 mm remote and holder')
+        return result
+    if metadata['geometry_variant'].get('schema') != 'living_remote_geometry_variant.v1':
+        raise ValueError('Unknown remote physical geometry variant')
+    remote, holder = metadata['remote'], metadata['holder']
+    bounds = remote['local_bounds_m']
+    opening, envelope = holder['opening_xy_m'], remote['envelope_xyz_m']
+    if (not isinstance(bounds, list) or len(bounds) != 2 or any(len(v) != 3 for v in bounds)
+            or len(opening) != 2 or len(envelope) != 3):
+        raise ValueError('Remote variant geometry has invalid dimensions')
+    values = [*bounds[0], *bounds[1], *opening, *envelope, holder['liner_local_z_m']]
+    if any(type(v) not in (int, float) or not math.isfinite(v) for v in values):
+        raise ValueError('Remote variant geometry must be finite')
+    if (any(not bounds[0][i] < bounds[1][i] or envelope[i] <= 0
+            or abs(bounds[1][i]-bounds[0][i]-envelope[i]) > 1.e-9 for i in range(3))
+            or any(opening[i] <= envelope[i] for i in range(2))
+            or not 0 < holder['liner_local_z_m'] < .05):
+        raise ValueError('Remote variant envelope and real holder opening disagree')
+    scale = envelope[0]/.055
+    if (not any(abs(scale-s) <= 1.e-9 for s in (.94, 1., 1.06))
+            or any(abs(a-b) > 1.e-9 for a, b in zip(envelope[1:], [.16, .0239]))
+            or any(abs(a-b) > 1.e-9 for a, b in zip(opening, [.067*scale, .172]))
+            or abs(holder['liner_local_z_m']-.007) > 1.e-9
+            or any(abs(bounds[side][axis]-result['remote_local_bounds_m'][side][axis]*(scale if axis == 0 else 1.)) > 1.e-9
+                   for side in (0, 1) for axis in range(3))):
+        raise ValueError('Remote variant is outside the declared width-only geometry family')
+    result.update(remote_local_bounds_m=deepcopy(bounds), holder_opening_xy_m=deepcopy(opening),
+                  holder_liner_z_m=float(holder['liner_local_z_m']))
+    return result
+
+
+def _manual_referee_contract():
     phases = {'await_power_on': '电视已关闭，等待一次有效的电源键完整按压和释放。',
               'holding_power_on': '电视已开启，保持连续开机。',
               'await_power_off': '连续开机时间已满足，等待用遥控器关闭电视。',
@@ -92,7 +148,7 @@ def referee_contract():
               'budget_exhausted': '预算结束，未取得本次成功判定。'}
     limits = thresholds()
     return {'schema': 'physical_task_referee_contract.v1', 'task_id': 'remote_operation',
-        'instruction_zh': RULES['instruction_zh'], 'phases': phases,
+        'instruction_zh': MANUAL_TV_RULES['instruction_zh'], 'phases': phases,
         'reason_descriptions': deepcopy(phases),
         'success_conditions': ['电视初始关闭；每次有效电源键完整按压并真实释放后只切换一次电视电源。',
             '用同一只手悬空握持遥控器，以真实手指接触按压实体电源键，并让按键松开回弹。',
@@ -115,15 +171,30 @@ def referee_contract():
         'observation_scope': '公开静态规则与粗粒度裁判阶段；逐原生子步位姿、接触和连续计时由私有裁判核验。'}
 
 
+def referee_contract(*, automatic=True):
+    result = _manual_referee_contract()
+    if automatic:
+        result['instruction_zh'] = RULES['instruction_zh']
+        result['phases'].pop('await_power_off')
+        result['phases']['holding_power_on'] = '电视显示10秒倒计时，结束自动关机。'
+        result['phases']['await_return'] = '倒计时已完成并自动关机，等待遥控器归架、松手稳定。'
+        result['reason_descriptions'] = deepcopy(result['phases'])
+        result['success_conditions'][2] = '电视连续开机10秒，屏幕倒计时结束后自动关机；提前手动关机可重试。'
+        result['success_conditions'][5] = '自动关机保留本次完成周期资格，仍需归架松手稳定；确认键不影响电视。'
+        result['outcomes']['success'] = '有效物理按键开启电视、完成10秒倒计时自动关机及归架松手稳定。'
+    return result
+
+
 def public_rules(seed=0, *, version=RULES_VERSION):
     sequence = button_sequence(seed)  # Validate the seed for both rule versions.
-    if version not in (RULES_VERSION, LEGACY_RULES_VERSION):
+    if version not in (RULES_VERSION, MANUAL_TV_RULES_VERSION, LEGACY_RULES_VERSION):
         raise ValueError('Unknown remote rules version')
-    result = deepcopy(LEGACY_RULES if version == LEGACY_RULES_VERSION else RULES)
+    result = deepcopy(LEGACY_RULES if version == LEGACY_RULES_VERSION else
+                      MANUAL_TV_RULES if version == MANUAL_TV_RULES_VERSION else RULES)
     if version == LEGACY_RULES_VERSION:
         result['button_sequence'] = sequence
     else:
-        result['referee'] = referee_contract()
+        result['referee'] = referee_contract(automatic=version == RULES_VERSION)
     result['thresholds'] = thresholds()
     result['evidence_scope'] = ('Private native body/joint/contact samples only. '
         'CPU replay verifies logic; independent mechanical probes do not establish same-hand robot success.')
@@ -143,24 +214,20 @@ def evaluation_configuration(*, seed=0, physics_dt_s=.0005, asset_metadata=None,
     actors = {'remote': remote.get('body_path', root+'/Remote/Body'),
         'holder': holder.get('body_path', root+'/Holder'),
         **{n: m.get('buttons', {}).get(n, {}).get('body_path', root+'/Remote/'+n.title()+'Button') for n in BUTTON_IDS}}
-    config = {'schema': 'living_remote_evaluation.v2' if rules_version == LEGACY_RULES_VERSION else 'living_remote_evaluation.v3',
+    config = {'schema': ('living_remote_evaluation.v2' if rules_version == LEGACY_RULES_VERSION else
+                        'living_remote_evaluation.v3' if rules_version == MANUAL_TV_RULES_VERSION else 'living_remote_evaluation.v4'),
         'physics_dt_s': float(physics_dt_s), 'control_period_s': .02,
         'actors': actors, 'robot_actor_prefix': '/World/Robot/',
         'hand_link_prefixes': ['right_'],
         'finger_link_prefixes': ['right_thumb_', 'right_index_', 'right_middle_', 'right_ring_', 'right_pinky_'],
-        'geometry': {'remote_local_bounds_m': [[-.0275, -.080, -.0104], [.0275, .080, .0135]],
-            'holder_opening_xy_m': holder.get('opening_xy_m', [.067, .172]),
-            'holder_liner_z_m': .007, 'table_top_z_m': .78,
-            'workspace_bounds_m': [[.05, -.7, .72], [1.25, .7, 1.95]]},
+        'geometry': geometry_configuration(m),
         **thresholds()}
-    if m and (remote.get('shell_size_xyz_m') != [.055, .16, .02]
-              or remote.get('envelope_xyz_m') != [.055, .16, .0239]
-              or holder.get('opening_xy_m') != [.067, .172]):
-        raise ValueError('Scorer geometry requires the published 160 x 55 mm remote and holder')
     if rules_version == LEGACY_RULES_VERSION:
         config['button_sequence'] = rules['button_sequence']
     else:
         config['required_on_s'] = rules['television']['required_on_s']
         config['public_rules_sha256'] = hashlib.sha256(json.dumps(
             rules, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+        if rules_version == RULES_VERSION:
+            config.update(automatic_power_off=True, initial_remote_face_up=True)
     return config

@@ -24,6 +24,9 @@ def test_catalog_is_available_as_public_http_without_starting_simulation():
     service = SimpleNamespace(registry=PolicyRegistry(), shutdown=lambda: None)
     with TestClient(create_app(service=service)) as client:
         reply = client.get('/interfaces')
+        assert client.get('/policies').json() == []
+        for endpoint in ('interfaces', 'policies'):
+            assert client.get('/'+endpoint, params={'configuration_id': 'single_arm'}).status_code == 422
     assert reply.status_code == 200
     result = reply.json()
     fixed = interface_catalog()

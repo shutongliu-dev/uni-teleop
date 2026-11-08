@@ -59,7 +59,11 @@ def test_television_goal_is_public_without_private_display_or_native_state():
     projected = project_manipulation_task(row)
     assert projected['public_rules']['schema'] == 'physical_task_referee_contract.v1'
     assert projected['public_rules']['thresholds']['required_on_s'] == 10.
-    assert set(projected['public_rules']['phases']) >= {'await_power_on', 'holding_power_on', 'await_power_off', 'await_return', 'completed'}
+    phases = projected['public_rules']['phases']
+    assert set(phases) >= {'await_power_on', 'holding_power_on', 'await_return', 'completed'}
+    # The countdown now powers the television off by itself; there is no
+    # separate manual power-off phase.
+    assert 'await_power_off' not in phases and '自动关机' in phases['holding_power_on']
     assert '10秒' in projected['instruction']
     assert 'goal' not in projected
     assert 'private' not in str(projected)

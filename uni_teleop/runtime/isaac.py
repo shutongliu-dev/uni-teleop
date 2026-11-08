@@ -29,8 +29,10 @@ def prepare_snapshot(destination):
         shutil.copytree(ROOT / "uni_teleop", stage / "uni_teleop",
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         shutil.copy2(BACKEND / "pyproject.toml", stage / "pyproject.toml")
-        return freezer.freeze(stage, destination,
-                              extras=(*freezer.DEFAULT_EXTRAS, "bench/apps/workroom.headless.kit"))
+        # Newer backends already include the teleop experience in their extras.
+        extras = tuple(dict.fromkeys((*freezer.DEFAULT_EXTRAS,
+                                      "bench/apps/workroom.headless.kit")))
+        return freezer.freeze(stage, destination, extras=extras)
 
 
 def main():

@@ -37,8 +37,11 @@ include = ["scripts*", "bench*", "agent*", "scenes*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-"scenes" = ["catalog.json"]
 "scenes.workrooms" = ["current_release.json", "README.md", "*/*.py", "*/README.md", "*/RULES.md", "*/tasks/*/*.py"]
+"scenes.workrooms.initial_randomization" = ["catalog_pins.json"]
+"scenes.workrooms.parameterized" = ["catalog_pins.json"]
+"scenes.workrooms.robot_revision" = ["catalog_pins.json"]
+"scenes.workrooms.laundry_room.randomization" = ["catalog_pins.json"]
 "bench" = ["apps/*.kit"]
 "bench.adapters" = ["README.md"]
 "bench.adapters.manus" = ["examples/*.json"]

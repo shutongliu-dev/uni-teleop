@@ -16,15 +16,20 @@ PHYSICS_DT = .0005
 ROOT_PRIM = '/World/KitchenTask'
 TITLES = {'breakfast_serving': '早餐配盘与整盘端送', 'produce_transfer': '果蔬分类装盘',
           'utensil_sorting': '餐具分类与对齐收纳', 'pot_lid_placement': '冷灶锅具就位与锅盖盖合',
-          'pantry_stocking': '调味品与干货分类归位', 'table_clearing': '餐后餐桌分类清理'}
+          'pantry_stocking': '调味品与干货分类归位', 'table_clearing': '餐后餐桌分类清理', 'surface_wiping': '海绵擦拭台面并归位'}
 
 
 def evaluator_sources(task_id):
     if task_id not in TASK_IDS:
         raise ValueError('Unknown kitchen task')
     root = Path(__file__).parent
-    return {'sequence_evaluator.py': root/'evaluation.py', 'rules.py': root/'rules.py',
-            'native_evidence.py': root/'native_evidence.py'}
+    files = {'sequence_evaluator.py': root/'evaluation.py', 'rules.py': root/'rules.py',
+             'native_evidence.py': root/'native_evidence.py'}
+    if task_id == 'surface_wiping':
+        files['wiping.py'] = root/'wiping.py'
+        files['sponge_dynamics.py'] = root/'sponge_dynamics.py'
+        files['elastic_sponge_dynamics.py'] = root/'elastic_sponge_dynamics.py'
+    return files
 
 
 def load_asset_manifest(task_id, asset_manifest):
@@ -74,7 +79,14 @@ def bind_episode_task(task, seed, rules):
     task = deepcopy(task)
     task_id = task['id']
     task['episode_seed'] = seed
-    task['public_rules'] = rules.public_rules(task_id, seed=seed)
+    # Old frozen rules modules, including the early FEM candidates, have the
+    # historical two-argument API and must retain their original rule bytes.
+    options = ({'metadata': task['asset_metadata']}
+        if (task['asset_metadata'].get('volume_bodies')
+            and hasattr(rules, 'VOLUME_WIPING_RULES_VERSION'))
+        or (task['asset_metadata'].get('elastic_composites')
+            and hasattr(rules, 'ELASTIC_WIPING_RULES_VERSION')) else {})
+    task['public_rules'] = rules.public_rules(task_id, seed=seed, **options)
     task['evaluation'] = rules.evaluation_configuration(task_id, task['asset_metadata'], seed=seed,
         physics_dt_s=task.get('evaluation', {}).get('physics_dt_s', PHYSICS_DT))
     task['public_goal'] = {'operation': task_id, 'frame_id': 'world_m_z_up',
@@ -133,6 +145,10 @@ def build_task_inputs(task_id, *, asset_manifest, seed=0):
     else:
         cameras['overview'].update(eye=[1.8, -1.95, 1.9], target=[.55, -.88, 1.00], focal_length_mm=25.)
         cameras['task'].update(eye=[.50, -1.55, 2.05], target=[.50, -.90, .94], focal_length_mm=27.)
+    if task_id == 'surface_wiping' and metadata.get('visual_labels'):
+        cameras['task'].update(eye=[.53, -1.40, 1.80], target=[.53, -.73, .92], focal_length_mm=40.)
+    if task_id == 'surface_wiping' and metadata.get('layout_profile') == 'surface_wiping_inset_4cm_v1':
+        cameras['task'].update(eye=[.53, -1.44, 1.80], target=[.53, -.77, .92], focal_length_mm=40.)
     scene['cameras'] = cameras
     limits = rules.thresholds(task_id)
     task = {'schema_version': TASK_SCHEMA, 'id': task_id, 'task_id': task_id,
@@ -150,10 +166,27 @@ def build_task_inputs(task_id, *, asset_manifest, seed=0):
     files = evaluator_sources(task_id)
     scene['native_task_bundle'] = {'schema': 'native-usd-task-bundle-v1',
         'usd_path': candidate['usd_path'], 'usd_sha256': candidate['usd_sha256'],
-        'root_prim_path': ROOT_PRIM, 'rigid_bodies': deepcopy(metadata['actors']), 'joints': {}, 'particle_sets': {},
+        'root_prim_path': ROOT_PRIM, 'rigid_bodies': deepcopy(metadata['actors']),
+        'joints': deepcopy(metadata.get('joints', {})), 'particle_sets': {},
         'observer': {'path': 'evaluator/sequence_evaluator.py', 'sha256': digest(files['sequence_evaluator.py']),
             'files': {name: digest(path) for name, path in files.items()},
             'class_name': 'NativeTaskObserver', 'configuration': deepcopy(task)}}
+    if task_id == 'surface_wiping':
+        scene['native_task_bundle']['visual_state_bindings'] = deepcopy(metadata['visual_state_bindings'])
+        task['known_limitations'][0] = ('Rigid sponge and contact-distance cleaning approximation; no foam deformation, fluid, chemical cleaning or calibrated abrasion.')
+        if metadata.get('volume_bodies'):
+            scene['native_task_bundle']['volume_bodies'] = deepcopy(metadata['volume_bodies'])
+            task['known_limitations'][0] = (
+                'Native volume FEM foam bonded to a rigid 4 mm scouring layer. The foam deforms; '
+                'the wiping layer does not bend. Elastic and friction parameters are documented '
+                'simulation priors; no absorption, fluid, chemical cleaning or calibrated abrasion.')
+        if metadata.get('elastic_composites'):
+            scene['native_task_bundle']['elastic_composites'] = deepcopy(metadata['elastic_composites'])
+            task['known_limitations'][0] = (
+                'Passive elastic cell sponge with real native force springs and a rigid 4 mm scouring layer. '
+                'Finite discrete material model with engineering stiffness priors; '
+                'no continuum calibration, absorption, fluid or chemical cleaning.')
+        scene['native_task_bundle']['observer']['configuration'] = deepcopy(task)
     scene['kitchen_task_provenance'] = {'asset_candidate': candidate, 'ready_design': ready,
         'stand_manifest_sha256': STAND_MANIFEST_SHA256, 'parent_environment_unchanged': True,
         'shared_controller_unchanged': True, 'task_object_pose_writes_after_reset': False,

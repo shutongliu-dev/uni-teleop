@@ -79,7 +79,9 @@ def initial_state(scene, task):
     if (bundle['observer']['configuration'] != task or bundle['rigid_bodies'] != task['asset_metadata']['actors']
             or bundle['usd_path'] != candidate['usd_path'] or bundle['usd_sha256'] != candidate['usd_sha256']
             or bundle['root_prim_path'] != candidate['root_prim_path']
-            or bundle['joints'] != {} or bundle['particle_sets'] != {}):
+            or bundle.get('volume_bodies', {}) != task['asset_metadata'].get('volume_bodies', {})
+            or bundle.get('elastic_composites', {}) != task['asset_metadata'].get('elastic_composites', {})
+            or bundle['joints'] != task['asset_metadata'].get('joints', {}) or bundle['particle_sets'] != {}):
         raise ValueError('Native observer, task physics and referee input differ')
     return initial
 

@@ -1,6 +1,9 @@
 """Task budgets preserve public action boundaries and acknowledged state."""
+from copy import deepcopy
+import json
 import pytest
 
+from bench.paths import load_json
 from bench.protocol import Budgets
 from test_agent_service import runner, frozen_inputs, session_for, action, join_action
 from test_task_referee_contract import install_contract, score
@@ -23,6 +26,42 @@ def test_task_budget_stops_after_ack_and_preserves_ongoing_physical_referee(
     public = session.task_requirements()
     assert public['referee']['state'] == 'ongoing' and public['referee']['terminal'] is False
     assert public['episode'] == {'terminal': True, 'outcome': 'sim_timeout'}
+
+
+@pytest.mark.parametrize('ack_time', [.02, .04], ids=['exact_sim_horizon', 'late_sim_ack'])
+@pytest.mark.parametrize('terminal', [False, True], ids=['ongoing', 'success'])
+def test_simulation_budget_keeps_every_ack_in_command_sequence_and_contact_records(
+        runner, frozen_inputs, monkeypatch, ack_time, terminal):
+    install_contract(monkeypatch, frozen_inputs)
+    make, _, workers = runner
+
+    def native_reply(worker):
+        worker.raw['sim_time_s'] = ack_time
+        worker.score = score('success' if terminal else 'ongoing')
+
+    session, _ = session_for(make(on_step=native_reply), budgets=Budgets(sim_time_s=.02))
+    observed = []
+    observe = session.contact_history.observe
+
+    def record_contact(raw):
+        observed.append(deepcopy(raw))
+        return observe(raw)
+
+    monkeypatch.setattr(session.contact_history, 'observe', record_contact)
+    session.submit(action(session)); join_action(session)
+    expected = 'success' if terminal and ack_time == .02 else 'sim_timeout'
+    assert session.result.outcome == expected
+    assert session.result.completion_sim_s == (.02 if expected == 'success' else None)
+    assert session.sequence == 1 and session.snapshot.sequence == 1
+    assert session.raw['sim_time_s'] == session.result.elapsed_sim_s == ack_time
+    steps = [payload for operation, payload in workers[-1].calls if operation == 'step']
+    records = [json.loads(line) for line in (session.recorder.directory/'events.jsonl').read_text().splitlines()]
+    commands = [row['payload'] for row in records if row['kind'] == 'robot_joint_command']
+    assert commands == [steps[0]['command']] and len(steps) == 1
+    assert observed == [session.raw]
+    evidence = load_json(session.directory/'private/evaluator_evidence.json')
+    assert evidence == score('success' if terminal else 'ongoing')
+    assert session.task_requirements()['episode'] == {'terminal': True, 'outcome': expected}
 
 
 def test_one_public_action_identity_is_forwarded_for_every_native_command(runner):

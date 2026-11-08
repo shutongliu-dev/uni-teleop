@@ -21,8 +21,16 @@
         "executable"
       ],
       [
-        "${DEXBENCH_DATA}/MANIFEST.json",
+        "${ROOT}/backends/isaac/data/MANIFEST.json",
         "file"
+      ],
+      [
+        "${DEXBENCH_DATA}/assets",
+        "dir"
+      ],
+      [
+        "${DEXBENCH_DATA}/datasets",
+        "dir"
       ],
       [
         "${ISAAC_PYTHON_LAUNCHER}",
@@ -236,6 +244,52 @@
       "${PEDAL_EVENT}",
       "--pedal-key",
       "61"
+    ]
+  },
+  "manus-native": {
+    "settings": [
+      "MANUS_NATIVE_READER",
+      "MANUS_PYTHON",
+      "MANUS_GLOVE_ID",
+      "MANUS_CALIBRATION",
+      "SHARPA_RETARGET_ROOT",
+      "SHARPA_RETARGET_PYTHON"
+    ],
+    "args": [
+      "--manus-native-reader",
+      "${MANUS_NATIVE_READER}",
+      "--manus-python",
+      "${MANUS_PYTHON}",
+      "--manus-glove-id",
+      "${MANUS_GLOVE_ID}",
+      "--manus-calibration",
+      "${MANUS_CALIBRATION}",
+      "--manus-retarget-root",
+      "${SHARPA_RETARGET_ROOT}",
+      "--manus-retarget-python",
+      "${SHARPA_RETARGET_PYTHON}"
+    ],
+    "checks": [
+      [
+        "${MANUS_NATIVE_READER}",
+        "executable"
+      ],
+      [
+        "${MANUS_PYTHON}",
+        "executable"
+      ],
+      [
+        "${MANUS_CALIBRATION}",
+        "file"
+      ],
+      [
+        "${SHARPA_RETARGET_ROOT}",
+        "dir"
+      ],
+      [
+        "${SHARPA_RETARGET_PYTHON}",
+        "executable"
+      ]
     ]
   }
 }

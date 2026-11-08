@@ -24,9 +24,11 @@ def loose_composition(current_parents):
 
 
 def test_default_parents_use_updated_task_candidates(current_parents):
-    assert Path(current_parents['shaft_spacer_assembly']['path']).name == 'shaft_spacer_candidate_v2'
+    # The desktop-supply and wrench-reach (over the enlarged idler grip) releases superseded
+    # the earlier shaft and gear candidates; their task rules and scoring files are unchanged.
+    assert Path(current_parents['shaft_spacer_assembly']['path']).name == 'desktop_v1'
     assert Path(current_parents['fastener_assembly']['path']).name == 'loose_bolt_candidate_v10_pgs'
-    assert current_parents['gear_train_assembly']['manifest_sha256'] == '62bd44368d8d42a36885d29272d7ef0dae2582acf84da2f8faee6d6fe37c96f5'
+    assert current_parents['gear_train_assembly']['manifest_sha256'] == '1768eea9144936eae13f408bead4fb881939f6299589b87e50d4f5870e2c35a7'
     altered = deepcopy(current_parents)
     altered['fastener_assembly']['manifest_sha256'] = '0'*64
     with pytest.raises(ValueError, match='Frozen input changed'):

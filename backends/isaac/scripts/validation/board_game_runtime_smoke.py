@@ -37,6 +37,22 @@ def check(value, message):
         raise AssertionError(message)
 
 
+def nvidia_smi(arguments, *, attempts=3, timeout_s=30.):
+    """Run a read-only nvidia-smi query; retry only a stalled query.
+
+    On a heavily loaded host nvidia-smi can block longer than the earlier 10 s
+    limit, which aborted native batches before any physics. A timeout is retried
+    a bounded number of times; any other failure is raised unchanged.
+    """
+    for attempt in range(attempts):
+        try:
+            return subprocess.run(['nvidia-smi', *arguments], check=True, capture_output=True,
+                                  text=True, timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            if attempt == attempts-1:
+                raise
+
+
 def gpu_selection(uuid):
     if not uuid.startswith('GPU-') or os.environ.get('CUDA_VISIBLE_DEVICES') != uuid:
         raise ValueError('CUDA_VISIBLE_DEVICES must equal the explicit --gpu-uuid')
@@ -44,14 +60,14 @@ def gpu_selection(uuid):
         raise ValueError('Single UUID selection requires ISAAC_BENCH_SINGLE_CUDA_DEVICE=1')
     if os.environ.get('ISAAC_ALLOW_UNVALIDATED_DRIVER') != '1':
         raise ValueError('This host requires the recorded explicit unvalidated-driver override')
-    query = subprocess.run(['nvidia-smi', '--id='+uuid,
+    query = nvidia_smi(['--id='+uuid,
         '--query-gpu=uuid,pci.bus_id,name,memory.total,memory.free,driver_version',
-        '--format=csv,noheader,nounits'], check=True, capture_output=True, text=True, timeout=10)
+        '--format=csv,noheader,nounits'])
     row = [value.strip() for value in query.stdout.strip().split(',')]
     if len(row) != 6 or row[0] != uuid:
         raise ValueError('GPU identity query disagrees with the selected UUID')
     bus = row[1].upper().split(':')[-2]
-    if bus in ('67', 'BB', 'DB'):
+    if bus in ('0D', '67', 'BB', 'DB'):
         raise ValueError('This GPU has a recorded rendering failure and is excluded from this smoke')
     if int(row[4]) < 16000:
         raise ValueError('Less than 16 GB free on the selected shared GPU; do not stop other jobs')

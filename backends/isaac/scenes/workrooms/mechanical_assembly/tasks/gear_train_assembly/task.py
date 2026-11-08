@@ -23,12 +23,20 @@ from .rules import GEARS, public_rules, thresholds, geometry_contract
 
 TASK_ID = 'gear_train_assembly'
 THREADED_ROOT = Path(f'{DATA_ROOT}/assets/task_parts/threaded_sharpa/sdf1024_convex_partition_candidate02_20261018')
-THREADED_MANIFEST_SHA256 = 'b81a9ea7e4003c72f8bb0f71ef607cb10235e68fb92df7732c42c98a42fa7850'
+THREADED_MANIFEST_SHA256 = '954694841ceea00c91c98d5ea10fbda268e4eb8dd7a55d1ed67fa4dc83837b42'
 SUPPLY_LAYOUT_REVISION = 'table_inset_v1'
 SUPPLY_LAYOUTS = {
     SUPPLY_LAYOUT_REVISION: [[.225, -.20], [.28, .34], [.225, .10]],
     'legacy_v3_4': deepcopy(TRAIN_GEOMETRY['gear_supply_positions_xy_m']),
 }
+# Canonical open-end wrench table position. At the original (.80, .29) its pickup
+# approach/precontact/lift anchors lay 14.6/36.6/28.5 mm beyond the orientation-free
+# fingertip reach of the original single-arm FR3; 50 mm closer to the robot they are
+# inside it on every installation and both robot profiles. Published as a new base
+# world by wrench_release.prepare_release; the asset, orientation and 0.2 mm table
+# gap are unchanged.
+OPEN_END_WRENCH_XY_M = (.75, .29)
+ORIGINAL_OPEN_END_WRENCH_XY_M = (.80, .29)
 
 
 def yaw_quaternion(degrees):
@@ -183,7 +191,7 @@ def build_task_inputs(*, asset_root=ASSET_ROOT, stand_root=DEFAULT_STAND_ROOT,
     for i, (name, xy) in enumerate(zip(('input_gear', 'idler_gear', 'output_gear'), supplies)):
         add('objects', name, name, xy, yaw_quaternion((0., 180./32, 0.)[i]), on_table=True)
     add('objects', 'socket_crank', 'socket_crank', [.65, -.28], on_table=True)
-    add('objects', 'open_end_wrench', 'open_end_wrench', [.80, .29], on_table=True)
+    add('objects', 'open_end_wrench', 'open_end_wrench', list(OPEN_END_WRENCH_XY_M), on_table=True)
     screwdriver = load_task_asset(ASSET_IDS['screwdriver'], threaded_root, verify_hashes=True)
     screwdriver_q = [2**-.5, 2**-.5, 0., 0.]
     scene['objects'].append({'id': 'straight_hex_screwdriver', 'asset_id': ASSET_IDS['screwdriver'],

@@ -69,9 +69,31 @@ def _json_digest(value):
 
 def _metadata_without_reset(metadata):
     result = deepcopy(metadata)
+    if result.get('source_access_profile') == 'source_access_v1' and not result['presentation']:
+        import math
+        name = {'produce_transfer': 'tomato_0', 'pot_lid_placement': 'pot'}[result['task_id']]
+        receipt = result.pop('source_access_changes')
+        if set(receipt) != {name}:
+            raise ValueError('Unexpected source-pose change inventory')
+        before, after = receipt[name]['before_pose_xyzw'], receipt[name]['after_pose_xyzw']
+        expected = list(before)
+        if name == 'tomato_0':
+            expected[0] = .23
+        else:
+            expected[3:] = [0., 0., math.sin(-math.pi/8), math.cos(-math.pi/8)]
+        actor = next(row for row in result['objects'] if row['id'] == name)
+        if after != expected or after != actor['initial_pose_xyzw']:
+            raise ValueError('Source-pose receipt differs from the explicit profile')
+        suffix = (' source_access_v1: tomato_0 source X=0.23 m.' if name == 'tomato_0' else
+                  ' source_access_v1: source pot yaw=-45 degrees; right handle faces the robot.')
+        if not result['layout_revision'].endswith(suffix):
+            raise ValueError('Source-pose description differs from the explicit profile')
+        result['layout_revision'] = result['layout_revision'][:-len(suffix)]
     result.pop('presentation')
     for actor in result['objects']:
         actor.pop('initial_pose_xyzw')
+    for volume in result.get('volume_bodies', {}).values():
+        volume.pop('initial_pose_xyzw')
     return result
 
 
@@ -129,12 +151,58 @@ def _validate_reset_poses(stage, metadata, *, goal):
             raise ValueError('USD reset transform differs from declared metadata: '+item['id'])
         if goal and pose != metadata['goals']['body_poses_xyzw'][item['id']]:
             raise ValueError('Presentation reset differs from declared goal pose: '+item['id'])
+    for name, volume in metadata.get('volume_bodies', {}).items():
+        prim = stage.GetPrimAtPath(volume['prim_path'])
+        schemas = prim.GetMetadata('apiSchemas') if prim else None
+        if not prim or not schemas or 'OmniPhysicsDeformableBodyAPI' not in schemas.GetAppliedItems():
+            raise ValueError('Declared volume is not native deformable: '+name)
+        pose = volume['initial_pose_xyzw']
+        parent = next(item for item in metadata['objects'] if item['id'] == volume['parent_rigid_body'])
+        # The sponge FEM vertices share the scouring layer's local rest frame.
+        # Allow only the same complete rigid reset of the bonded composite.
+        if pose != parent['initial_pose_xyzw']:
+            raise ValueError('Bonded volume reset differs from its rigid material layer: '+name)
+        matrix = Gf.Matrix4d(1.)
+        matrix.SetRotate(Gf.Quatd(pose[6], Gf.Vec3d(*pose[3:6])))
+        matrix.SetTranslateOnly(Gf.Vec3d(*pose[:3]))
+        if not np.allclose(np.asarray(UsdGeom.Xformable(prim).GetLocalTransformation()),
+                           np.asarray(matrix), atol=3e-6, rtol=0.):
+            raise ValueError('USD volume reset differs from declared metadata: '+name)
+
+
+def canonical_physics_identity(canonical_path, diagnostic_path, canonical_meta, diagnostic_meta):
+    """Require the exact canonical file, metadata and source reset; no exemptions."""
+    report = {'schema': 'kitchen_canonical_physics_identity.v1', 'passed': False,
+              'allowed_changes': [], 'native_physics_qualified': False}
+    try:
+        from pxr import Usd
+        canonical_path, diagnostic_path = Path(canonical_path).resolve(), Path(diagnostic_path).resolve()
+        report['canonical_usd_sha256'] = _digest(canonical_path)
+        report['diagnostic_usd_sha256'] = _digest(diagnostic_path)
+        if canonical_path != diagnostic_path:
+            raise ValueError('Canonical probe must use the original asset path and dependency namespace')
+        if canonical_meta['presentation'] is not False or diagnostic_meta != canonical_meta:
+            raise ValueError('Canonical probe metadata or source reset differs')
+        stage = Usd.Stage.Open(str(canonical_path))
+        if not stage:
+            raise ValueError('Cannot open canonical task USD')
+        _validate_reset_poses(stage, canonical_meta, goal=False)
+        graph = _property_graph(stage, set())
+        report.update(metadata_sha256=_json_digest(canonical_meta),
+            physical_property_graph_sha256=_json_digest(graph),
+            compared_prim_count=len(graph)-1, different_prim_paths=[],
+            dynamic_actor_count=len(canonical_meta['actors']),
+            native_volume_count=len(canonical_meta.get('volume_bodies', {})), passed=True)
+    except Exception as exc:
+        report['failure'] = {'type': type(exc).__name__, 'message': str(exc)}
+    return report
 
 
 def diagnostic_physics_identity(canonical_path, goal_path, canonical_meta, goal_meta):
     """Return a fail-closed identity receipt; paths are never written or modified."""
     report = {'schema': 'kitchen_diagnostic_physics_identity.v1', 'passed': False,
         'allowed_changes': ['metadata.presentation', 'objects[].initial_pose_xyzw',
+                            'volume_bodies[].initial_pose_xyzw matching the rigid material layer',
                             'declared actor root xformOp:translate/orient values'],
         'infinity_semantics': 'Signed infinities compare exactly, including schema fallback limits; this is identity, not property-validity acceptance. NaN fails closed.',
         'native_physics_qualified': False}
@@ -154,9 +222,10 @@ def diagnostic_physics_identity(canonical_path, goal_path, canonical_meta, goal_
         actors = set(canonical_meta['actors'].values())
         if not actors or len(actors) != len(canonical_meta['objects']):
             raise ValueError('Invalid actor inventory')
+        volume_roots = {row['prim_path'] for row in canonical_meta.get('volume_bodies', {}).values()}
         for stage, meta, goal in zip(stages, (canonical_meta, goal_meta), (False, True)):
             _validate_reset_poses(stage, meta, goal=goal)
-        left, right = (_property_graph(stage, actors) for stage in stages)
+        left, right = (_property_graph(stage, actors | volume_roots) for stage in stages)
         different = sorted(key for key in set(left)|set(right) if left.get(key) != right.get(key))
         report['different_prim_paths'] = different
         if different:
@@ -164,6 +233,7 @@ def diagnostic_physics_identity(canonical_path, goal_path, canonical_meta, goal_
         report['physical_property_graph_sha256'] = _json_digest(left)
         report['compared_prim_count'] = len(left)-1
         report['dynamic_actor_count'] = len(actors)
+        report['native_volume_count'] = len(volume_roots)
         report['passed'] = True
     except Exception as exc:
         report['failure'] = {'type': type(exc).__name__, 'message': str(exc)}

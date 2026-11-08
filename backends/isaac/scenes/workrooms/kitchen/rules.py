@@ -4,14 +4,18 @@ No observation, action policy, simulator import or controller parameter is here.
 Thresholds express useful placement, not a prescribed target grasp or trajectory.
 """
 from copy import deepcopy
+from collections.abc import Mapping
 import hashlib
 import json
 import math
 
 TASK_IDS = ('breakfast_serving', 'produce_transfer', 'utensil_sorting', 'pot_lid_placement',
-            'pantry_stocking', 'table_clearing')
+            'pantry_stocking', 'table_clearing', 'surface_wiping')
 RULES_VERSION = 'kitchen_rules.v2'
 GROUPED_RULES_VERSION = 'kitchen_rules.v3'
+WIPING_RULES_VERSION = 'kitchen_rules.v4'
+VOLUME_WIPING_RULES_VERSION = 'kitchen_rules.v5'
+ELASTIC_WIPING_RULES_VERSION = 'kitchen_rules.v6'
 
 # Public category identities are checked against the frozen physical asset.
 # Each group has a real receiving fixture, not a hidden exact target pose.
@@ -55,10 +59,28 @@ def thresholds(task_id):
         max_time_s=120., max_actions=6000)
     if task_id in GROUPED_INVENTORIES:
         result['max_time_s'] = 240.
+    if task_id == 'surface_wiping':
+        result.update(max_time_s=180., max_actions=9000,
+            wiping_total_coverage_min=.80, wiping_patch_coverage_min=.60,
+            wiping_cell_travel_m=.012, wiping_min_stroke_m=.003,
+            wiping_tilt_max_rad=math.radians(20),
+            wiping_surface_gap_m=.004, wiping_min_speed_m_s=.005,
+            wiping_max_speed_m_s=.8, wiping_max_angular_speed_rad_s=8.)
     return result
 
 
 _TEXT = {
+    'surface_wiping': {
+        'instruction': '用蓝色浅盘中的黄色海绵擦掉吧台上的三片棕色污渍，然后把海绵放回蓝色浅盘并松手。可重复擦、换方向、重抓，也可用手推动海绵；不用规定路线或擦拭顺序。',
+        'phases': {'wiping': '用海绵下侧平面实际接触并擦过污渍。',
+                   'returning': '主要污渍已清除，把海绵放回蓝色浅盘。',
+                   'settling': '海绵在蓝色浅盘内真实受支撑，松手等待稳定。'},
+        'success': ['三片污渍合计清除至少 80%，且每片至少清除 60%；允许少量边缘残留。已擦净部分在图像中恢复台面颜色。',
+                    '以约 10 毫米的可见污渍单元累计：海绵擦面在实际有载台面接触下沿面累计滑动 12 毫米，该单元即算清除。每段至少移动 3 毫米才累计，过滤静置微振；可分多次完成，不要求一次擦净。',
+                    '仅海绵下侧擦面算清洁；停放、悬空经过、仅投影覆盖和非连续跳变均不计。可正常抬起换位，已有清洁信用保留。',
+                    '最后海绵完整落在蓝色浅盘内，由盘底真实支撑，释放稳定 0.4 秒；无需精确摆位或朝向。'],
+        'recovery': ['漏擦、短暂离台、换手势、放回后再次取出补擦均可继续；接触和轨迹没有规定顺序。'],
+    },
     'breakfast_serving': {
         'instruction': '先在源区把餐盘、空杯及两块面包装好：面包放盘内，盘和杯放托盘内；端起整盘送至目标区，全部松手放稳。',
         'phases': {'loading': '在源区完成配盘并放手确认。', 'carrying': '将带载托盘实际端离台面，送往目标区域。',
@@ -109,9 +131,23 @@ _TEXT = {
 }
 
 
-def public_rules(task_id, seed=0):
+def public_rules(task_id, seed=0, *, metadata=None):
     if task_id not in TASK_IDS or type(seed) is not int or not 0 <= seed < 2**32:
         raise ValueError('Known task and uint32 seed are required')
+    if metadata is not None and not isinstance(metadata, Mapping):
+        raise ValueError('Asset metadata must be a mapping')
+    volumes = (metadata or {}).get('volume_bodies', {})
+    if not isinstance(volumes, Mapping):
+        raise ValueError('Volume bodies must be a declared mapping')
+    volume_wiping = bool(volumes)
+    elastic = (metadata or {}).get('elastic_composites', {})
+    if not isinstance(elastic, Mapping):
+        raise ValueError('Elastic composites must be a mapping')
+    elastic_wiping = bool(elastic)
+    if elastic_wiping and (task_id != 'surface_wiping' or volume_wiping):
+        raise ValueError('Elastic sponge contract is only for surface wiping without a second volume model')
+    if volume_wiping and task_id != 'surface_wiping':
+        raise ValueError('Volume public rules are implemented only for surface wiping')
     text = _TEXT[task_id]
     reasons = {
         'reset_baseline_not_scored': '初始化只建立基准，不计任务分。',
@@ -139,7 +175,36 @@ def public_rules(task_id, seed=0):
             'budget_exhaustion': '未完成，由运行器记录预算停止。', 'cancelled': '取消或基础设施故障，不制造任务失败。'},
         'physical_actions': '只控制机器人，允许重抓与重试；禁止物体位姿回放、吸附、焊接、直接外力或隐藏支撑。诊断台架不计机器人任务成绩。',
         'observation_scope': '公开静态规则和粗粒度阶段；真值位姿、接触、支撑记忆及逐原生子步判据只供私有裁判。'}
-    return {'schema': GROUPED_RULES_VERSION if task_id in GROUPED_INVENTORIES else RULES_VERSION,
+    if volume_wiping:
+        # Publish the existing FEM observer gates; do not change its thresholds
+        # or reinterpret the historical rigid/frozen v4 contract.
+        contract['reason_descriptions']['physics_safety_stop'] = (
+            '有效原生证据显示超过声明穿透限值，或泡沫数值几何、材料连接异常；'
+            '单独记录物理安全停止，不记为任务操作失败。')
+        contract['success_conditions'].append(
+            '本版本海绵由可变形黄色泡沫和薄绿色擦层组成。归位时两层完整落在蓝色浅盘内，擦层由盘底真实支撑。'
+            '泡沫全部实际节点均参与稳定检查：每个节点相隔 20 毫秒的位置变化对应速度不超过 25 毫米/秒，'
+            '整个连续稳定段每个节点相对本段起点的漂移不超过 4 毫米；窗口在每个原生子步向前滑动。'
+            '松手要求擦层无机器人接触，且泡沫实际表面与机器人的完整原生碰撞外形至少间隔 5 毫米。'
+            '上述条件与真实支撑、完整容纳同时连续满足 0.4 秒；任一节点不稳定、机器人间距不足、'
+            '支撑或目标失效均重新计时，缺失节点或碰撞几何证据不作成功判定。')
+        contract['thresholds']['minimum_robot_volume_clearance_m'] = .005
+    if elastic_wiping:
+        contract['reason_descriptions']['physics_safety_stop'] = (
+            '有效原生证据显示超过声明穿透限值，或海绵发生数值塌陷、翻转或材料连接异常；'
+            '单独记录物理安全停止，不记为任务操作失败。')
+        contract['success_conditions'].append(
+            '本版本黄色海绵可以压缩和回弹。归位时完整海绵必须落在蓝色浅盘内，绿色擦层由盘底真实支撑。'
+            '所有实际部位都参与检查：相隔 20 毫秒的位置变化对应速度不超过 25 毫米/秒，'
+            '连续稳定段内各部位漂移不超过 4 毫米；所有部件还须满足原有角速度与姿态稳定限值。'
+            '松手要求海绵全部实际碰撞外形与机器人至少间隔 5 毫米且无机器人接触。'
+            '稳定、完整容纳、真实支撑和松手必须同时连续满足 0.4 秒；任一条件失效重新计时，'
+            '缺失任何部件、材料连接或碰撞几何证据不作成功判定。')
+        contract['thresholds']['minimum_robot_elastic_clearance_m'] = .005
+    return {'schema': (ELASTIC_WIPING_RULES_VERSION if elastic_wiping else
+                       VOLUME_WIPING_RULES_VERSION if volume_wiping else
+                       WIPING_RULES_VERSION if task_id == 'surface_wiping' else
+                       GROUPED_RULES_VERSION if task_id in GROUPED_INVENTORIES else RULES_VERSION),
         'task_id': task_id, 'instruction_zh': text['instruction'], 'referee': contract,
         'reset_credit': False, 'randomization': 'This candidate uses the frozen authored reset; the seed does not silently alter physical geometry.',
         'evidence_scope': 'Complete read-only native poses and contact pairs, unscored baseline; geometry alone is insufficient.',
@@ -147,7 +212,7 @@ def public_rules(task_id, seed=0):
 
 
 def evaluation_configuration(task_id, metadata, seed=0, physics_dt_s=.0005):
-    public_rules(task_id, seed)
+    published_rules = public_rules(task_id, seed, metadata=metadata)
     if isinstance(physics_dt_s, bool) or not math.isfinite(physics_dt_s) or not 0 < physics_dt_s <= .002:
         raise ValueError('Native physics period must be finite and no greater than 2 ms')
     if abs(.02/physics_dt_s-round(.02/physics_dt_s)) > 1.e-8:
@@ -165,6 +230,9 @@ def evaluation_configuration(task_id, metadata, seed=0, physics_dt_s=.0005):
     for name, obj in objects.items():
         if obj['body_path'] != actors[name] or len(obj['local_bounds_m']) != 2 or len(obj['initial_pose_xyzw']) != 7:
             raise ValueError('Incomplete asset-bound body geometry')
+    if task_id == 'surface_wiping':
+        from .wiping import validate_wiping_metadata
+        validate_wiping_metadata(m)
     if task_id in GROUPED_INVENTORIES:
         inventory = GROUPED_INVENTORIES[task_id]
         expected_names = {name for _, names in inventory.values() for name in names}
@@ -189,7 +257,7 @@ def evaluation_configuration(task_id, metadata, seed=0, physics_dt_s=.0005):
     return {'schema': 'kitchen_evaluation.v1', 'task_id': task_id, 'episode_seed': seed,
         'physics_dt_s': float(physics_dt_s), 'control_period_s': .02, 'actors': deepcopy(actors),
         'robot_actor_prefix': '/World/Robot/', 'metadata': m,
-        'thresholds': thresholds(task_id), 'public_rules_sha256': digest(public_rules(task_id, seed))}
+        'thresholds': thresholds(task_id), 'public_rules_sha256': digest(published_rules)}
 
 
 def bind_task_rules(task):

@@ -29,8 +29,60 @@ def rear_camera_pose(scene, *, lateral_m=.30, height_m=1.10):
 
 
 
+# Presentation-only presets for the validated fixed workroom layouts.  These
+# include source and destination regions, not just the largest support table.
+_WORKROOM_OPERATOR_POSES = {
+    ('kitchen', 'pot_lid_placement'): ([.65, -.15, 1.85], [.28, .85, .94]),
+    ('card_room', 'task0'): ([.48, -1.15, 1.85], [.48, -.18, .80]),
+    ('laboratory', 'sample_sorting'): ([.70, 1.15, 1.48], [.62, .48, .94]),
+    ('laboratory', 'vial_racking'): ([.70, 1.15, 1.48], [.65, .48, .94]),
+    ('laboratory', 'cap_placement'): ([.70, 1.05, 1.40], [.65, .53, .94]),
+    ('study', 'book_retrieval'): ([-.25, -1.65, 2.00], [-.30, .05, .98]),
+    ('study', 'book_shelving'): ([-.25, -1.65, 2.00], [-.30, .05, .98]),
+}
+_WORKROOM_OPERATOR_FAMILY_POSES = {
+    'mechanical_assembly': ([-.25, -.05, 1.85], [.35, .10, .80]),
+    'study': ([-.25, -.05, 1.75], [.35, .10, .80]),
+}
+
+
+def operator_workspace_pose(scene):
+    """Explicit workbench preview profile; never modify frozen scene cameras."""
+    variant = scene.get('teleop_scene_variant', {})
+    if variant.get('version') != 'teleop_workbench_v1':
+        return None
+    family, task = variant.get('family'), variant.get('task')
+    pose = _WORKROOM_OPERATOR_POSES.get((family, task))
+    if pose is None:
+        pose = _WORKROOM_OPERATOR_FAMILY_POSES.get(family)
+    return None if pose is None else tuple(np.array(v, dtype=float) for v in pose)
+
+
+def operator_rear_pose(scene):
+    """Use a workspace preset, or the existing forward-shifted shoulder view."""
+    workspace = operator_workspace_pose(scene)
+    if workspace is not None:
+        return workspace
+    eye, target = rear_camera_pose(scene, lateral_m=.65, height_m=1.40)
+    eye[:2] = target[:2] + .70 * (eye[:2] - target[:2])
+    eye[2] += .15
+    base = np.asarray(scene['robot']['base_position_m'], dtype=float)
+    forward = target[:2] - base[:2]
+    distance = np.linalg.norm(forward)
+    if distance > 1e-6:
+        forward /= distance
+        # Advance up to 25 cm beyond the base toward the workspace; on small
+        # layouts stop at 35% of the base-to-target distance, never cross target.
+        advance = min(.25, .35 * distance)
+        current_depth = np.dot(target[:2] - eye[:2], forward)
+        scale = (distance - advance) / current_depth
+        eye = target + scale * (eye - target)
+    return eye, target
+
+
+
 def table_closeup_pose(scene):
-    """Near-horizontal tabletop view, keeping the operator view's azimuth."""
+    """Shallow downward tabletop view, keeping the operator view's azimuth."""
     main_eye, main_target = rear_camera_pose(scene, lateral_m=.65, height_m=1.40)
     table = scene['table']
     surface = table['position_m'][2] + table['half_extents_m'][2]
@@ -39,7 +91,7 @@ def table_closeup_pose(scene):
     back = main_eye - main_target
     eye = target.copy()
     eye[:2] += .80 * back[:2] / np.linalg.norm(back[:2])
-    eye[2] = surface + .16
+    eye[2] = surface + .26
     return eye, target
 
 

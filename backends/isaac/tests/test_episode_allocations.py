@@ -17,8 +17,10 @@ def test_frozen_recommended_budgets_reach_real_public_episode(tmp_path, task_id)
     api, workers, verified = mechanical_service(tmp_path, task_id)
     budgets = verified['task']['recommended_budgets']
     with TestClient(create_app(service=api)) as http:
+        # These tasks now also offer dual-arm installations; the recommended
+        # budgets under test belong to the original single-arm installation.
         report = run(RunConfig('http://testserver', task_id, tmp_path / 'run',
-            family='mechanical_assembly', seed=0, max_decisions=1,
+            family='mechanical_assembly', seed=0, max_decisions=1, configuration='single_arm',
             sim_budget=budgets['sim_time_s'], wall_budget=budgets['wall_time_s'],
             max_actions=budgets['max_actions']),
             bench=BenchHTTPClient('http://testserver', client=http),

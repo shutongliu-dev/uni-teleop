@@ -1,0 +1,88 @@
+{
+  "provenance": {
+    "commit": "dedef6a2440a79ae8377fb963a8bda5d54e51280",
+    "source_path": "scenes/workrooms/card_room/tasks/hex7x7/assets.py",
+    "source_sha256": "5b4077d3423db99d1e18fb3029e93189e81efdb58d1205448ef81da9812a1b1b",
+    "scope": "Unchanged token physical prior and rounded display envelope; no native qualification."
+  },
+  "collision_parts": [
+    {
+      "label": "base",
+      "geometry": "cylinder",
+      "radius_m": 0.028,
+      "half_height_m": 0.007,
+      "position_m": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "label": "handle",
+      "geometry": "cylinder",
+      "radius_m": 0.02,
+      "half_height_m": 0.02,
+      "position_m": [
+        0.0,
+        0.0,
+        0.027
+      ]
+    }
+  ],
+  "mass_kg": 0.06,
+  "friction": 0.65,
+  "center_of_mass_m": [
+    0.0,
+    0.0,
+    0.01601423487544484
+  ],
+  "data": {
+    "inertia_diag_kg_m2": [
+      2.4043048340319903e-05,
+      2.4043048340319903e-05,
+      1.6687259786476868e-05
+    ],
+    "inertia_method": "Analytic uniform-density two-cylinder union about COM; parallel-axis theorem.",
+    "design_density_kg_m3": 707.9846222949079,
+    "mass_status": "Simulation design prior, not a measured manufactured piece",
+    "origin": "Centre of circular base; COM is explicitly offset along +Z",
+    "design_dimensions": {
+      "base_diameter_m": 0.056,
+      "base_height_m": 0.014,
+      "handle_diameter_m": 0.04,
+      "handle_height_m": 0.04
+    }
+  },
+  "visual_envelopes": {
+    "base": {
+      "volume_m3": 3.430153009899519e-05,
+      "bounds_m": [
+        [
+          -0.028,
+          -0.028,
+          -0.006999999999999999
+        ],
+        [
+          0.028,
+          0.028,
+          0.006999999999999999
+        ]
+      ]
+    },
+    "handle": {
+      "volume_m3": 5.013050358697755e-05,
+      "bounds_m": [
+        [
+          -0.02,
+          -0.02,
+          0.006999999999999985
+        ],
+        [
+          0.02,
+          0.02,
+          0.047000000000000014
+        ]
+      ]
+    }
+  }
+}

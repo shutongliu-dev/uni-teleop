@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import httpx
 
-from bench.paths import DATA_ROOT, load_json
+from bench.paths import load_json, DATA_ROOT
 from bench.protocol.task_referee import contract_sha256, project_task_rules, project_referee_state
 from scenes.workrooms.mechanical_assembly.referee import public_contract, bind_task_rules, verdict
 from test_agent_service import (runner, frozen_inputs, FakeWorker, PRIVATE_MARKER,
@@ -194,19 +194,33 @@ def test_late_physical_success_is_visible_but_not_scored_after_timeout(runner, f
     assert session.result.completion_sim_s is None
 
 
+def frozen_original(reference):
+    """Walk frozen seed-case and L-mount revision wrappers to the original release."""
+    reference = {key: reference[key] for key in ('path', 'manifest_sha256')}
+    while True:
+        manifest = load_json(Path(reference['path'])/'release_manifest.json')
+        if manifest['schema'] not in ('workroom_randomized_release.v1', 'workroom_robot_revision_release.v1'):
+            return reference
+        reference = {key: manifest['base_release'][key] for key in ('path', 'manifest_sha256')}
+
+
+@pytest.mark.parametrize('robot_profile', ['original', 'l_mount'])
 @pytest.mark.parametrize('task_id', ['parts_sorting', 'peg_insertion', 'shaft_spacer_assembly',
                                     'fastener_assembly', 'gear_train_assembly'])
-def test_frozen_mechanical_contracts_match_catalog_and_http_listing(tmp_path, task_id):
+def test_frozen_mechanical_contracts_match_catalog_and_http_listing(tmp_path, task_id, robot_profile):
     from fastapi.testclient import TestClient
+    from bench.runtime.reset_cases import project_reset_case
     from bench.runtime.server import create_app
-    from bench.isaacsim.release import checked, validate, load_evaluator
+    from bench.isaacsim.release import checked, validate, load_evaluator, task_inputs
+    from bench.simulation.isaacsim_backend.l_mount import public_mount
     from scenes.workrooms.catalog import task_definition
-    definition = task_definition('mechanical_assembly', task_id)
+    definition = task_definition('mechanical_assembly', task_id, robot_profile=robot_profile)
     reference = definition['source_release']
     root = Path(reference['path'])
     checked(root/'release_manifest.json', reference['manifest_sha256'])
     manifest = validate(root, assets=False)
-    task = load_json(root/'task.json')
+    # Discovery publishes the canonical seed-0 frozen case of the selected release.
+    _, scene, task, _ = task_inputs(root, task_id)
     assert task['public_rules'] == definition['rules']['contract']
     assert load_evaluator(root)(task).task == task
     assert manifest['physics_accepted'] is False
@@ -214,10 +228,53 @@ def test_frozen_mechanical_contracts_match_catalog_and_http_listing(tmp_path, ta
     with TestClient(create_app(service=manager)) as client:
         response = client.get('/tasks')
         assert response.status_code == 200
-        assert response.json() == [project_task_rules(task)]
+        from bench.protocol.robot_configurations import project_robot_configurations
+        public, = response.json()
+        expected = project_reset_case(task, project_task_rules(task))
+        assert {key: public[key] for key in expected} == expected
+        # Only the L-mount profile publishes its non-default hand mount.
+        mount = public_mount(scene['robot'])
+        assert (mount is None) == (robot_profile == 'original')
+        assert set(public) - set(expected) == {
+            'default_configuration_id', 'scene_description_zh', 'robot_configurations',
+            'configuration_id', 'task_release_sha256', *(('robot_mount',) if mount is not None else ())}
+        assert public.get('robot_mount') == mount
+        assert public['configuration_id'] == definition['default_configuration_id']
+        assert public['task_release_sha256'] == reference['manifest_sha256']
+        assert public['default_configuration_id'] == definition['default_configuration_id']
+        assert public['scene_description_zh'] == definition['scene_description_zh']
+        assert public['robot_configurations'] == project_robot_configurations(definition['robot_configurations'])
         assert DATA_ROOT not in response.text and 'initial_objects' not in response.text
     if task_id == 'gear_train_assembly':
-        assert definition['runnable'] and definition['source_release'] == definition['candidate_referee']['release']
+        assert definition['runnable']
+        # The current wrench-reach release is the selected referee candidate: it moves only the open-end
+        # wrench of the idler grip release (scene pose and referee initial pose), whose dependency-only
+        # predecessor preserves task/rules/reset/scorer bytes.
+        candidate = definition['candidate_referee']['release']
+        # Frozen seed cases (and the L-mount revision) wrap exactly this release.
+        assert candidate == frozen_original(reference)
+        candidate_root = Path(candidate['path'])
+        candidate_manifest = validate(candidate_root, assets=False)
+        reach = candidate_manifest['wrench_reach_derivation']
+        grip_root = Path(reach['source_release'])
+        checked(grip_root/'release_manifest.json', reach['source_release_sha256'])
+        grip_manifest = load_json(grip_root/'release_manifest.json')
+        for relative, row in grip_manifest['files'].items():
+            if relative not in {'scene.json', 'task.json', 'source_provenance.json'}:
+                checked(candidate_root/relative, row['sha256'])
+                assert candidate_manifest['files'][relative]['sha256'] == row['sha256']
+        grip_task = load_json(grip_root/'task.json')
+        grip_task['evaluation']['initial_objects']['open_end_wrench']['position_m'][:2] = reach['position_xy_m']
+        assert load_json(candidate_root/'task.json') == grip_task
+        derivation = grip_manifest['idler_grip_derivation']
+        previous_root = Path(derivation['source_release'])
+        checked(previous_root/'release_manifest.json', derivation['source_release_sha256'])
+        previous = load_json(previous_root/'release_manifest.json')
+        for relative, row in previous['files'].items():
+            if relative not in {'scene.json', 'source_provenance.json', 'asset_file_hashes.json'}:
+                checked(previous_root/relative, row['sha256'])
+                checked(grip_root/relative, row['sha256'])
+                assert grip_manifest['files'][relative]['sha256'] == row['sha256']
         assert definition['evaluator']['implementation'].endswith('.gear_train_assembly.evaluator.SequenceEvaluator')
 
 

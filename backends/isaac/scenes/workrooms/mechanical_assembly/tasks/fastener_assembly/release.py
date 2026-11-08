@@ -19,13 +19,18 @@ def _asset_inventory(scene):
     from bench.simulation.isaacsim_backend.asset_catalog import load_task_asset
     from bench.simulation.isaacsim_backend.workroom import verify_reference
     from scenes.workrooms.mechanical_assembly.robot_layout import robot_asset_reference
-    from scenes.workrooms.mechanical_assembly.threaded_reset import TRACE, TRACE_SHA256
-
     verify_reference(scene['workroom'])
     reference = scene['workroom']
     expected = {reference['usd_path']: reference['usd_sha256'],
-                reference['dependency_manifest_path']: reference['dependency_manifest_sha256'],
-                str(TRACE): TRACE_SHA256}
+                reference['dependency_manifest_path']: reference['dependency_manifest_sha256']}
+    inventory_version = scene.get('mechanical_input_inventory_version', 1)
+    if inventory_version == 1:
+        # Historical exports retain their exact provenance inventory. Current
+        # v2 inputs already contain explicit object poses and robot reset joints.
+        from scenes.workrooms.mechanical_assembly.threaded_reset import TRACE, TRACE_SHA256
+        expected[str(TRACE)] = TRACE_SHA256
+    elif inventory_version != 2:
+        raise ValueError('Unknown mechanical input inventory version')
     description = load_json(Path(reference['dependency_manifest_path']))
     expected.update({path: row['sha256'] for path, row in description['dependencies'].items()})
     expected.update(presentation_dependencies({'presentation': scene.get('workroom_presentation')}))
@@ -45,6 +50,8 @@ def _asset_inventory(scene):
         for row in [asset, *asset['visual_parts'], *asset['collision_parts']]:
             if 'mesh_path' in row:
                 expected[row['mesh_path']] = row['sha256']
+    from scenes.workrooms.mechanical_assembly.desktop_dressing import scene_dependencies
+    expected.update(scene_dependencies(scene))
     for path, expected_hash in expected.items():
         if digest(path) != expected_hash:
             raise ValueError('Original task dependency changed: '+path)

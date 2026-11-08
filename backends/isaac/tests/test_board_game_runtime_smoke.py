@@ -1,5 +1,6 @@
 """Checks of the operator smoke evidence guard; these are CPU-only fixtures."""
 import json
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -62,4 +63,31 @@ def test_gpu_health_exclusions_and_free_memory_guard(monkeypatch, pci, free):
     monkeypatch.setattr('scripts.validation.board_game_runtime_smoke.subprocess.run',
         lambda *args, **kwargs: SimpleNamespace(stdout=f'GPU-good,{pci},RTX,48000,{free},580\n'))
     with pytest.raises(ValueError):
+        gpu_selection('GPU-good')
+
+
+def test_gpu_identity_query_retries_only_a_stalled_nvidia_smi(monkeypatch):
+    monkeypatch.setenv('CUDA_VISIBLE_DEVICES', 'GPU-good')
+    monkeypatch.setenv('ISAAC_BENCH_SINGLE_CUDA_DEVICE', '1')
+    monkeypatch.setenv('ISAAC_ALLOW_UNVALIDATED_DRIVER', '1')
+    calls = []
+
+    def stalled_once(argv, **kwargs):
+        calls.append(kwargs['timeout'])
+        if len(calls) == 1:
+            raise subprocess.TimeoutExpired(argv, kwargs['timeout'])
+        return SimpleNamespace(stdout='GPU-good,00000000:9B:00.0,RTX,48000,35000,580\n')
+    monkeypatch.setattr('scripts.validation.board_game_runtime_smoke.subprocess.run', stalled_once)
+    assert gpu_selection('GPU-good')['memory_free_mb'] == '35000' and len(calls) == 2
+
+    def always_stalled(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, kwargs['timeout'])
+    monkeypatch.setattr('scripts.validation.board_game_runtime_smoke.subprocess.run', always_stalled)
+    with pytest.raises(subprocess.TimeoutExpired):
+        gpu_selection('GPU-good')
+
+    def failed(argv, **kwargs):
+        raise subprocess.CalledProcessError(9, argv)
+    monkeypatch.setattr('scripts.validation.board_game_runtime_smoke.subprocess.run', failed)
+    with pytest.raises(subprocess.CalledProcessError):
         gpu_selection('GPU-good')

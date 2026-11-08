@@ -1,7 +1,7 @@
 """Task5: sort sealed bottles, seasonings and dry goods into storage bins."""
 from bench.paths import DATA_ROOT
 from scenes.workrooms.kitchen.catalog_definition import implemented_task_definition
-
+from scenes.workrooms.kitchen.scene_qualification import rigid_scene_qualification
 
 TASK = implemented_task_definition(
     'pantry_stocking',
@@ -14,10 +14,11 @@ TASK = implemented_task_definition(
                       'pasta_carton': 1, 'tomato_can': 1, 'source_mat': 1,
                       'storage_bin': 3},
     dynamic_count=8, fixed_fixture_count=4, contextual_prop_count=12,
-    manifest_sha256='154090017b2a9d1e05fca06ada9465c9c7367bafaba1979767fe963683729d9f',
-    asset_version='v1', release_version='v2',
-    evidence_root=f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/kitchen_six_tasks_20261021',
-    canonical_run='native01_canonical', goal_support_run='native02_goal',
-    canonical_sha256='5f479dcb8c087875e2936e2c93e2151a0d8c5f8a49b9cfb721663f226f24f428',
-    goal_support_sha256='9887b099a6abbe0f5307de2dee670d26e05413047b63e8e7fa2dbe716ef373fc',
+    manifest_sha256='4485e32c4e1a5ea0904f11584778050016b479d0c8df77424d85999cb1252f75',
+    asset_version='household_v2', release_version='household_v2',
+    evidence_root=f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/kitchen_prop_scale_20261023',
 )
+
+TASK['qualification'].update(rigid_scene_qualification('pantry_stocking'))
+TASK['qualification'].update({'discrete_workspace_evidence': {'path': f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/kitchen_prop_scale_20261023/ik_final01.json',
+                                 'sha256': '98f65b16512343b0e6a109d85556100c4d453953182ddc957e600a5649c044e3'}})

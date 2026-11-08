@@ -7,6 +7,7 @@ import json
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr, model_serializer, model_validator
 from .schemas import Outcome
 from .task_scoring import TerminalScoringContract, TerminalTaskScoring, SCORABLE_OUTCOMES
+from .practice import PublicPracticeCase, PracticeProgress
 
 Code = Annotated[StrictStr, Field(pattern=r'^[a-z][a-z0-9_]*$', min_length=1, max_length=100)]
 Text = Annotated[StrictStr, Field(min_length=1, max_length=4096)]
@@ -87,6 +88,15 @@ class PublicEpisodeState(BaseModel):
         return self
 
 
+class PublicPlanarGoal(BaseModel):
+    """Frozen placement intent, never live cloth state or evaluator evidence."""
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    operation: Annotated[StrictStr, Field(pattern=r'^[a-z0-9][a-z0-9_]*$', max_length=100)]
+    frame_id: Literal['world_m_z_up']
+    description: Text
+    target_center_xy_m: Annotated[list[Number], Field(min_length=2, max_length=2)]
+
+
 class PublicTaskRequirements(BaseModel):
     """Typed result for the opt-in, read-only get_task function."""
     model_config = ConfigDict(extra='forbid', frozen=True)
@@ -98,13 +108,16 @@ class PublicTaskRequirements(BaseModel):
     public_rules_sha256: Annotated[StrictStr, Field(pattern=r'^[0-9a-f]{64}$')]
     referee: PublicRefereeState
     episode: PublicEpisodeState
+    goal: PublicPlanarGoal | None = None
+    practice: PublicPracticeCase | None = None
+    practice_progress: PracticeProgress | None = None
     scoring_contract: TerminalScoringContract | None = None
     scoring: TerminalTaskScoring | None = None
 
     @model_serializer(mode='wrap')
     def omit_undeclared_scoring(self, handler):
         result = handler(self)
-        for key in ('scoring_contract', 'scoring'):
+        for key in ('goal', 'scoring_contract', 'scoring', 'practice', 'practice_progress'):
             if result.get(key) is None:
                 result.pop(key, None)
         return result
@@ -117,6 +130,19 @@ class PublicTaskRequirements(BaseModel):
                 or self.referee.phase not in rules['phases']
                 or not set(self.referee.reason_codes) <= rules['reason_descriptions'].keys()):
             raise ValueError('Public task result differs from its rule contract')
+        if self.goal is not None and (self.goal.operation != self.task_id
+                or self.goal.description != self.instruction):
+            raise ValueError('Public placement goal differs from its task identity')
+        if self.practice is not None:
+            if self.practice.gym_id != self.task_id or self.practice_progress is None:
+                raise ValueError('Practice case must match its task and include coarse stage progress')
+            progress = self.practice_progress
+            if (progress.stage_count != len(self.practice.goal.stages)
+                    or progress.stage_index != progress.confirmed_stages
+                    or progress.stage_index > progress.stage_count):
+                raise ValueError('Practice progress differs from its finite goal')
+        elif self.practice_progress is not None:
+            raise ValueError('Practice progress requires a declared practice case')
         if self.scoring is not None:
             if not self.episode.terminal or self.scoring_contract is None:
                 raise ValueError('Numeric scoring requires a declared, terminal episode')
@@ -133,8 +159,8 @@ def contract_sha256(value):
         ensure_ascii=True, allow_nan=False).encode()).hexdigest()
 
 
-def project_task_rules(task, *, scoring_contract=None):
-    """Old tasks remain unchanged; opt-in rules must match both frozen hashes."""
+def validated_public_contract(task):
+    """Return only a declared, typed contract bound to the frozen task identity."""
     rules = task.get('public_rules')
     if not isinstance(rules, Mapping) or 'referee' not in rules:
         return None
@@ -144,9 +170,36 @@ def project_task_rules(task, *, scoring_contract=None):
             or task.get('public_referee_contract_sha256') != contract_sha256(rules['referee'])
             or task.get('public_rules_file') != 'rules.json'):
         raise ValueError('Public referee contract differs from frozen task identity')
+    return contract
+
+
+def project_task_rules(task, *, scoring_contract=None):
+    """Old tasks remain unchanged; opt-in rules must match both frozen hashes."""
+    if task.get('capabilities', {}).get('robot_episodes') is False:
+        # Engineering discovery may publish static rules, but must not
+        # advertise the ordinary POST /episodes contract.
+        return None
+    contract = validated_public_contract(task)
+    if contract is None:
+        return None
     result = {'task_id': contract['task_id'], 'task_kind': 'manipulation',
             'create_endpoint': 'POST /episodes', 'instruction': contract['instruction_zh'],
             'public_rules': contract, 'public_rules_sha256': contract_sha256(contract)}
+    if task.get('schema') == 'card_rsi_practice_task.v1':
+        public = PublicPracticeCase.model_validate(task['practice_case']['public']).model_dump(mode='json', by_alias=True)
+        if (public['gym_id'] != contract['task_id'] or public['case_sha256'] != contract_sha256(
+                {k: v for k, v in public.items() if k != 'case_sha256'})):
+            raise ValueError('Public practice case differs from its content hash/task')
+        result['practice'] = public
+    if task.get('schema_version') == 'laundry-cloth-task-v1' and task.get('public_goal') is not None:
+        # Only the task author's existing static declaration is published.
+        # Explicit fields prevent private vertices, targets or evidence from
+        # reaching either /tasks or get_task through an arbitrary dictionary.
+        goal = PublicPlanarGoal.model_validate({key: task['public_goal'][key]
+            for key in PublicPlanarGoal.model_fields if key in task['public_goal']})
+        if goal.operation != contract['task_id'] or goal.description != contract['instruction_zh']:
+            raise ValueError('Public placement goal differs from its task identity')
+        result['goal'] = goal.model_dump(mode='json')
     declaration = task.get('terminal_scoring_contract')
     if declaration is not None and scoring_contract is not None and declaration != scoring_contract:
         raise ValueError('Task and registered scoring declarations differ')

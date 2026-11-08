@@ -1,16 +1,11 @@
 """Robot contact-material opt-ins: collider binding and compliant SHARPA pads (CPU)."""
 import json
 import math
-from pathlib import Path
 
 import pytest
 
-from bench.isaacsim.release import task_inputs, validate
-from bench.paths import DATA_ROOT, load_json
-from scenes.manipulation.pad_compliance_release import PAD_COMPLIANCE, compliant_profile, prepare
 from bench.simulation.isaacsim_backend.robot_materials import material_kind, material_options, runtime_pad_check
 
-V12 = Path(f'{DATA_ROOT}/datasets/fr3_sharpa_bench/isaacsim/releases/simple_manipulation/v12_mount_v2_r1')
 MATERIALS = {'pad_friction': .5, 'shell_friction': .5}
 COMPLIANT = {'robot_contact_materials': MATERIALS, 'robot_material_binding': 'collider_instance_v1',
              'robot_pad_compliance': {'model': 'force_spring_v1', 'stiffness': 5000., 'damping': 20.}}
@@ -69,39 +64,3 @@ def test_runtime_check_requires_compliance_on_exactly_the_pads():
     assert runtime_pad_check([rigid] * 5, None)['compliant_shapes'] == 0
     # Without a request the check only records (historical scenes must run unchanged).
     assert runtime_pad_check([rigid] * 4 + [pad], legacy)['compliant_shapes'] == 1
-
-
-def test_compliant_profile_refuses_double_application_and_missing_materials():
-    profile = load_json(V12 / 'bimanual/physics_profile.json')
-    once = compliant_profile(profile)
-    with pytest.raises(ValueError, match='already'):
-        compliant_profile(once)
-    bare = json.loads(json.dumps(profile))
-    bare['isaacsim_options'].pop('robot_contact_materials')
-    with pytest.raises(ValueError, match='robot_contact_materials'):
-        compliant_profile(bare)
-
-
-@pytest.mark.parametrize('layer', ['sharpa_w01_right', 'bimanual'])
-def test_release_changes_only_the_physics_profile(layer, tmp_path):
-    source = V12 / layer
-    output = tmp_path / layer
-    manifest = prepare(source, output)
-    assert validate(output)['status'] == 'prepared_unvalidated' and manifest['robot_pad_compliance'] == PAD_COMPLIANCE
-    old = load_json(source / 'release_manifest.json')
-    for relative, item in old['files'].items():
-        assert (output / relative).read_bytes() == (source / relative).read_bytes(), relative
-    assert set(manifest['files']) == set(old['files']) | {'pad_compliance_provenance.json'}
-    before = load_json(source / 'physics_profile.json')
-    after = load_json(output / 'physics_profile.json')
-    added = {k: v for k, v in after['isaacsim_options'].items() if k not in before['isaacsim_options']}
-    assert added == {'robot_material_binding': 'collider_instance_v1', 'robot_pad_compliance': PAD_COMPLIANCE}
-    assert {k: after['isaacsim_options'][k] for k in before['isaacsim_options']} == before['isaacsim_options']
-    assert (output / 'source_release_manifest.json').read_bytes() == (source / 'release_manifest.json').read_bytes()
-    provenance = load_json(output / 'pad_compliance_provenance.json')
-    assert provenance['calibrated'] is False and provenance['physics_accepted'] is False and provenance['evidence']
-    for entry in manifest['tasks']:
-        _, scene, _, _ = task_inputs(output, entry['id'])
-        assert material_options(scene['isaacsim'])['pad_compliance']['stiffness'] == PAD_COMPLIANCE['stiffness']
-    with pytest.raises(FileExistsError):
-        prepare(source, output)

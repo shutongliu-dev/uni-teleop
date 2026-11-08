@@ -12,7 +12,7 @@ import shutil
 import sys
 import types
 
-from bench.paths import DATA_ROOT, load_json
+from bench.paths import DATA_ROOT, load_json, portable, undistributed
 
 PROJECT = Path(__file__).resolve().parents[2]
 SOURCE = Path(f'{DATA_ROOT}/datasets/fr3_sharpa_bench/sequential_workcell/v1')
@@ -27,17 +27,20 @@ PROFILE = {
 
 
 def digest(path):
-    with Path(path).open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+    from bench.isaacsim.validation_epoch import file_sha256
+    return file_sha256(path)
 
 
 def dump(path, value):
+    """Write JSON with data-root paths as data:// URIs, as every packaged data file stores them."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + '\n')
+    path.write_text(json.dumps(portable(value), ensure_ascii=False, indent=2, allow_nan=False) + '\n')
 
 
 def checked(path, expected):
+    if undistributed(path):
+        return expected  # recorded provenance; see bench.paths.undistributed
     actual = digest(path)
     if actual != expected:
         raise ValueError(f'Frozen input changed: {path}: {actual} != {expected}')
@@ -104,9 +107,64 @@ def prepare(source=SOURCE, output=DEFAULT, profile=None):
 
 
 def validate(root=DEFAULT, *, assets=True):
+    # Under the operator-selected once-hashed scope, a release (resolved root and
+    # manifest digest) is fully validated once; later calls in that scope reuse
+    # the result, recorded as derivation reuse. All other modes re-validate.
+    from bench.isaacsim.validation_epoch import active_once_scope, file_sha256
+    scope = active_once_scope()
+    if scope is None:
+        return _validate(root, assets=assets)
+    resolved = Path(root).resolve()
+    key = ('bench.isaacsim.release.validate', str(resolved), file_sha256(resolved / 'release_manifest.json'), bool(assets))
+    return scope.memo(key, lambda: _validate(root, assets=assets))
+
+
+def validate_with_parents(root=DEFAULT, *, assets=True):
+    """validate(root, assets=assets) and the parent results that validation checked.
+
+    Only a robot revision reports one, {resolved parent root: validate(parent)
+    result}. Inside an explicit validation scope this is plain validate() with
+    no parents, so scopes keep their own reuse semantics.
+    """
+    from bench.isaacsim.validation_epoch import active_validation_scope
+    if active_validation_scope() is not None:
+        return validate(root, assets=assets), {}
+    resolved = Path(root).resolve()
+    manifest = load_json(resolved / 'release_manifest.json')
+    if manifest.get('schema') != 'workroom_robot_revision_release.v1':
+        return _validate(root, assets=assets), {}
+    from scenes.workrooms.robot_revision.release import validate_release_with_parent
+    return validate_release_with_parent(resolved, manifest, assets=assets)
+
+
+def _validate(root=DEFAULT, *, assets=True):
     root = Path(root).resolve()
     manifest = load_json(root / 'release_manifest.json')
+    if manifest.get('schema') == 'workroom_robot_revision_release.v1':
+        from scenes.workrooms.robot_revision.release import validate_release
+        return validate_release(root, manifest, assets=assets)
+    if manifest.get('schema') == 'laundry_randomized_release.v1':
+        from scenes.workrooms.laundry_room.randomization.release import validate_release
+        return validate_release(root, manifest, assets=assets)
+    if manifest.get('schema') == 'workroom_randomized_release.v1':
+        from scenes.workrooms.initial_randomization.release import validate_release
+        return validate_release(root, manifest, assets=assets)
+    if manifest.get('schema') == 'living_room_randomized_release.v1':
+        from scenes.workrooms.living_room.randomization.release import validate_release
+        return validate_release(root, manifest, assets=assets)
+    if manifest.get('schema') == 'card_rsi_practice_release.v1':
+        from scenes.workrooms.card_room.practice.release import validate_release
+        return validate_release(root, manifest, assets=assets)
     from scenes.board_games.runtime_release import is_board_game_release, validate_board_game_release
+    if manifest.get('schema') == 'card_game_expansion_release.v1':
+        from scenes.board_games.expansion_release import validate_release
+        return validate_release(root, manifest, assets=assets)
+    if manifest.get('schema') == 'workroom_robot_configuration_release.v1':
+        from scenes.workrooms.robot_configuration_release import validate_release
+        return validate_release(root, manifest, assets=assets)
+    if manifest.get('schema') == 'laundry_cloth_task_release.v1':
+        from scenes.workrooms.laundry_room.release import validate_release
+        return validate_release(root, manifest, assets=assets)
     if is_board_game_release(manifest):
         return validate_board_game_release(root, manifest, assets=assets)
     if manifest.get('schema') == 'study_task_release.v1':
@@ -126,6 +184,9 @@ def validate(root=DEFAULT, *, assets=True):
         return validate_release(root, manifest, assets=assets)
     if manifest.get('schema') == 'mechanical_nist_task_release.v1':
         from scenes.workrooms.mechanical_assembly.nist_release import validate_release
+        return validate_release(root, manifest, assets=assets)
+    if manifest.get('schema') == 'mechanical_cooperative_task_release.v1':
+        from scenes.workrooms.mechanical_assembly.cooperative_release import validate_release
         return validate_release(root, manifest, assets=assets)
     if manifest.get('schema') == 'living_room_task_release.v1':
         from scenes.workrooms.living_room.layer_release import validate_release
@@ -175,7 +236,8 @@ def validate(root=DEFAULT, *, assets=True):
         scene = load_json(root/'scene.json')
         task = load_json(root/'task.json')
         initial = _mechanical_initial_state(scene, task)
-        if assets and manifest.get('presentation_contract_version') == 2:
+        if assets and (manifest.get('presentation_contract_version') == 2
+                       or scene.get('mechanical_input_inventory_version') == 2):
             from scenes.workrooms.mechanical_assembly.tasks.fastener_assembly.release import _asset_inventory
             inventory = load_json(root/'asset_file_hashes.json')
             if inventory != _asset_inventory(scene):
@@ -282,7 +344,19 @@ def _placement_initial_state(scene, task):
 def load_evaluator(root=DEFAULT):
     """Load the frozen evaluator and its frozen relative geometry dependency."""
     root = Path(root).resolve()
-    manifest = validate(root, assets=False)
+    return validated_evaluator(root, validate(root, assets=False))
+
+
+def validated_evaluator(root, manifest):
+    """Select the evaluator using the manifest that validate(root, assets=False) returned."""
+    root = Path(root).resolve()
+    if (manifest.get('schema') == 'workroom_robot_revision_release.v1'
+            and manifest['selection_kind'] == 'practice'):
+        from scenes.workrooms.robot_revision.practice import evaluator_factory
+        return evaluator_factory
+    if manifest.get('schema') == 'card_rsi_practice_release.v1':
+        from scenes.workrooms.card_room.practice.referee import evaluator_factory
+        return evaluator_factory
     if manifest.get('task_kind') == 'board_game':
         raise ValueError('Board-game evaluation requires the trusted native-substep runtime adapter')
     return _frozen_evaluator_module(root).SequenceEvaluator
@@ -290,32 +364,77 @@ def load_evaluator(root=DEFAULT):
 
 def _frozen_evaluator_module(root):
     """Called only after all frozen dependencies have passed hash validation."""
+    from bench.isaacsim.frozen_import import register_package, source_loader
     # Relative dependencies (e.g. humanlike.py) belong to the same frozen release.
     # Keying only on sequence_evaluator.py would reuse another release's cached
     # helper whenever the main evaluator stayed unchanged but a dependency did not.
     package = '_isaac_frozen_evaluator_' + digest(root / 'release_manifest.json')
     if package not in sys.modules:
+        register_package(package, root / 'evaluator')
         module = types.ModuleType(package)
         module.__path__ = [str(root / 'evaluator')]
         sys.modules[package] = module
     name = package + '.sequence_evaluator'
     if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, root / 'evaluator/sequence_evaluator.py')
+        source = root / 'evaluator/sequence_evaluator.py'
+        spec = importlib.util.spec_from_file_location(name, source, loader=source_loader(name, source))
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
         spec.loader.exec_module(module)
     return sys.modules[name]
 
 
-def task_inputs(root, task_id, phase='nominal', *, seed=0):
+def task_inputs(root, task_id, phase='nominal', *, seed=0, practice=None):
     root = Path(root)
-    manifest = validate(root)
+    return validated_task_inputs(root, validate(root), task_id, phase, seed=seed, practice=practice)
+
+
+def validated_task_inputs(root, manifest, task_id, phase='nominal', *, seed=0, practice=None, parents=None):
+    """Select inputs using the manifest that a complete validate(root) returned.
+
+    parents, from validate_with_parents() of the same validation, lets a robot
+    revision reuse the parent result it already validated; without it the
+    revision validates its parent again, as task_inputs() always does.
+    """
+    root = Path(root)
+    if manifest.get('schema') == 'workroom_robot_revision_release.v1':
+        from scenes.workrooms.robot_revision.release import task_inputs as revised_inputs
+        return revised_inputs(root, task_id, manifest, seed=seed, phase=phase, practice=practice,
+                              parents=parents)
+    if manifest.get('schema') == 'laundry_randomized_release.v1':
+        if practice is not None:
+            raise ValueError('Ordinary randomized task does not accept practice selection')
+        from scenes.workrooms.laundry_room.randomization.release import task_inputs as selected_inputs
+        return selected_inputs(root, task_id, manifest, seed=seed, phase=phase)
+    if manifest.get('schema') == 'workroom_randomized_release.v1':
+        if practice is not None:
+            raise ValueError('Ordinary physical reset cases do not accept practice selectors')
+        from scenes.workrooms.initial_randomization.release import task_inputs as randomized_inputs
+        return randomized_inputs(root, task_id, manifest, seed=seed, phase=phase)
+    if manifest.get('schema') == 'living_room_randomized_release.v1':
+        if practice is not None:
+            raise ValueError('Ordinary randomized tasks do not accept practice selectors')
+        from scenes.workrooms.living_room.randomization.release import task_inputs as randomized_inputs
+        return randomized_inputs(root, task_id, manifest, seed=seed, phase=phase)
+    if manifest.get('schema') == 'card_rsi_practice_release.v1':
+        if phase != 'nominal':
+            raise ValueError('Practice uses only its finite reset cases')
+        from scenes.workrooms.card_room.practice.release import task_inputs as practice_inputs
+        return practice_inputs(root, task_id, manifest, seed=seed, practice=practice)
+    if practice is not None:
+        raise ValueError('Practice selection is only valid for a practice task')
+    if manifest.get('schema') == 'workroom_robot_configuration_release.v1':
+        from scenes.workrooms.robot_configuration_release import task_inputs as configured_inputs
+        return configured_inputs(root, task_id, manifest, seed=seed, phase=phase)
     if manifest.get('schema') == 'study_task_release.v1':
         from scenes.workrooms.study.release import task_inputs as study_inputs
         return study_inputs(root, task_id, manifest, seed=seed, phase=phase)
     if manifest.get('task_kind') == 'board_game':
         if phase != 'nominal':
             raise ValueError('Board-game releases support nominal frozen reset only; no reset-at-goal qualification')
+        if manifest.get('schema') == 'card_game_expansion_release.v1':
+            from scenes.board_games.expansion_release import task_inputs as expansion_inputs
+            return expansion_inputs(root, task_id, manifest)
         from scenes.board_games.runtime_release import board_game_task_inputs
         return board_game_task_inputs(root, task_id, manifest)
     if manifest.get('schema') == 'living_room_task_release.v1':
@@ -330,6 +449,11 @@ def task_inputs(root, task_id, phase='nominal', *, seed=0):
     profile = load_json(root / manifest['physics_profile'])
     scene['isaacsim'] = profile['isaacsim_options']
     initial = {}
+    if manifest.get('schema') == 'laundry_cloth_task_release.v1':
+        if task_id != manifest.get('task_id') or phase != 'nominal':
+            raise ValueError('Laundry releases require their exact task and original reset')
+        from scenes.workrooms.laundry_room.release import episode_inputs
+        scene, task, initial = episode_inputs(root, scene, task, seed)
     if manifest.get('schema') == 'living_room_manipulation_task_release.v1':
         if task_id != manifest.get('task_id') or phase != 'nominal':
             raise ValueError('Living-room releases require their exact task and original reset')
@@ -356,6 +480,11 @@ def task_inputs(root, task_id, phase='nominal', *, seed=0):
         if task_id != manifest.get('task_id') or phase != 'nominal':
             raise ValueError('NIST releases require their exact task and original reset')
         from scenes.workrooms.mechanical_assembly.nist_release import episode_inputs
+        scene, task, initial = episode_inputs(root, scene, task, seed)
+    if manifest.get('schema') == 'mechanical_cooperative_task_release.v1':
+        if task_id != manifest.get('task_id') or phase != 'nominal':
+            raise ValueError('Cooperative releases require their exact task and original reset')
+        from scenes.workrooms.mechanical_assembly.cooperative_release import episode_inputs
         scene, task, initial = episode_inputs(root, scene, task, seed)
     if manifest.get('schema_version') == 'isaacsim-card-room-placement-release-v1':
         if task_id != 'task0':
@@ -408,3 +537,16 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+def load_practice_inputs(root):
+    """Load the selected immutable practice identity, including robot revisions."""
+    root = Path(root).resolve()
+    manifest = validate(root)
+    if manifest.get('schema') == 'workroom_robot_revision_release.v1':
+        from scenes.workrooms.robot_revision.release import load_practice_inputs as load
+    elif manifest.get('schema') == 'card_rsi_practice_release.v1':
+        from scenes.workrooms.card_room.practice.release import load_practice_inputs as load
+    else:
+        raise ValueError('Selected release is not a practice curriculum')
+    return load(root)

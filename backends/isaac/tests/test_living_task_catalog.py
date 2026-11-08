@@ -1,39 +1,61 @@
 """Published bundle tasks and independently pinned tower-layer candidates."""
 import importlib
+import json
+from pathlib import Path
 
 import pytest
 
-from scenes.workrooms.catalog import list_tasks, load_task
+from bench.paths import load_json
+from scenes.workrooms.catalog import list_tasks, load_task, task_definition
+from scenes.workrooms.parameterized.catalog import QUALIFICATION as PARAMETERIZED_QUALIFICATION
 from scenes.workrooms.living_room.tasks.remote_operation.task import task_configuration as remote_plan
 from scenes.workrooms.living_room.tasks.water_pouring.task import task_configuration as pouring_plan
+from scenes.workrooms.living_room.tasks.storage_box.task import task_configuration as storage_plan
 
 
-def test_four_numbered_tasks_and_no_duplicate_legacy_slots():
-    rows = list_tasks('living_room', include_planned=True)
+def test_five_numbered_tasks_and_no_duplicate_legacy_slots():
+    rows = sorted(list_tasks('living_room', include_planned=True, robot_profile='original'),
+                  key=lambda row:row['task_number'])
     assert [(x['task_number'], x['task_id']) for x in rows] == [
-        (1, 'remote_operation'), (2, 'water_pouring'), (3, 'tower_building'), (4, 'tower_extraction')]
-    assert [x['robot_requirements']['articulations'] for x in rows] == [1, 1, 1, 2]
+        (1, 'remote_operation'), (2, 'water_pouring'), (3, 'tower_building'), (4, 'tower_extraction'),(5,'storage_box')]
+    assert [x['robot_requirements']['articulations'] for x in rows] == [1, 1, 1, 2,1]
     for task in rows:
         front_y = -.88 if task['task_id'] == 'tower_building' else -.76
         assert task['robot_requirements']['base_positions_m']['front'] == [.65, front_y, .78]
         assert task['status'] == 'implemented' and task['runnable'] is True
-        assert task['qualification']['manipulation'] is False
         assert task['qualification']['physics_accepted'] is False
-    for task in rows[:2]:
-        assert task['status'] == 'implemented' and task['runnable'] is True
-        version = 'v7' if task['task_id'] == 'remote_operation' else 'v5'
-        assert task['source_release']['path'].endswith('/'+task['task_id']+'/'+version)
-        assert task['qualification']['manipulation'] is False
-        assert task['qualification']['native_preflight'] is True
-        assert task['qualification']['status'] == 'candidate_native_smoke_passed'
-    for task in rows[2:]:
+    for task in rows[:2]+rows[4:]:
+        # Paired parameterized reset releases; the instance claims no native,
+        # interface or manipulation evidence.
+        assert task['source_release']['path'].endswith('/releases/'+task['task_id']+'/single_arm')
+        assert task['release_schema'] == 'living_room_randomized_release.v1'
+        assert task['qualification'] == PARAMETERIZED_QUALIFICATION
+    for task in rows[2:4]:
         assert task['source_release']
         assert task['release_schema'] == 'living_room_task_release.v1'
         assert task['qualification']['release_status'] == 'prepared_unvalidated'
-    assert len(list_tasks('living_room')) == 4
+        assert task['qualification']['manipulation'] is False
+    assert len(list_tasks('living_room', robot_profile='original')) == 5
+    # The L-mount profile revises only the robot of each original task.
+    revised = sorted(list_tasks('living_room', include_planned=True, robot_profile='l_mount'),
+                     key=lambda row:row['task_number'])
+    assert [(x['task_number'], x['task_id']) for x in revised] == [(x['task_number'], x['task_id']) for x in rows]
+    for task, original in zip(revised, rows):
+        assert task['robot_requirements']['articulations'] == original['robot_requirements']['articulations']
+        assert task['robot_requirements']['assembly_version'] == 'isaacsim_6_1_l_mount_v3'
+        assert task['status'] == 'implemented' and task['runnable'] is True
+        assert task['layout'] == original['layout']
+        assert {key: option['layout'] for key, option in task.get('robot_configurations', {}).items()} == {
+            key: option['layout'] for key, option in original.get('robot_configurations', {}).items()}
+        assert task['release_schema'] == 'workroom_robot_revision_release.v1'
+        assert task['qualification']['robot_manipulation'] is False
+        assert task['qualification']['physics_accepted'] is False
+        manifest = load_json(Path(task['source_release']['path'])/'release_manifest.json')
+        assert manifest['base_release'] == {**original['source_release'], 'schema': original['release_schema']}
+    assert len(list_tasks('living_room')) == 5
 
 
-@pytest.mark.parametrize('task_id', ['remote_operation', 'water_pouring'])
+@pytest.mark.parametrize('task_id', ['remote_operation', 'water_pouring','storage_box'])
 def test_catalog_loads_and_verifies_frozen_candidate_without_claiming_robot_success(task_id):
     loaded = load_task('living_room', task_id)
     assert loaded['definition']['runnable']
@@ -46,14 +68,22 @@ def test_catalog_loads_and_verifies_frozen_candidate_without_claiming_robot_succ
     assert loaded['release_manifest']['task_policy_success_claimed'] is False
 
 
+@pytest.mark.parametrize('robot_profile', ['original', 'l_mount'])
 @pytest.mark.parametrize('task_id', ['tower_building', 'tower_extraction'])
-def test_tower_layer_candidates_keep_their_frozen_parent_reset_and_scorer(task_id):
-    loaded = load_task('living_room', task_id)
+def test_tower_layer_candidates_keep_their_frozen_parent_reset_and_scorer(task_id, robot_profile):
+    loaded = load_task('living_room', task_id, robot_profile=robot_profile)
     scene, task = loaded['scene'], loaded['task']
     assert scene['workroom'] == loaded['environment']['environment']
     assert loaded['initial_state'] == task['initial_state']
     assert task['schema_version'] == 'living-room-task-v1'
-    assert loaded['release_manifest']['schema'] == 'living_room_task_release.v1'
+    if robot_profile == 'l_mount':
+        # A robot-only revision of exactly the original-profile tower release.
+        original = task_definition('living_room', task_id, robot_profile='original')
+        assert loaded['release_manifest']['schema'] == 'workroom_robot_revision_release.v1'
+        assert loaded['release_manifest']['base_release'] == {
+            **original['source_release'], 'schema': 'living_room_task_release.v1'}
+    else:
+        assert loaded['release_manifest']['schema'] == 'living_room_task_release.v1'
     assert loaded['release_manifest']['status'] == 'prepared_unvalidated'
     assert loaded['release_manifest']['physics_accepted'] is False
     assert loaded['definition']['task_kind'] == loaded['release_manifest']['task_kind']
@@ -62,7 +92,7 @@ def test_tower_layer_candidates_keep_their_frozen_parent_reset_and_scorer(task_i
 
 
 def test_default_configurations_load_real_frozen_inputs_and_preserve_public_fields():
-    for configuration in (remote_plan(seed=0), pouring_plan(seed=1)):
+    for configuration in (remote_plan(seed=0), pouring_plan(seed=1),storage_plan(seed=2)):
         assert configuration['environment']['version'] == 'living_room_residential_20261018_v7'
         assert len(configuration['initial_state']['joint_positions_rad']) == 29
         assert configuration['source_release'] and configuration['native_execution_available'] is True
@@ -83,7 +113,7 @@ def test_default_configurations_load_real_frozen_inputs_and_preserve_public_fiel
 
 @pytest.mark.parametrize('seed', [-1, True, 2**32, 1.5])
 def test_bad_seeds_are_rejected(seed):
-    for factory in (remote_plan, pouring_plan):
+    for factory in (remote_plan, pouring_plan,storage_plan):
         with pytest.raises(ValueError, match='seed'):
             factory(seed=seed)
 
@@ -91,7 +121,7 @@ def test_bad_seeds_are_rejected(seed):
 def test_tower_catalog_entrypoints_bind_real_reference_code_and_same_parent():
     from scenes.workrooms.living_room.scene import environment_reference
 
-    for definition in list_tasks('living_room', include_planned=True)[2:]:
+    for definition in [row for row in list_tasks('living_room', include_planned=True) if row['task_id'] in ('tower_building','tower_extraction')]:
         factory = importlib.import_module(definition['entrypoint']).task_configuration
         with pytest.raises(ValueError, match='block_size_m'):
             factory({})

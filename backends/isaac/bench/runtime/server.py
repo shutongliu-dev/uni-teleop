@@ -17,6 +17,7 @@ from scenes.manipulation.contracts import project_grasp_contract
 from bench.protocol.schemas import EvaluationPlan
 from bench.simulation.isaacsim_backend.robot_registry import list_hands
 from scripts.maintenance.freeze_project_sources import verify_if_snapshot
+from bench.runtime.reset_cases import is_randomized_release, effective_release_schema
 from .service import AgentService, CreateEpisodeRequest, CreateBoardGameRequest, CreateTurnGameRequest, ServiceError
 from .robot_support import IKQuery
 from bench.protocol.functions import FunctionCall, FunctionCatalog, FunctionResponse, function_schemas
@@ -28,7 +29,17 @@ def create_app(data_dir=None, *, service=None, **service_options):
     if service is None and os.environ.get('BENCH_EVALUATION_PLAN') and 'evaluation_plan' not in service_options:
         service_options['evaluation_plan']=EvaluationPlan.model_validate_json(Path(os.environ['BENCH_EVALUATION_PLAN']).read_text())
     service_options.setdefault('device',os.environ.get('BENCH_DEVICE','cuda:0'))
-    service_options.setdefault('release',Path(os.environ.get('BENCH_TASK_RELEASE',str(DEFAULT_TASK_RELEASE))))
+    if service is None and 'release' not in service_options:
+        if 'BENCH_TASK_RELEASE' in os.environ:
+            service_options['release'] = Path(os.environ['BENCH_TASK_RELEASE'])
+        elif 'BENCH_ROBOT_PROFILE' in os.environ:
+            from scenes.workrooms.catalog import task_definition
+            selected = task_definition('card_room', 'task0',
+                                       robot_profile=os.environ['BENCH_ROBOT_PROFILE'])
+            service_options['release'] = Path(selected['source_release']['path'])
+        else:
+            from scenes.workrooms.robot_revision.catalog import default_service_release
+            service_options['release'] = default_service_release(DEFAULT_TASK_RELEASE)
     manager = service or AgentService(directory, **service_options)
     source_verification = verify_if_snapshot(Path(__file__).absolute().parents[2],
         required_modules=("bench.runtime.server", "bench.runtime.service"),
@@ -77,23 +88,69 @@ def create_app(data_dir=None, *, service=None, **service_options):
         return {'status':'ok','protocol':'agent_bench_v1','backend':'isaacsim_native_physx',
                 'physics_readiness':'checked when an episode is created','hardware_connected':False}
 
+    def configuration_release(task_id, configuration_id=None):
+        if configuration_id is None:
+            return manager.release
+        if not hasattr(manager, 'configuration_release'):
+            raise ServiceError(422, 'Robot configuration selection is unavailable')
+        return manager.configuration_release(task_id, configuration_id)
+
+    def configuration_registry(task_id, configuration_id=None):
+        if configuration_id is None:
+            return manager.registry
+        if not hasattr(manager, 'configuration_registry'):
+            raise ServiceError(422, 'Robot configuration selection is unavailable')
+        return manager.configuration_registry(task_id, configuration_id)
+
     @app.get('/tasks')
-    def tasks():
-        root=manager.release
-        from bench.isaacsim.release import validate
-        manifest=validate(root,assets=False)
+    def tasks(task_id: str | None = None, configuration_id: str | None = None, seed: str | None = None):
+        if configuration_id is not None and task_id is None:
+            raise ServiceError(422, 'Task ID is required for robot configuration selection')
+        if seed is not None and (task_id is None or len(seed) != 1 or seed not in '0123456789'):
+            raise ServiceError(422, 'Seed selection requires a task ID and one integer from 0 through 9')
+        root=configuration_release(task_id, configuration_id)
+        from .release_cache import task_inputs_cached, validate_cached
+        manifest=validate_cached(root,assets=False)
+        randomized = is_randomized_release(manifest)
+        if seed is not None and not randomized:
+            raise ServiceError(422, 'This task release does not support seeded discovery')
         output=[]
+        if task_id is not None and task_id not in {entry['id'] for entry in manifest['tasks']}:
+            raise ServiceError(422, 'Unknown task ID')
         for entry in manifest['tasks']:
-            task=load_json(root/entry['task'])
+            if task_id is not None and entry['id'] != task_id:
+                continue
+            if randomized:
+                _, _, task, _ = task_inputs_cached(root, entry['id'], seed=0 if seed is None else int(seed))
+            else:
+                task=load_json(root/entry['task'])
+            from .task_capabilities import project_engineering_task
+            engineering_task = project_engineering_task(task, entry['id'])
+            if engineering_task is not None:
+                output.append(engineering_task)
+                continue
             if task.get('schema_version') == 'living-room-manipulation-task-v1':
                 from .manipulation_tasks import project_manipulation_task
-                output.append(project_manipulation_task(task))
+                public = project_manipulation_task(task)
+                if randomized:
+                    from bench.runtime.reset_cases import project_reset_case
+                    public = project_reset_case(task, public)
+                output.append(public)
                 continue
             if task.get('schema_version') == 'card-room-placement-task-v1':
                 from .placement_tasks import project_placement_task
                 output.append(project_placement_task(task, episode=False))
                 continue
             if entry.get('task_kind') == 'board_game':
+                if task.get('schema') == 'card_game_expansion_task.v1':
+                    from bench.protocol.card_games import PROTOCOL
+                    output.append({'task_id': entry['id'], 'instruction': entry['title_zh'],
+                        'task_kind': 'board_game', 'create_endpoint': 'POST /board-games',
+                        'protocol': PROTOCOL,
+                        'schema_endpoint': 'GET /board-games/schema?protocol=' + PROTOCOL,
+                        'public_rules': task['public_rules'],
+                        'public_rules_sha256': task['public_rules_sha256']})
+                    continue
                 output.append({'task_id':entry['id'],'instruction':entry['title_zh'],
                     'task_kind':'board_game','create_endpoint':'POST /board-games',
                     'rules':task['rules'],'geometry':task['geometry'],
@@ -112,6 +169,9 @@ def create_app(data_dir=None, *, service=None, **service_options):
             from scenes.runtime import terminal_scoring_contract
             referee_task = project_task_rules(task, scoring_contract=terminal_scoring_contract(task))
             if referee_task is not None:
+                if randomized:
+                    from bench.runtime.reset_cases import project_reset_case
+                    referee_task = project_reset_case(task, referee_task)
                 output.append(referee_task)
                 continue
             row={'task_id':entry['id'],'instruction':task['title_zh']+'。'+
@@ -127,6 +187,10 @@ def create_app(data_dir=None, *, service=None, **service_options):
                     row['robot_mount']={'mount_convention':mount_spec['mount_convention'],
                                         'hand_frame_yaw_about_flange_axis_rad':mount_spec['hand_frame_yaw_rad'],
                                         'status':mount_spec['mount_status']}
+                    if 'mounts_by_side' in mount_spec:
+                        row['robot_mount'].pop('hand_frame_yaw_about_flange_axis_rad')
+                        row['robot_mount'].update(mounts_by_side=mount_spec['mounts_by_side'],
+                            hand_frame_description=mount_spec['hand_frame_description'])
             if 'public_goal' in task:
                 # Only declared static intent and success conditions are public.
                 # Live evaluator evidence and native object state stay private.
@@ -147,6 +211,23 @@ def create_app(data_dir=None, *, service=None, **service_options):
                     from scenes.manipulation.contracts import project_success_contract
                     row['goal']['success_contract']=project_success_contract(task['public_goal']['success_contract'])
             output.append(row)
+        from .robot_configurations import public_configuration_binding
+        bindings = manager.configuration_bindings() if hasattr(manager, 'configuration_bindings') else {}
+        for row in output:
+            selected = next(item for item in manifest['tasks'] if item['id'] == row['task_id'])
+            scene_file = root / selected['scene'] if 'scene' in selected else None
+            if scene_file is not None and scene_file.is_file():
+                robot = load_json(scene_file).get('robot', {})
+                from bench.simulation.isaacsim_backend.l_mount import public_mount
+                mount = public_mount(robot)
+                if mount is not None:
+                    row['robot_mount'] = mount
+            if row['task_id'] in bindings:
+                row.update(public_configuration_binding(bindings[row['task_id']]))
+            if configuration_id is not None or randomized:
+                from bench.isaacsim.release import digest
+                row.update(configuration_id=configuration_id or manifest['configuration_id'],
+                           task_release_sha256=digest(root/'release_manifest.json'))
         return output
 
     @app.get('/robots')
@@ -155,34 +236,50 @@ def create_app(data_dir=None, *, service=None, **service_options):
               'integration_status')
         return [{k:v for k,v in hand.items() if k in keys} for hand in list_hands()]
 
-    def policy_descriptors(task_id):
+    def policy_descriptors(task_id, configuration_id=None):
+        if configuration_id is not None and task_id is None:
+            raise ServiceError(422, 'Task ID is required for robot configuration selection')
         if task_id is not None:
-            from bench.isaacsim.release import validate
-            manifest = validate(manager.release, assets=False)
+            release = configuration_release(task_id, configuration_id)
+            from .release_cache import validate_cached
+            manifest = validate_cached(release, assets=False)
             if task_id not in {entry['id'] for entry in manifest['tasks']}:
                 raise ServiceError(422, 'Unknown task ID')
+            from .task_capabilities import engineering_capabilities
+            entry = next(row for row in manifest['tasks'] if row['id'] == task_id)
+            if engineering_capabilities(load_json(release/entry['task'])) is not None:
+                return []
         try:
-            return manager.registry.descriptors(task_id=task_id)
+            return configuration_registry(task_id, configuration_id).descriptors(task_id=task_id)
         except ValueError:
             raise ServiceError(422, 'Task ID is required for task-bound controller discovery') from None
 
     @app.get('/policies')
-    def policies(task_id: str | None = None):
-        return [d.model_dump(mode='json') for d in policy_descriptors(task_id)]
+    def policies(task_id: str | None = None, configuration_id: str | None = None):
+        return [d.model_dump(mode='json') for d in policy_descriptors(task_id, configuration_id)]
 
     @app.get('/interfaces')
-    def interfaces(task_id: str | None = None):
-        from .catalog import board_game_interface_catalog, turn_game_interface_catalog, interface_catalog
+    def interfaces(task_id: str | None = None, configuration_id: str | None = None):
+        from .catalog import (board_game_interface_catalog, card_game_interface_catalog,
+                              turn_game_interface_catalog, interface_catalog)
         from .free_track import advertise_free_track
-        descriptors=policy_descriptors(task_id)
+        descriptors=policy_descriptors(task_id, configuration_id)
         catalog=advertise_free_track(interface_catalog(descriptors),descriptors)
         if getattr(manager, 'release', None) is not None:
-            from bench.isaacsim.release import validate
-            manifest=validate(manager.release,assets=False)
+            from .release_cache import validate_cached
+            release = configuration_release(task_id, configuration_id)
+            manifest=validate_cached(release,assets=False)
             selected=[entry for entry in manifest['tasks'] if task_id is None or entry['id']==task_id]
+            from .task_capabilities import restrict_engineering_interfaces
+            catalog = restrict_engineering_interfaces(catalog,
+                {entry['id']: load_json(release/entry['task']) for entry in selected})
+            if catalog.get('robot_episodes') is False:
+                return catalog
             if selected and all(entry.get('task_kind', manifest.get('task_kind'))=='board_game'
                                 for entry in selected):
-                return board_game_interface_catalog(catalog)
+                return (card_game_interface_catalog(catalog)
+                        if effective_release_schema(manifest) == 'card_game_expansion_release.v1'
+                        else board_game_interface_catalog(catalog))
             if selected and all(entry.get('task_kind', manifest.get('task_kind'))=='turn_game'
                                 for entry in selected):
                 return turn_game_interface_catalog(catalog)
@@ -212,7 +309,15 @@ def create_app(data_dir=None, *, service=None, **service_options):
         return await asyncio.to_thread(manager.create,request,turn_game=True)
 
     @app.get('/board-games/schema')
-    def board_game_schema():
+    def board_game_schema(protocol: str = 'bench_board_game_state_v1'):
+        if protocol == 'bench_card_game_state_v1':
+            from bench.protocol.card_games import VERSION, card_game_schemas
+            return {'protocol': protocol, 'capability_version': VERSION,
+                    'schemas': {**card_game_schemas(),
+                        'CreateBoardGameRequest': CreateBoardGameRequest.model_json_schema()},
+                    'reference': None}
+        if protocol != 'bench_board_game_state_v1':
+            raise ServiceError(422, 'Unknown board-game protocol')
         from bench.protocol.board_games import board_game_schemas
         return {'protocol':'bench_board_game_state_v1','capability_version':'1.0.0',
                 'schemas':{**board_game_schemas(),'CreateBoardGameRequest':CreateBoardGameRequest.model_json_schema()},
@@ -231,6 +336,13 @@ def create_app(data_dir=None, *, service=None, **service_options):
     @app.get('/board-games/{episode_id}/players/{player_id}/state')
     async def board_state(episode_id:str,player_id:str,request:Request):
         return await asyncio.to_thread(player(request,episode_id,player_id).public,player_id)
+
+    @app.get('/board-games/{episode_id}/players/{player_id}/events')
+    async def card_events(episode_id:str,player_id:str,request:Request,after:int=-1,limit:int=256):
+        session = player(request,episode_id,player_id)
+        if not hasattr(session, 'events'):
+            raise ServiceError(404, 'This game protocol has no public event stream')
+        return await asyncio.to_thread(session.events,player_id,after,limit)
 
     @app.post('/turn-games/{episode_id}/players/{player_id}/intent')
     @app.post('/board-games/{episode_id}/players/{player_id}/intent')

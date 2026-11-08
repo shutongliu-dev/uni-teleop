@@ -4,7 +4,7 @@ import hashlib
 from copy import deepcopy
 import math
 from pathlib import Path
-from bench.paths import load_json
+from bench.paths import load_json, undistributed
 from bench.simulation.assets import task_parts
 
 SOURCE_PATH = Path(task_parts.__file__).resolve()
@@ -115,6 +115,8 @@ def load_task_asset(asset_id, asset_root=None, *, verify_hashes=False):
                     dependencies[part['mesh_path']] = part['sha256']
             if verify_hashes:
                 for name, expected in dependencies.items():
+                    if undistributed(name):
+                        continue  # recorded provenance; see bench.paths.undistributed
                     if hashlib.sha256(Path(name).read_bytes()).hexdigest() != expected:
                         raise ValueError(f'Task USD dependency hash mismatch: {name}')
             return result

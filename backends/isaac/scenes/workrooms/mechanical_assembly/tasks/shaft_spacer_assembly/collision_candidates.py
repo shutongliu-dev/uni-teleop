@@ -8,7 +8,7 @@ from bench.simulation.isaacsim_backend.asset_catalog import load_task_asset
 
 DENSE_ROOT = Path(f'{DATA_ROOT}/assets/task_parts/mechanical_assembly/'
                   'shaft_spacer_assembly/dense1024_v1')
-DENSE_MANIFEST_SHA256 = 'b1a0156db9ed6b0d7337e67da9a97c18c7cf08f92a5fc66c993e9ee4ff3493f0'
+DENSE_MANIFEST_SHA256 = 'd70530dfc429fdd70238b5dd4d5eeb2ff1bc89b05c453a4c56b7036d576469a5'
 PHYSICAL_FIELDS = ('mass_kg', 'center_of_mass_m', 'inertia_diag_kg_m2',
                    'material_prior', 'contact_offset_m', 'rest_offset_m',
                    'geometry_contract', 'geometry_features')

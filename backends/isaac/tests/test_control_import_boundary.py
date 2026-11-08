@@ -1,4 +1,4 @@
-"""Motion preparation must not import the live executor's protocol stack."""
+"""Kinematics must not import the live executor's protocol stack."""
 from pathlib import Path
 import subprocess
 import sys
@@ -6,11 +6,10 @@ import sys
 import pytest
 
 
-@pytest.mark.parametrize('module', ['bench.control.kinematics', 'bench.data_tools.prepare_motion'])
-def test_offline_motion_import_avoids_executor_dependencies(module):
-    subprocess.run([sys.executable, '-B', '-c', f'''
+def test_kinematics_import_avoids_executor_dependencies():
+    subprocess.run([sys.executable, '-B', '-c', '''
 import importlib, sys
-importlib.import_module({module!r})
+importlib.import_module('bench.control.kinematics')
 assert 'bench.control.fingertip' not in sys.modules
 assert not any(name == 'bench.protocol' or name.startswith('bench.protocol.') for name in sys.modules)
 assert 'pydantic' not in sys.modules

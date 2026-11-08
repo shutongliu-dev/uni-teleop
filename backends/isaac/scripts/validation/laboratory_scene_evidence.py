@@ -34,9 +34,11 @@ def support_evidence(runtime, records, task, dwell_s=.3):
         # The piston is mechanically held by a declared native prismatic joint,
         # with intentionally filtered barrel/piston contact. This is not a weld
         # to the world and does not create a fictitious contact-force receipt.
-        joint_support = (task['id'] == 'pipette_transfer' and name == 'plunger'
-            and bool(meta['joints']) and loaded['pipette'] > 0
-            and all(r['task_state']['native_support_by_actor']['pipette']['supported'] for r in terminal))
+        parent = ('pipette' if task['id'] == 'pipette_transfer' and name == 'plunger' else
+                  'clamp_frame' if task['id'] == 'tube_clamp_transfer' and name == 'clamp_jaw' else None)
+        joint_support = (parent is not None
+            and bool(meta['joints']) and loaded[parent] > 0
+            and all(r['task_state']['native_support_by_actor'][parent]['supported'] for r in terminal))
         in_window = vertical_excursion <= .004 if name.startswith('pellet_') else excursion <= .004
         results[name] = {'passed': bool((direct_support or joint_support) and quiet and in_window),
             'native_loaded_contact_rows': loaded[name], 'support_paths': sorted(paths[name]),

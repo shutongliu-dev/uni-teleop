@@ -60,6 +60,7 @@ def audit_source_paths() -> tuple[Path, ...]:
     return tuple(PROJECT / name for name in (
         "bench/evaluation/physics.py", "bench/evaluation/rigid_safety.py", "bench/isaacsim/audit.py",
         "bench/evaluation/cloth/audit_cloth_surface.py", "bench/evaluation/cloth/audit_cloth_self_intersection.py",
+        "bench/evaluation/cloth/gpu_intersections.py",
         "bench/evaluation/cloth/cloth_self_intersection_precomputed.py",
         "scenes/cloth/layer_identity.py",
         "bench/convex_geometry.py", "bench/geometry.py",
@@ -68,6 +69,7 @@ def audit_source_paths() -> tuple[Path, ...]:
         "bench/simulation/isaacsim_backend/camera_calibration.py",
         "bench/simulation/isaacsim_backend/contact_sample.py", "bench/evaluation/cloth/cloth_robot_collision.py",
         "bench/simulation/isaacsim_backend/contact_precision.py",
+        "bench/simulation/isaacsim_backend/reduced_liquid_payload.py",
         "bench/simulation/isaacsim_backend/robot_asset.py",
         "bench/simulation/isaacsim_backend/asset_catalog.py",
         "bench/simulation/isaacsim_backend/usd_asset.py",
@@ -363,6 +365,8 @@ def audit_native_episode(private_dir: str | Path) -> dict:
     _check(report, "native_clock", lambda: _clock(context))
     _check(report, "native_contact_stream", lambda: _contacts(context))
     _check(report, "reported_rigid_separations", lambda: _rigid_separations(context))
+    if context["scene"].get("reduced_liquid_payload") is not None:
+        _check(report, "native_liquid_payload", lambda: frozen_audit.check_native_masses(context))
     has_cloth = context["scene"].get("cloth", {}).get("enabled") is not False
     safe = report["checks"]["finite_states_and_alignment"]["status"] == "passed"
     deferred = lambda: {"status": "unchecked", "reason": "Invalid or missing finite-state evidence prevents meaningful geometry audit"}

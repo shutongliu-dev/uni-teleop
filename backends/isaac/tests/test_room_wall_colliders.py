@@ -14,11 +14,29 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from scenes import rooms
 from bench.simulation.isaacsim_backend.room import (WALL_FACES, _wall_geometry, _wall_quads, box_collider_matrix,
                                               validate_room)
 
 UNIT_CUBE = np.array([[x, y, z, 1.] for x in (-1., 1.) for y in (-1., 1.) for z in (-1., 1.)])
+
+
+@pytest.fixture(params=[
+    ([4., 4., 2.6], [0., 0., 0.]),
+    ([6., 5., 3.], [.3, -1.2, .2]),
+    ([3., 7., 2.8], [-2., .4, -.1]),
+], ids=['square', 'translated', 'long_room'])
+def room(request):
+    size, origin = request.param
+    return validate_room({
+        'enabled': True, 'size_m': size, 'origin_m': origin,
+        'wall_thickness_m': .12,
+        'openings': [opening for face in WALL_FACES for opening in (
+            {'id': f'{face}_door', 'wall': face, 'kind': 'door',
+             'center_m': [-.55, (2.1-size[2])/2], 'size_m': [.8, 2.1]},
+            {'id': f'{face}_window', 'wall': face, 'kind': 'window',
+             'center_m': [.55, .25], 'size_m': [.6, .8]},
+        )],
+    })
 
 
 def _collider_box(center, half, basis):
@@ -55,24 +73,21 @@ def test_the_collider_matrix_is_a_proper_placement():
     assert np.isclose(np.linalg.det(rotation), 1.0), 'a left-handed wall frame must still give a rotation'
 
 
-@pytest.mark.parametrize('family', rooms.FAMILIES)
-def test_every_wall_collider_is_the_slab_behind_its_drawn_wall(family):
-    room = validate_room(rooms.scene(family)['room'])
+def test_every_wall_collider_is_the_slab_behind_its_drawn_wall(room):
     slabs = list(_wall_slabs(room))
-    assert slabs, family
+    assert slabs
     for face, (want_low, want_high), (got_low, got_high) in slabs:
-        np.testing.assert_allclose(got_low, want_low, atol=1e-9, err_msg=f'{family} {face} wall')
-        np.testing.assert_allclose(got_high, want_high, atol=1e-9, err_msg=f'{family} {face} wall')
+        np.testing.assert_allclose(got_low, want_low, atol=1e-9, err_msg=f'{face} wall')
+        np.testing.assert_allclose(got_high, want_high, atol=1e-9, err_msg=f'{face} wall')
 
 
-def test_a_wall_opening_stays_open():
+def test_a_wall_opening_stays_open(room):
     """No wall slab may cover a door or window opening of any room."""
-    for family in rooms.FAMILIES:
-        room = validate_room(rooms.scene(family)['room'])
-        for opening in room['openings']:
-            wall = _wall_geometry(room, opening['wall'])
-            (cu, cv), (su, sv) = opening['center_m'], opening['size_m']
-            middle = wall['center'] + cu * wall['u_axis'] + cv * wall['v_axis'] + wall['normal'] * 0.06
-            for face, _, (low, high) in _wall_slabs(room):
-                inside = np.all(middle > low + 1e-9) and np.all(middle < high - 1e-9)
-                assert not inside, f'{family}: the {face} wall collider fills opening {opening["id"]}'
+    for opening in room['openings']:
+        wall = _wall_geometry(room, opening['wall'])
+        cu, cv = opening['center_m']
+        middle = (wall['center'] + cu * wall['u_axis'] + cv * wall['v_axis']
+                  + wall['normal'] * room['wall_thickness_m']/2)
+        for face, _, (low, high) in _wall_slabs(room):
+            inside = np.all(middle > low + 1e-9) and np.all(middle < high - 1e-9)
+            assert not inside, f'the {face} wall collider fills opening {opening["id"]}'

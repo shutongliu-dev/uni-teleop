@@ -98,7 +98,13 @@ def test_fresh_output_and_shared_root_boundary(authored_output):
         builder.build_assets(escaping/'new')
 
 
-def test_editable_source_is_rejected_before_output(output_root):
+def test_editable_source_is_rejected_before_output(output_root, tmp_path, monkeypatch):
+    # Exercise an actual unfrozen directory even when this test suite itself is
+    # executed from a complete immutable source snapshot.
+    editable = tmp_path/'editable_source'
+    editable.mkdir()
+    monkeypatch.setattr(builder, 'PROJECT', editable)
+    monkeypatch.chdir(editable)
     with pytest.raises(ValueError, match='complete frozen source snapshot'):
         builder.build_assets(output_root/'unfrozen')
     assert not output_root.exists()

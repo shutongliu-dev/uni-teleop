@@ -162,8 +162,9 @@ def test_failed_ik_does_not_replace_initial_ack_or_mutate_peer(controlled):
         timeout_sim_s=1., hand_geometries={'left': {
             'wrist': {'frame_id': 'world', 'position_m': [100., 0., 0.], 'quaternion_wxyz': [1., 0., 0., 0.]},
             'fingertip_frame_id': 'left_hand_flange'}})
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as error:
         policy.begin(action, obs())
+    assert error.value.public_diagnostic.hand == 'left'
     assert policy.sides['left'].previous is None and policy._active is None
     assert policy.sides['right'].previous is peer['previous'] is None
     np.testing.assert_array_equal(policy.sides['right'].integral, peer['integral'])

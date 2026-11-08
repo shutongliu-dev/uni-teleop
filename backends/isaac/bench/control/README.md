@@ -2,7 +2,9 @@
 
 `ClassicalFingertipPolicy`（`fingertip.py`）是任务无关的经典控制器，通过 `System0Policy` 协议提供 reset、begin、step、cancel。当前版本为 `classical_fingertip 1.9.0`，容差协议为 `geometry_tolerance_policy_v2`；descriptor 声明 `trained=false`，没有学习权重。它支持 `move_geometry` 与定时 `hold`，控制周期为 20 ms，默认本体为 `sharpa_w01_right`。
 
-双臂 `dual_fr3_sharpa_w01` 由 `bimanual.py` 的 `classical_fingertip_bimanual 1.2.0` 驱动，每只手使用同一单臂 1.9.0 执行器，通过 `hand_geometries` 分手给目标。当前建设范围为单臂与双臂 SHARPA；Allegro V5、LEAP V1、Shadow E3M5 的版本化装配、代码与记录保留，集成暂缓。历史 CPU A/B 证明 v1 装配下 1.9.0 与 1.8.0、以及 SHARPA 的 1.8.0 与 1.7.0 对应序列逐位相同；这个结论不跨装配朝向或物理模型，详见[机器人本体](../../docs/agent_bench/embodiments.md)。
+双臂 `dual_fr3_sharpa_w01` 由 `bimanual.py` 的 `classical_fingertip_bimanual 1.2.1` 驱动，每只手使用同一单臂 1.9.0 执行器，通过 `hand_geometries` 分手给目标。当前建设范围为单臂与双臂 SHARPA；Allegro V5、LEAP V1、Shadow E3M5 的版本化装配、代码与记录保留，集成暂缓。历史 CPU A/B 证明 v1 装配下 1.9.0 与 1.8.0、以及 SHARPA 的 1.8.0 与 1.7.0 对应序列逐位相同；这个结论不跨装配朝向或物理模型，详见[机器人本体](../../docs/agent_bench/embodiments.md)。
+
+1.2.1 在共同动作期间复核已完成侧的目标；该侧后来偏离时返回带手侧和残差的 `objective_lost`，保留已确认驱动参考，等待 Agent 显式修正。组合源码进入默认双臂和具名实例 descriptor 的实现哈希。具体复核范围见[链路检查](../../docs/agent_bench/README.md#控制器反馈与-agent-链路复核2026-10-23)。
 
 控制器只接收静态机器人描述、基座变换和新鲜关节反馈。Agent 从公开 RGB-D 决定目标；控制器不读取任务名称、物体真值、评分或任务阶段。它不做触觉闭环、力控制或通用避碰规划。
 
@@ -22,7 +24,7 @@ geometry = public_robot_geometry(configuration)  # 只含机器人几何
 
 工厂保留机器人资产、基座位置／朝向、hand_id、装配版本及双臂 arm_base_poses；支持单臂 SHARPA 的 29 个主动关节与双臂的 58 个。默认键省略保持历史语义：未固定 `robot.assembly_version` 时仍使用对应手的历史默认装配，不自动升级为 v2。机械室几何模型、棋牌室 ready 布局及房间观测／棋子拾取诊断已复用此入口；它不调整摩擦、驱动或其他物理参数。具体接入见[场景交接说明](../../docs/agent_bench/scene_integration.md)。
 
-双臂 1.2.0 允许显式传入 `arm_base_poses={"left": {"position_m": [...], "quaternion_wxyz": [...]}, "right": {...}}`。两侧位姿均相对公共机器人基座，单位为米和 wxyz 单位四元数；省略时保留原装配并排偏移。场景的同名 `robot.arm_base_poses` 同时用于 USD 引用、原生 reset 和公开 FK/IK，并要求 `isaacsim.robot_base_constraint="native_fixed_base_v1"`。每侧保留原始 29 DOF / 43 links，原生启动与 reset 分别核对两侧固定基座、关节归属和世界位姿；这不替代抓取、接触或避碰验收。
+双臂自 1.2.0 起允许显式传入 `arm_base_poses={"left": {"position_m": [...], "quaternion_wxyz": [...]}, "right": {...}}`。两侧位姿均相对公共机器人基座，单位为米和 wxyz 单位四元数；省略时保留原装配并排偏移。场景的同名 `robot.arm_base_poses` 同时用于 USD 引用、原生 reset 和公开 FK/IK，并要求 `isaacsim.robot_base_constraint="native_fixed_base_v1"`。每侧保留原始 29 DOF / 43 links，原生启动与 reset 分别核对两侧固定基座、关节归属和世界位姿；这不替代抓取、接触或避碰验收。
 
 `public_geometry(joint_positions_rad)` 用实际 URDF FK 返回世界坐标腕姿，以及 `right_hand_flange` 局部坐标的五指位置。局部坐标随腕部运动；`little` 对应 URDF 的 `right_pinky_fingertip`。这些点是虚拟 frame 原点，不是已标定的接触面中心。`public_finger_geometry` 是服务公开的 `robot_geometry_v2`：另含各指尖 frame 姿态（+z 沿远节指向远端，+x 指向掌侧指垫；原点位于指垫内、掌侧表面下约 2 mm）和每指 URDF 关节原点，便于判断中节/近节是否会先接触。
 
@@ -34,7 +36,7 @@ geometry = public_robot_geometry(configuration)  # 只含机器人几何
 
 至少提供一种目标。不接受 `contacts` 或 `wrist_trajectory`；增量接口由上层转换为绝对目标。`hold` 不携带 geometry，显式指定正的 20 ms 整数倍时长，且 timeout 不少于保持时长。
 
-公开 `right_hand_flange` 是随手转动的手坐标系 H。`flange_axis_centred_v1` 下它与 `fr3_link8` 重合；当前 SHARPA `isaacsim_6_1_v2` 装配使用 `flange_axis_centred_v2`，相对 `fr3_link8` 绕法兰轴转 180°。这些均为版本化、未实物标定的仿真安装假设。`right_hand_C_MC` 掌根相对 H 另有约 0.0295 m 局部 z 偏移，二者不可混用。
+公开 `right_hand_flange` 是随手转动的手坐标系 H。历史 `flange_axis_centred_v1` 下它与 `fr3_link8` 重合；`isaacsim_6_1_v2` 使用 `flange_axis_centred_v2`，相对 `fr3_link8` 绕法兰轴转 180°，掌根相对 H 另有约 0.0295 m 局部 z 偏移。L 型系列（当前 `isaacsim_6_1_l_mount_v3`）使用完整的平移与旋转：H 位于 L 形连接件的输出安装面，掌根位于 H 的局部 +Z 方向 0.035 m。H 本身没有质量或碰撞体。左右安装变换分别发布在 `mounts_by_side`；FK 和 IK 使用对应完整变换，不能用旧版的纯 yaw 或法兰原点替代。每个冻结任务明确选择装配版本；这些安装定义尚未经实物标定。
 
 ## 跨动作状态
 

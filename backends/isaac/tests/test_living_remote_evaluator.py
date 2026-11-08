@@ -8,7 +8,7 @@ import pytest
 from bench.protocol.task_referee import PublicContract, project_referee_state
 from scenes.workrooms.living_room.tasks.remote_operation.evaluator import NativeTaskObserver, SequenceEvaluator
 from scenes.workrooms.living_room.tasks.remote_operation.rules import (
-    LEGACY_RULES_VERSION, RULES_VERSION, evaluation_configuration, public_rules)
+    LEGACY_RULES_VERSION, MANUAL_TV_RULES_VERSION as RULES_VERSION, evaluation_configuration, public_rules)
 
 
 def task(seed=0, *, version=LEGACY_RULES_VERSION, physics_dt_s=.0005):
@@ -47,6 +47,8 @@ class Replay:
         q = [0., 1., 0., 0.] if baseline else ([0., 0., 0., 1.] if yaw_wrong else [1., 0., 0., 0.])
         if baseline:
             remote_p = [.49, -.12, .79365]
+            if self.task['evaluation'].get('initial_remote_face_up'):
+                q, remote_p = [1., 0., 0., 0.], [.49, -.12, .79055]
         if remote_position is not None:
             remote_p = list(remote_position)
         def body(p, orient):
@@ -277,7 +279,7 @@ def test_television_rules_are_seed_independent_and_preserve_explicit_v2():
     assert public_rules()['success']['stable_duration_s'] == .300
     assert public_rules()['referee']['thresholds']['stable_s'] == .300
     assert 'await_return' in public_rules()['referee']['phases']
-    assert evaluation_configuration()['schema'] == 'living_remote_evaluation.v3'
+    assert evaluation_configuration()['schema'] == 'living_remote_evaluation.v4'
     assert 'button_sequence' not in evaluation_configuration()
     old = task()
     assert old['public_rules']['schema'] == LEGACY_RULES_VERSION

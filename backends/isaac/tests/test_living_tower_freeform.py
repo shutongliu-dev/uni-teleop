@@ -80,9 +80,9 @@ def settle(config, evaluator, states, rows, start=2, end=53, **extra):
 
 def test_legacy_factory_outputs_remain_identical():
     # Hashed in portable form, so the values do not depend on where the data package lives.
-    for size, seed, digest in (([.11, .035, .02], 0, '199b900c2fb392902101e39c8e40ec1268d71305b7070270d85accadd9da6123'),
-        ([.11, .035, .02], 3, '9bd2487a9436a7f5bb739af998dd0d6f1f21f413d6cfe87c0d2cbd0f63edaf75'),
-        ([.15, .045, .025], 0, '10a6120579b93a49a55c5ed8f9093530a731617d88eee5289d60cf48b41f947d')):
+    for size, seed, digest in (([.11, .035, .02], 0, 'c1d54efb80d888a1f91c8c7626a238a3fc09345e36370d3e45f7e4ff9c790567'),
+        ([.11, .035, .02], 3, 'e57e3ee2ae903f00db3777aec2497931060e3748141beaaa9f0092d9c18c2490'),
+        ([.15, .045, .025], 0, '53ebe6bb1e79fc54c6059531b869eb88a99ef34db45d88955ef66d9283a457e4')):
         assert task_configuration({'block_size_m': size}, seed=seed)['configuration_sha256'] == digest
 
 

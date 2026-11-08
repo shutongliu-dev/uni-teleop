@@ -121,9 +121,11 @@ def cooked_piece_geometry(piece):
         raw_plane_intersection_vertices=plane_vertices.tolist(),
         conservative_outer_vertices=outer_vertices.tolist(),conservative_outer_planes=outer.equations.tolist(),
         conservative_inner_planes=np.concatenate([support,raw]).tolist(),
-        representation_difference={'raw_planes_max_vertex_support_violation_m':float((vertices@raw[:,:3].T+raw[:,3]).max()),
-            'maximum_polygon_nonplanarity_m':max(polygon_deviation,default=None),
-            'support_hull_volume_m3':float(hull.volume),'raw_plane_volume_m3':float(ConvexHull(plane_vertices).volume),
+        representation_difference={'measurement_space':'unscaled_mesh_prim_local',
+            'raw_planes_max_vertex_support_violation_prim_local_units':float((vertices@raw[:,:3].T+raw[:,3]).max()),
+            'maximum_polygon_nonplanarity_prim_local_units':max(polygon_deviation,default=None),
+            'support_hull_volume_prim_local_units_cubed':float(hull.volume),
+            'raw_plane_volume_prim_local_units_cubed':float(ConvexHull(plane_vertices).volume),
             'decision_rule':'Clear only outside conservative outer hull; penetration only inside both representations; intervening band unchecked'})
     return result
 
@@ -151,7 +153,39 @@ def verify_native_pose(mesh_to_body, native_record, *, tolerance=1e-5):
             'verification_tolerance': tolerance, 'mesh_scale': scale.tolist()}
 
 
-def collect_colliders(env):
+def compare_native_bounds(cooked_bounds, query_bounds, mesh_to_body):
+    """Compare unscaled prim-local AABBs in metric collider axes.
+
+    Property-query and cooking bounds both precede the USD mesh scale. Each
+    local-axis face-coordinate discrepancy is multiplied by that axis's actual
+    length in the body frame. This is not a body-axis or Euclidean corner
+    discrepancy. Rotation/translation do not change this metric;
+    unit-scale colliders retain the original comparison exactly.
+    """
+    cooked, queried = np.asarray(cooked_bounds, float), np.asarray(query_bounds, float)
+    if any(x.shape != (2, 3) or not np.isfinite(x).all() or np.any(x[0] > x[1])
+           for x in (cooked, queried)):
+        raise ValueError('Invalid native or cooked query bounds')
+    matrix = np.asarray(mesh_to_body, float)
+    apply_transform(np.zeros((1, 3)), matrix)
+    lengths = np.linalg.norm(matrix[:3, :3], axis=0)
+    if (lengths < 1e-12).any():
+        raise ValueError('Degenerate collider scale')
+    rotation = matrix[:3, :3] / lengths
+    if not np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-5, rtol=0.) or np.linalg.det(rotation) <= 0:
+        raise ValueError('Collider shear or reflected transform is not verified')
+    raw_error = abs(cooked - queried)
+    metric_error = raw_error * lengths
+    return {'cooked_prim_local_aabb': cooked.tolist(), 'native_query_prim_local_aabb': queried.tolist(),
+            'bounds_max_abs_error_prim_local': float(raw_error.max()),
+            'prim_local_axis_lengths_m': lengths.tolist(),
+            'bounds_abs_error_metric_axes_m': metric_error.tolist(),
+            'bounds_max_abs_error_m': float(metric_error.max()),
+            'bounds_verification_tolerance_m': 1e-5,
+            'bounds_verification_frame': 'metric_collider_axes'}
+
+
+def collect_colliders(env, *, body_paths=None):
     """Read official PhysX cooking and property-query APIs; never mutate stage.
 
     Unavailable callbacks, unsupported shapes and pose/bounds mismatch explicitly
@@ -170,7 +204,7 @@ def collect_colliders(env):
     native = {}; queries = []; issues = []; output = []
     if UsdGeom.GetStageMetersPerUnit(stage)!=1.:
         issues.append({'reason':'stage_units_not_meters'})
-    paths = dict(env.scene_info['robot_link_paths'])
+    paths = dict(env.scene_info['robot_link_paths'] if body_paths is None else body_paths)
     cooking = get_physx_cooking_interface()
     query = get_physx_property_query_interface()
     cache = UsdGeom.XformCache()
@@ -192,11 +226,18 @@ def collect_colliders(env):
         queries.append({'body':body_name,'path':body_path,'finished':bool(finished),'body_results':body_results,'colliders':found})
         if not finished or not body_results or any(r!=str(PhysxPropertyQueryResult.VALID) for r in body_results):
             issues.append({'body':body_name,'reason':'native_property_query_not_finished_without_advancing_simulation'})
+        if body_paths is not None and not found:
+            issues.append({'body':body_name,'reason':'requested_component_has_no_native_collider'})
         for row in found:
             native.setdefault(row['path'],[]).append((body_name,row))
     inventory = []
-    robot = stage.GetPrimAtPath('/World/Robot')
-    for prim in Usd.PrimRange(robot, Usd.TraverseInstanceProxies()):
+    roots = ([stage.GetPrimAtPath('/World/Robot')] if body_paths is None else
+             [stage.GetPrimAtPath(path) for path in dict.fromkeys(paths.values())])
+    if not roots or any(not root for root in roots):
+        raise ValueError('Complete existing collider roots required')
+    prims = {str(prim.GetPath()): prim for root in roots
+             for prim in Usd.PrimRange(root, Usd.TraverseInstanceProxies())}
+    for prim in prims.values():
         if not prim.HasAPI(UsdPhysics.CollisionAPI):
             continue
         if UsdPhysics.CollisionAPI(prim).GetCollisionEnabledAttr().Get() is False:
@@ -254,10 +295,9 @@ def collect_colliders(env):
             query_bounds=np.array([queried[0][1]['aabb_min'],queried[0][1]['aabb_max']],float)
             if query_bounds.shape!=(2,3) or not np.isfinite(query_bounds).all() or np.any(query_bounds[0]>query_bounds[1]):
                 issues.append({'path':path,'reason':'invalid_native_query_bounds'});continue
-            error=float(np.max(abs(cooked_bounds-query_bounds)))
-            record.update(cooked_prim_local_aabb=cooked_bounds.tolist(),native_query_prim_local_aabb=query_bounds.tolist(),
-                bounds_max_abs_error_m=error,bounds_verification_tolerance_m=1e-5)
-            if error>1e-5:
+            bounds_check = compare_native_bounds(cooked_bounds, query_bounds, matrix)
+            record.update(bounds_check)
+            if bounds_check['bounds_max_abs_error_m'] > bounds_check['bounds_verification_tolerance_m']:
                 issues.append({'path':path,'reason':'native_bounds_or_coordinate_convention_mismatch'});continue
             record['status']='verified_cooking_representation'
         except Exception as exc:
@@ -275,6 +315,8 @@ def collect_colliders(env):
         'visual_mesh_fallback':False,'state_hash_before':before,'state_hash_after':after,
         'layer_hashes_before':layers_before,'layer_hashes_after':layers_after,'queries':queries,
         'colliders':output,'issues':issues}
+    if body_paths is not None:
+        result['requested_body_paths'] = paths
     return json.loads(json.dumps(result,allow_nan=False))
 
 
@@ -310,11 +352,11 @@ def reanalyse_export(export):
             vertices=np.concatenate([np.asarray(p['vertices'],float) for p in row['pieces']])
             bounds=np.stack([vertices.min(0),vertices.max(0)])
             expected=np.asarray([queries[0][1]['aabb_min'],queries[0][1]['aabb_max']],float)
-            error=float(np.max(abs(bounds-expected)))
-            if expected.shape!=(2,3) or not np.isfinite(expected).all() or error>1e-5:
+            bounds_check = compare_native_bounds(bounds, expected, row['mesh_to_body_column_matrix'])
+            row.update(bounds_check)
+            if bounds_check['bounds_max_abs_error_m'] > bounds_check['bounds_verification_tolerance_m']:
                 raise ValueError('Saved native AABB mismatch')
-            row.update(cooked_prim_local_aabb=bounds.tolist(),native_query_prim_local_aabb=expected.tolist(),
-                bounds_max_abs_error_m=error,bounds_verification_tolerance_m=1e-5,status='verified_cooking_representation')
+            row['status']='verified_cooking_representation'
         except Exception as exc:
             issues.append({'path':row['path'],'reason':'saved_export_reanalysis_error','message':str(exc),'error_type':type(exc).__name__})
     if set(native)!={x['path'] for x in result['colliders']}:

@@ -13,6 +13,8 @@ import math
 import numpy as np
 
 SCHEMA='laboratory_piston_finite_volume.v1'
+FEEDBACK_SCHEMA='laboratory_piston_finite_volume.v2'
+VISUAL_STATE_SCHEMA='finite-volume-packet-state-v1'
 LIMITATIONS=[
     'Reduced incompressible volume and ideal piston seal; no resolved pressure, bubbles, viscosity or surface tension.',
     'No fluid weight or jet reaction is applied to native rigid bodies.',
@@ -44,15 +46,26 @@ class Packet:
     volume_ml:float
     position:np.ndarray
     velocity:np.ndarray
+    identifier:int=-1
 
 
 class PistonVolumeModel:
     """Native-independent finite-volume equations used by both runtime and probe."""
     def __init__(self,parameters):
         p=deepcopy(parameters)
-        if p.get('schema')!=SCHEMA:
+        if p.get('schema') not in (SCHEMA,FEEDBACK_SCHEMA):
             raise ValueError('Unsupported finite-volume model')
         self.p=p
+        self.feedback=p['schema']==FEEDBACK_SCHEMA
+        if self.feedback:
+            self.density_kg_m3=p.get('density_kg_m3',1000.)
+            values=[p['gravity_m_s2'],p['nozzle_radius_m'],p['spill_plane_z_m'],p['initial_q_m']]
+            values.append(self.density_kg_m3)
+            if (not all(type(v) in (float,int) and math.isfinite(v) for v in values)
+                    or p['gravity_m_s2']<=0 or p['nozzle_radius_m']<=0
+                    or self.density_kg_m3<=0
+                    or p['tool_id'] in p['containers']):
+                raise ValueError('Invalid feedback-model physical parameters')
         self.area=float(p['piston_area_m2']);self.stroke=float(p['stroke_m'])
         if not 0<self.area<.01 or not 0<self.stroke<.5:
             raise ValueError('Invalid physical pump dimensions')
@@ -62,6 +75,49 @@ class PistonVolumeModel:
             raise ValueError('Invalid initial conserved liquid inventory')
         self.tool=0.;self.packets=[];self.spill=0.;self.aspirated=0.;self.dispensed=0.
         self.previous_q=float(p['initial_q_m']);self.steps=0;self.last_flow=0.;self.errors=[]
+        # V2 presentation only: immutable packet IDs and finite impact markers.
+        # V1 equations and public/private state fields remain unchanged.
+        self._next_packet_id=0;self._impact_marks={};self._next_impact_id=0
+
+    def _impact(self,packet,start,dt,g):
+        """Record the actual gravity trajectory/plane intersection, not a goal."""
+        if not self.feedback:return
+        plane=float(self.p['spill_plane_z_m'])
+        height=float(start[2]-plane)
+        if height<=0:
+            # An outlet already under the declared interception plane has no
+            # observed top-surface crossing. Do not draw an invented surface hit.
+            return
+        vz=float(packet.velocity[2]);gravity=float(-g[2])
+        hit=(vz+math.sqrt(vz*vz+2*gravity*height))/gravity
+        if not 0<=hit<=dt+1e-10:
+            raise ValueError('Spill crossing has no matching ballistic impact')
+        position=start+packet.velocity*hit+.5*g*hit*hit
+        position[2]=plane
+        # Nearby impacts share the first actual impact position. The picture is
+        # a finite wet footprint, not a geometric volume measurement or score.
+        key=tuple(np.floor(position[:2]/.005).astype(int))
+        if key in self._impact_marks:
+            self._impact_marks[key]['volume_ml']+=packet.volume_ml
+        elif len(self._impact_marks)<64:
+            self._impact_marks[key]={'id':self._next_impact_id,'position_m':position.tolist(),
+                'volume_ml':packet.volume_ml,'first_impact_step':self.steps+1}
+            self._next_impact_id+=1
+
+    def visual_state(self):
+        """Private rendering input; never merged into the referee water ledger."""
+        if not self.feedback:
+            raise ValueError('Packet feedback requires the explicit v2 liquid model')
+        marked=sum(r['volume_ml'] for r in self._impact_marks.values())
+        return {'schema':VISUAL_STATE_SCHEMA,'model_step_count':self.steps,
+            'fluid_model':'finite_volume_not_pbd',
+            'packets':[{'id':p.identifier,'volume_ml':p.volume_ml,
+                'position_m':p.position.tolist(),'velocity_m_s':p.velocity.tolist()} for p in self.packets],
+            'spill_marks':deepcopy(list(self._impact_marks.values())),
+            'in_flight_ml':sum(p.volume_ml for p in self.packets),'cumulative_spill_ml':self.spill,
+            'marked_spill_ml':marked,'unmarked_spill_ml':max(0.,self.spill-marked),
+            'spill_marker_policy':'At most 64 actual plane impacts; nearby 5 mm cells keep the first actual point. '
+                'Capacity overflow and omitted impacts remain counted but have no invented wet footprint.'}
 
     def _geometry(self,poses):
         if set(poses)!=set(self.volumes):
@@ -117,6 +173,7 @@ class PistonVolumeModel:
                 self.volumes[captured]+=kept;self.spill+=packet.volume_ml-kept
             elif end[2]<=self.p['spill_plane_z_m']:
                 self.spill+=packet.volume_ml
+                self._impact(packet,start,dt,g)
             else:
                 packet.position=end;packet.velocity+=g*dt;pending.append(packet)
         self.packets=pending
@@ -143,7 +200,9 @@ class PistonVolumeModel:
             if amount>0:
                 outlet_speed=min(8.,amount*1e-6/(dt*math.pi*self.p['nozzle_radius_m']**2))
                 velocity=tool_vel-Rtool[:,2]*outlet_speed
-                self.packets.append(Packet(amount,tip.copy(),velocity))
+                self.packets.append(Packet(amount,tip.copy(),velocity,
+                    self._next_packet_id if self.feedback else -1))
+                if self.feedback:self._next_packet_id+=1
         self.steps+=1
         state=self.state()
         if not state['inventory_closed']:
@@ -154,7 +213,7 @@ class PistonVolumeModel:
         flight=sum(p.volume_ml for p in self.packets)
         accounted=sum(self.volumes.values())+self.tool+flight+self.spill
         residual=self.initial-accounted
-        return {'schema':SCHEMA,'source_ml':self.volumes[self.p['source_id']],
+        result={'schema':self.p['schema'],'source_ml':self.volumes[self.p['source_id']],
             'tool_ml':self.tool,'receivers_ml':{name:self.volumes[name] for name in self.p['receiver_ids']},
             'in_flight_ml':flight,'cumulative_spill_ml':self.spill,'initial_total_ml':self.initial,
             'accounted_total_ml':accounted,'inventory_residual_ml':residual,
@@ -163,6 +222,18 @@ class PistonVolumeModel:
             'piston_q_m':self.previous_q,'step_count':self.steps,'errors':list(self.errors),
             'physics_model':'native piston displacement coupled to conserved finite volumes and gravity flight',
             'native_water_weight_reaction_applied':False,'limitations':list(LIMITATIONS)}
+        if self.feedback:
+            retained=sum(self.volumes.values())+self.tool
+            difference=max(0.,self.initial-retained)
+            result.update(water_difference_ml=difference,current_spill_ml=max(0.,difference-flight),
+                density_kg_m3=float(self.density_kg_m3),
+                body_liquid_volumes_ml={**self.volumes,self.p['tool_id']:self.tool})
+            del result['native_water_weight_reaction_applied']
+            result['native_load_coupling']='Separate explicitly configured native payload component; '
+            result['native_load_coupling']+='this finite-volume provider does not write rigid properties or forces.'
+            result['limitations']=[LIMITATIONS[0],result['native_load_coupling'],LIMITATIONS[2],LIMITATIONS[3],
+                'Liquid-level and actual flight/impact visuals are render-only; no resolved PBD jet, splash or force sensing.']
+        return result
 
 
 class ReducedLiquidDynamics:
@@ -205,3 +276,7 @@ class ReducedLiquidDynamics:
 
     def on_observe(self):
         return {**self.model.state(),'native_step':self.previous_step,'native_time_s':self.previous_time}
+
+    def capture_visual_state(self):
+        """Separate private channel: coordinates never enter on_observe()."""
+        return {**self.model.visual_state(),'native_step':self.previous_step,'native_time_s':self.previous_time}

@@ -188,7 +188,6 @@ def test_native_render_entrypoint_syncs_material_before_every_render(monkeypatch
     power = False
     rendered = []
     env = FR3DexterousIsaacEnv.__new__(FR3DexterousIsaacEnv)
-    env.physics_device = 'cuda:0'
     env.cameras = {'display': {'resolution': (2, 2)}}
     env.render_width = env.render_height = 2
     env.time_s = 0.
@@ -201,7 +200,7 @@ def test_native_render_entrypoint_syncs_material_before_every_render(monkeypatch
     env.world = SimpleNamespace(current_time_step_index=0, current_time=0.,
         render=lambda: rendered.append(material_path(stage)))
     for power in (False, True, False):
-        frame = env._render_frames(('display',), 2, 2, include_depth=False)['display']
+        frame = env._render_frame('display', 2, 2, include_depth=False)
         expected = ROOT_PATH + '/display_power/' + ('true' if power else 'false')
         assert rendered[-2:] == [expected, expected]
         assert frame['task_visual_state']['bindings'][0]['value'] is power

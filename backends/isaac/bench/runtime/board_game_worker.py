@@ -21,6 +21,14 @@ from scenes.board_games.tabletop import (
 from scenes.board_games.tabletop.release import verify_public_rule_contract
 
 
+def build_board_game_worker(env, scene, task, *, output=None):
+    """Versioned task dispatch; preserve the original three-game worker."""
+    if scene.get('board_game_task', {}).get('schema') == 'card_game_expansion_native_task.v1':
+        from .card_game_worker import CardGameWorker
+        return CardGameWorker(env, scene, task, output=output)
+    return BoardGameWorker(env, scene, task, output=output)
+
+
 class BoardGameWorker:
     """Private native owner; its public_state is an explicit safe projection."""
 

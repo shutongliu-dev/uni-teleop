@@ -137,7 +137,8 @@ class LivingTaskRuntime:
             'current_player_id':None if completed or interrupted else players[raw['current_side']],
             'players':['player_0','player_1'],'winner_player_id':players.get(raw['winner']),
             'loser_player_id':players.get(raw['loser']),'terminal_reason':('native_referee_rejected' if raw['reason'] and ':' in raw['reason'] else raw['reason']) if completed or interrupted else None,
-            'violation_reason':('invalid_evidence' if raw['reason'] and ':' in raw['reason'] else raw['reason']) if raw['status']=='abort' else None,
+            'violation_reason':('invalid_evidence' if raw['reason'] and ':' in raw['reason'] else raw['reason'])
+                if raw['status']=='abort' and raw['reason'] not in ('cancelled','runtime_error') else None,
             'sim_time_s':float(self.env.time_s),'public_rules':deepcopy(self.task['public_rules']),
             'public_progress':{k:deepcopy(raw[k]) for k in ('status','selected_block','selection_locked','completed_turns','collected','legal_blocks')}}
 
@@ -156,13 +157,24 @@ class LivingTaskRuntime:
         if isinstance(actor,dict):return actor.get('player_id')
         return getattr(actor,'player_id',actor)
 
+    def _finish_game(self, reason):
+        # New frozen rules declare the host vocabulary. Historical referees
+        # accept only the old categories and must remain loadable unchanged.
+        legacy = {'time_limit': 'timeout', 'step_limit': 'budget',
+                  'cancelled': 'adapter_failure', 'runtime_error': 'adapter_failure'}
+        allowed = {'timeout', 'budget', 'reset', 'evidence_missing', 'adapter_failure', *legacy}
+        if reason not in allowed:
+            raise ValueError('Unknown host termination reason')
+        declared = self.evaluator.game.config['rules'].get('host_termination', {})
+        self.evaluator.game.finish(reason if reason in declared else legacy.get(reason, reason))
+
     def request(self,command,actor=None):
         error=None
         if self.evaluator.game is None:
             raise ValueError('Ordinary task has no turn intents')
         who=self._actor(actor);side={'player_0':'front','player_1':'rear'}.get(who)
         if command.get('type')=='end_episode':
-            self.evaluator.game.finish('budget' if command.get('reason')=='budget' else 'timeout')
+            self._finish_game(command.get('reason'))
         elif command.get('type')=='turn_intent':
             args=command.get('arguments',{})
             if not isinstance(args,dict) or set(args)-{'block_id'}:
@@ -205,7 +217,7 @@ class LivingTaskRuntime:
         if self.closed:return None
         self.closed=True;self.env.world.step=self.original
         if self.evaluator.game is not None and self.evaluator.game.status not in ('won','draw','abort','incomplete'):
-            self.evaluator.game.finish(reason if reason in ('timeout','budget','reset','evidence_missing','adapter_failure') else 'adapter_failure')
+            self._finish_game(reason)
         receipt=None
         try:
             if self.exchange:receipt=self.exchange.close(self.env,self)

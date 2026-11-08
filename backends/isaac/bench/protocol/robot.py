@@ -8,7 +8,7 @@ from pydantic import BeforeValidator, ConfigDict, Field, StrictBool, model_valid
 from .hand_presets import HandPresetCatalog
 from .schemas import (ActionDiagnostic, Contract, FingerName, GeometryObjective, Hash,
                       JointLimit, JointMap, HandNamespace, Name, Nonnegative, PolicyDescriptor, Positive,
-                      RobotGeometry, RobotPostureJointPair, RobotPostureProfile)
+                      Pose, RobotGeometry, RobotPostureJointPair, RobotPostureProfile, Vec3)
 
 
 def _literal_false(value):
@@ -47,9 +47,39 @@ class RobotUnits(RobotContract):
     time: Literal['simulation_seconds']
 
 
+class PadGeometry(RobotContract):
+    """Source collision-mesh bounds, not a measured pressure/contact center."""
+    protocol: Literal['robot_source_pad_geometry_v1'] = 'robot_source_pad_geometry_v1'
+    geometry_kind: Literal['source_elastomer_collision_mesh'] = 'source_elastomer_collision_mesh'
+    pad_link: Name
+    tip_from_pad: Pose = Field(description='Rigid transform mapping pad-link coordinates into the public virtual tip frame; frame_id is the tip link.')
+    bounds_in_tip_frame_m: list[Vec3] = Field(min_length=2, max_length=2, description='Exact source-mesh axis-aligned min/max in the virtual tip frame; rotating this box gives conservative bounds, not the full surface.')
+    bounds_center_in_tip_frame_m: Vec3 = Field(description='Midpoint of the source mesh AABB; not a contact center or center of pressure.')
+    source_hashes: dict[Name, Hash] = Field(min_length=3, max_length=18)
+    scope: Literal['static_source_geometry_only_not_native_contact_or_grasp_evidence'] = 'static_source_geometry_only_not_native_contact_or_grasp_evidence'
+    native_contact_geometry_verified: FalseClaim = False
+
+    @model_validator(mode='after')
+    def coherent_bounds(self):
+        low, high = self.bounds_in_tip_frame_m
+        if (any(a > b for a, b in zip(low, high)) or
+                any(abs(c - (a+b)/2) > 1e-10 for a, b, c in zip(low, high, self.bounds_center_in_tip_frame_m))):
+            raise ValueError('Pad bounds and their midpoint must agree')
+        if not {'urdf', 'source_manifest'} <= set(self.source_hashes) or not any(k.startswith('collision_mesh_') for k in self.source_hashes):
+            raise ValueError('Pad geometry requires its source URDF and mesh hashes')
+        return self
+
+
 class FingerGuide(RobotContract):
     joint_names: list[Name] = Field(min_length=1, max_length=32)
     tip_link: Name
+    pad_geometry: PadGeometry | None = None
+
+    @model_validator(mode='after')
+    def pad_frame(self):
+        if self.pad_geometry is not None and self.pad_geometry.tip_from_pad.frame_id != self.tip_link:
+            raise ValueError('Pad geometry must use this finger virtual tip frame')
+        return self
 
 
 class CoupledPostureConstraint(RobotPostureProfile):

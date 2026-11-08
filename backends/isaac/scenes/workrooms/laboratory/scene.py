@@ -6,7 +6,7 @@ from bench.simulation.isaacsim_backend.workroom import SCHEMA
 
 ENVIRONMENT_ROOT = Path(f'{DATA_ROOT}/assets/scenes/scence_workrooms/laboratory_island_20261020_v3')
 ENVIRONMENT_USD_SHA256 = 'e96f3f1a575e64408bd20f75e3ff96e4b86209f850930c06065324ec9b9f42db'
-ENVIRONMENT_DESCRIPTION_SHA256 = '12767a6ef7d0db2f3e08828fb91e874002e238cbef2a3ec6688764baf1cfd5dd'
+ENVIRONMENT_DESCRIPTION_SHA256 = '88c23a13117a33660429f6623dd6da2528acb182ba130131abd067d897b112e9'
 
 
 def environment_reference():

@@ -33,6 +33,10 @@ def metadata(task):
         m['fixtures'][name]=path
         m['fixture_metadata'][name]=row
         return row
+    if task == 'surface_wiping':
+        from pxr import Usd
+        from scenes.workrooms.kitchen.assets import author_task
+        return author_task(Usd.Stage.CreateInMemory(), task)
     if task == 'breakfast_serving':
         tray=obj('tray',(.34,.24,.02),(.16,-.84,.901))
         tray.update(interior_bounds_xy_m=[[-.164,-.114],[.164,.114]],floor_top_local_z_m=.005)
@@ -127,7 +131,9 @@ class Replay:
     def targets(self):
         ident=self.task['id']
         self.contacts=[]
-        if ident=='produce_transfer':
+        if ident=='surface_wiping':
+            self.contacts = [self.pair('sponge', 'sponge_tray')]
+        elif ident=='produce_transfer':
             for i in range(3):
                 for kind,x in (('tomato',.6),('carrot',.94)):
                     name=kind+'_'+str(i)

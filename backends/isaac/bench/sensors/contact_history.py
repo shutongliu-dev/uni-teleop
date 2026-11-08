@@ -39,7 +39,7 @@ def _region(link):
             return finger + '_shell'
     if re.fullmatch(r'fr3_link[0-8]', link):
         return 'arm'
-    if link in ('right_hand_flange', 'right_hand_wrist', 'right_hand_C_MC'):
+    if link in ('right_hand_flange', 'right_hand_wrist', 'right_hand_C_MC', 'fr3_l_adapter'):
         return 'palm_mount'
     return None
 
@@ -83,7 +83,8 @@ def _bimanual_region(link, namespaces=SIDES):
     for side in namespaces:
         if re.fullmatch('fr3_' + re.escape(side) + r'_link[0-8]', link):
             return side, 'arm'
-        if link in {side + '_hand_' + suffix for suffix in ('flange', 'wrist', 'C_MC')}:
+        if (link == 'fr3_' + side + '_l_adapter'
+                or link in {side + '_hand_' + suffix for suffix in ('flange', 'wrist', 'C_MC')}):
             return side, 'palm_mount'
         for finger, native in (('thumb', 'thumb'), ('index', 'index'), ('middle', 'middle'),
                                ('ring', 'ring'), ('little', 'pinky')):

@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 
 from bench.control.bimanual import BimanualFingertipPolicy
-from bench.control.fingertip import CONTROL_DT
+from bench.control.fingertip import CONTROL_DT, GeometryIKError
 from bench.protocol.policies import PolicyStep
 from bench.protocol.schemas import RobotExecutionState, RobotJointCommand, System0Action
 
@@ -96,8 +96,10 @@ class BoardGameFingertipPolicy(BimanualFingertipPolicy):
                 own.previous = np.array([self._acknowledged_targets[n] for n in own.geometry.names])
                 own.velocity = np.zeros(len(own.geometry.names))
             own.begin(single, self._side_observation(observation, side))
-        except BaseException:
+        except BaseException as error:
             self._restore_state(own, saved)
+            if isinstance(error, GeometryIKError):
+                error.public_diagnostic = error.public_diagnostic.model_copy(update={'hand': side})
             raise
         self._active = {side: True}
         self._moving = set() if action.skill == 'hold' else {side}
@@ -121,6 +123,9 @@ class BoardGameFingertipPolicy(BimanualFingertipPolicy):
             raise ValueError('No active player action')
         side = self._player_hand
         result = self.sides[side].step(self._side_observation(observation, side))
+        if result.diagnostic is not None:
+            result = result.model_copy(update={
+                'diagnostic': result.diagnostic.model_copy(update={'hand': side})})
         state = self._feedback(observation, result.robot_execution_state)
         if result.status != 'running':
             self._active = None

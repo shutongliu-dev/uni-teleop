@@ -131,7 +131,7 @@ def test_ordinary_episode_publishes_seed_bound_goals_and_uses_shared_functions(p
 @pytest.mark.parametrize('changes', [{'robot_id':'dual_fr3_sharpa_w01'}, {'scene_variant':'enriched_v2'}])
 def test_fixed_single_robot_and_scene_are_rejected_before_worker(placement_release, tmp_path, changes):
     api, workers = make_service(tmp_path/'episodes', placement_release)
-    with pytest.raises(ServiceError, match='frozen single-arm'):
+    with pytest.raises(ServiceError, match='frozen robot and original scene'):
         api.create(request(task_id='task0', **changes))
     assert not workers
 

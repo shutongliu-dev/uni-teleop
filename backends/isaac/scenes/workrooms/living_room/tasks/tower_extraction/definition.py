@@ -23,6 +23,14 @@ TASK = planned_task(
 
 
 TASK = bind_prepared_release(
-    TASK, path=f'{DATA_ROOT}/datasets/fr3_sharpa_bench/isaacsim/releases/living_room/tower_extraction/v8',
-    manifest_sha256='d10b64f4c8221f0af608e9540678f29e3c50ede021f473f21ea2d148c8928071',
+    TASK, path=f'{DATA_ROOT}/datasets/fr3_sharpa_bench/isaacsim/releases/living_room/tower_extraction/v9',
+    manifest_sha256='59b55b59de1d802e40e7b8f9b6df7aa28a45e897f14a04c4b3be57e4d432e8e1',
 )
+
+TASK['qualification']['object_interaction_evidence'] = {
+    'path': f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/living_interactions_20261024/towers/qualification.json',
+    'sha256': '1c7ae15762120a8ea2d24fd2f5894505da4db5d8591a5550147df07240fed9f5',
+    'scope': 'Object-only v8 reset, collection support and bounded-force extraction with complete released '
+             'terminal review. Original extraction report export failures retained; separate raw-trace '
+             'recovery passed. No robot extraction, legal game turn or match qualification.',
+}

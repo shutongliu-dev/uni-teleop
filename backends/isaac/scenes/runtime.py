@@ -15,6 +15,15 @@ def terminal_scoring_contract(task):
 
 
 def build_task_runtime(env, scene, task, output, *, evaluator_factory):
+    if task.get('schema') == 'card_rsi_practice_task.v1':
+        if 'robot_revision_practice' in task:
+            from .workrooms.robot_revision.practice_runtime import build_runtime
+        else:
+            from .workrooms.card_room.practice.runtime import build_runtime
+        return build_runtime(env, scene, task, output, evaluator_factory=evaluator_factory)
+    if task.get('schema_version') == 'laundry-cloth-task-v1':
+        from .workrooms.laundry_room.runtime import build_runtime
+        return build_runtime(env, scene, task, output, evaluator_factory=evaluator_factory)
     if task.get('schema_version') == 'study-task-v1':
         from .workrooms.study.runtime import build_runtime
         return build_runtime(env, scene, task, output, evaluator_factory=evaluator_factory)

@@ -7,7 +7,7 @@ from .rules import public_rules, thresholds
 
 INSET_RELEASE = {
     'path': f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/mechanical_gear_scene_validation_20261020/practical_rules_v4/release',
-    'manifest_sha256': '62bd44368d8d42a36885d29272d7ef0dae2582acf84da2f8faee6d6fe37c96f5',
+    'manifest_sha256': '8e05d134638639879918078040df9151732966fa7a11add21a1cd95b88432034',
 }
 
 
@@ -161,3 +161,13 @@ TASK['qualification']['tool_contact_evidence'] = [{
 TASK['design']['failure_design'] = [
     'Invalid evidence and physical safety stops are reported separately.',
     'Budget exhaustion records an unfinished episode, not an invented irreversible task violation.']
+
+
+from scenes.workrooms.mechanical_assembly.desktop_catalog import bind_desktop_release
+TASK = bind_desktop_release(TASK)
+
+from .grip_catalog import bind_grip_release
+TASK = bind_grip_release(TASK)
+
+from .wrench_catalog import bind_wrench_release
+TASK = bind_wrench_release(TASK)

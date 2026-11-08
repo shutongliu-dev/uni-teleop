@@ -1,5 +1,6 @@
 """Real-scene CPU controller composition; no native or model qualification."""
 from copy import deepcopy
+import json
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +10,7 @@ from bench.control.bimanual import BimanualFingertipPolicy
 from bench.control.factory import configured_policy, public_robot_geometry, robot_configuration
 from bench.control.fingertip import ClassicalFingertipPolicy, ExecutorLimits
 from bench.geometry import quaternion_matrix, transform
+from bench.paths import load_json
 from scenes.workrooms import registry
 from scenes.workrooms.catalog import list_tasks, load_task
 
@@ -44,9 +46,12 @@ def test_six_diagnostic_room_scenes_use_the_same_pinned_robot_factory(family):
     assert scene == before
 
 
-@pytest.fixture(scope='module', params=('tic_tac_toe_3x3', 'connect_four_5x5', 'hex7x7'))
+@pytest.fixture(scope='module', params=[(game, profile) for game in ('tic_tac_toe_3x3', 'connect_four_5x5', 'hex7x7')
+                                         for profile in ('original', 'l_mount')],
+                ids=lambda value: '-'.join(value))
 def card_task(request):
-    return load_task('card_room', request.param)
+    game, profile = request.param
+    return load_task('card_room', game, robot_profile=profile)
 
 
 def test_three_frozen_card_tasks_keep_controller_descriptors_and_ready_fk(card_task):
@@ -65,7 +70,17 @@ def test_three_frozen_card_tasks_keep_controller_descriptors_and_ready_fk(card_t
     assert geometry.public_hand_geometries(q) == old.geometry.public_hand_geometries(q)
     for side in ('left', 'right'):
         np.testing.assert_allclose(geometry.sides[side].arm_base, old.geometry.sides[side].arm_base, atol=0, rtol=0)
-    regenerated, _, _ = ready_configuration(scene['robot'], geometry_for(card_task['task']['task_id']))
+    if scene['robot']['assembly_version'] == 'isaacsim_6_1_v2':
+        regenerated, _, _ = ready_configuration(scene['robot'], geometry_for(card_task['task']['task_id']))
+    else:
+        # The card-room generator derives the original-mount ready pose. The
+        # L-mount reset is the revision's separately checked ready map.
+        assert scene['robot']['assembly_version'] == 'isaacsim_6_1_l_mount_v3'
+        root = Path(card_task['definition']['source_release']['path'])
+        regenerated = load_json(root/'robot_revision.json')
+        assert regenerated['robot'] == scene['robot']
+        for side in geometry.sides.values():
+            side.checked_joints({name: q[name] for name in side.names}, enforce_limits=True)
     assert set(regenerated['joint_positions_rad']) == set(q)
     np.testing.assert_allclose([regenerated['joint_positions_rad'][name] for name in q], list(q.values()), atol=1e-12, rtol=0)
     assert card_task == before
@@ -155,9 +170,10 @@ def test_factory_source_is_pinned_by_service_and_complete_snapshot_inventories()
 
 @pytest.mark.parametrize('family,task_id', [
     (task['family'], task['task_id']) for task in list_tasks()
+    if task.get('capabilities', {}).get('robot_episodes') is not False
 ])
 def test_all_current_task_releases_bind_reset_and_cameras_to_shared_factory(family, task_id):
-    """Exercise executable task releases, beyond the six diagnostic room layouts."""
+    """Exercise robot releases; engineering-only controller rejection has its own tests."""
     from bench.isaacsim.release import digest
     from bench.simulation.isaacsim_backend.cameras import resolve_cameras
 
@@ -184,7 +200,10 @@ def test_all_current_task_releases_bind_reset_and_cameras_to_shared_factory(fami
             assert policy.sides[name].limits == ExecutorLimits()
     cameras = resolve_cameras(scene)
     wrist_cameras = [row for row in cameras.values() if row['kind'] == 'link']
-    assert len(cameras) == 3 + len(sides)
+    # Three shared room views; the frozen pipette scene adds its reviewed receivers view.
+    extra = {'receivers'} if (family, task_id) == ('laboratory', 'pipette_transfer') else set()
+    assert extra <= {name for name, row in cameras.items() if row['kind'] == 'world'}
+    assert len(cameras) == 3 + len(extra) + len(sides)
     assert len(wrist_cameras) == len(sides)
     for camera in wrist_cameras:
         assert camera['mount_link'] in all_links

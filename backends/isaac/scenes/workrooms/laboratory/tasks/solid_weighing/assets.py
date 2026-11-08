@@ -12,16 +12,21 @@ import numpy as np
 import trimesh
 from pxr import Gf, Sdf, UsdGeom, UsdPhysics, UsdShade
 from scenes.workrooms.laboratory.visual_details import add_task_visual_details
+from scenes.workrooms.laboratory.weight_display import balance_platform_parts
 
 TASK_ID = "solid_weighing"
 PELLET_COUNT = 24
 PELLET_RADIUS_M = .004
 PELLET_MASS_KG = .0005
 SOURCE_POSITION = (.61, .51, .90)
-CUP_POSITION = (.82, .54, .9005)
-SCOOP_POSITION = (.99, .585, .9065)
+CUP_POSITION = (.79, .54, .9005)
+SCOOP_POSITION = (.99, .535, .9065)
+# Local -X handle faces the aisle (+Y), with its last 50 mm past y=.625.
+SCOOP_QUATERNION_XYZW = (0., 0., -math.sqrt(.5), math.sqrt(.5))
 PLATFORM_POSITION = (.71, 2.075, .90)
-SCOOP_RETURN_BOUNDS = [[.85, .55, .90], [1.04, .62, .96]]
+# Fifteen millimetres of XY placement margin around the rotated whole tool.
+# A real contact with scoop_rest is independently required by the referee.
+SCOOP_RETURN_BOUNDS = [[.953, .481, .90], [1.027, .690, .96]]
 
 
 def _attr(prim, name, kind, value):
@@ -105,11 +110,11 @@ def author_task(stage, root_path="/World/LaboratoryTask", *, presentation=False)
             "weighing": "Nominal discrete mass ledger; no force-balance accuracy claim."},
         "physics_accepted": False}
 
-    def body(name, position, parts, mass, color, **extra):
+    def body(name, position, parts, mass, color, *, quaternion_xyzw=(0., 0., 0., 1.), **extra):
         path = root_path+("/Actors/" if mass else "/Fixtures/")+name
         obj = UsdGeom.Xform.Define(stage, path)
         obj.AddTranslateOp().Set(Gf.Vec3d(*position))
-        obj.AddOrientOp().Set(Gf.Quatf(1., Gf.Vec3f(0.)))
+        obj.AddOrientOp().Set(Gf.Quatf(quaternion_xyzw[3], Gf.Vec3f(*quaternion_xyzw[:3])))
         colliders = []
         for label, shape in parts:
             prim = _mesh(stage, path+"/Collision/"+label, shape, color)
@@ -118,7 +123,7 @@ def author_task(stage, root_path="/World/LaboratoryTask", *, presentation=False)
         combined = trimesh.util.concatenate([shape for _, shape in parts])
         bounds = combined.bounds
         record = {"id": name, "body_path": path, "path": path, "mass_kg": mass,
-            "initial_position_m": list(position), "initial_pose_xyzw": [*position, 0., 0., 0., 1.],
+            "initial_position_m": list(position), "initial_pose_xyzw": [*position, *quaternion_xyzw],
             "local_bounds_m": bounds.tolist(), "half_extents_m": ((bounds[1]-bounds[0])/2).tolist(),
             "collider_paths": colliders, **extra}
         if mass:
@@ -150,8 +155,7 @@ def author_task(stage, root_path="/World/LaboratoryTask", *, presentation=False)
         0., (.70, .77, .79), interior_bounds_m=[[-.075, -.052, .003], [.072, .052, .025]],
         open_entry_axis_local=[-1., 0., 0.], floor_top_local_z_m=.003)
     platform = body("balance_platform", PLATFORM_POSITION,
-        [("base", _box((.135, .125, .022), (0, 0, .011))),
-         ("pan", _box((.100, .090, .003), (0, 0, .0235)))],
+        balance_platform_parts(),
         0., (.16, .22, .25), support_top_world_z_m=.925,
         pan_bounds_xy_m=[[.66, 2.03], [.76, 2.12]],
         measurement="Nominal mass ledger after unloading and stable support.")
@@ -160,9 +164,17 @@ def author_task(stage, root_path="/World/LaboratoryTask", *, presentation=False)
         .028, (.90, .91, .84), role="open_weighing_boat",
         interior_bounds_m=[[-.0345, -.0295, .003], [.0345, .0295, .035]],
         floor_top_local_z_m=.003, rim_top_local_z_m=.035)
-    body("scoop_rest", (.95, .585, .90),
-        [("pad", _box((.16, .065, .006), (0, 0, .003)))], 0., (.20, .37, .43))
+    # The raised handle starts 7 mm above the bowl floor. Matching two visible
+    # support levels bracket the actual COM; a bowl-only pad would leave it
+    # outside the loaded contact patch. Both supports stay inside the island.
+    body("scoop_rest", (SCOOP_POSITION[0], SCOOP_POSITION[1], .90),
+        [("pad", _box((.120, .065, .006), (-.020, 0, .003))),
+         ("handle_bridge", _box((.015, .028, .007), (-.0675, 0, .0095)))],
+        0., (.20, .37, .43), quaternion_xyzw=SCOOP_QUATERNION_XYZW,
+        support_levels_world_z_m={"bowl_floor": .906, "handle": .913},
+        support_policy="Visible pad and raised handle bridge; no tool joint or hidden support.")
     scoop = body("scoop", SCOOP_POSITION, scoop_parts(), .026, (.55, .61, .64),
+        quaternion_xyzw=SCOOP_QUATERNION_XYZW,
         role="open_granule_scoop", interior_bounds_m=[[-.027, -.019, .002], [.025, .019, .019]],
         mouth_axis_local=[1., 0., 0.], handle_bounds_m=[[-.140, -.007, .007], [-.030, .007, .013]])
     pellet_ids = []

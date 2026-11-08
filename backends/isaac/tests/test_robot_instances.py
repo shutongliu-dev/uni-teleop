@@ -98,10 +98,12 @@ def test_namespaced_assembly_preserves_every_physical_xml_value_and_original_fil
     source = load_json(source_path)
     paths = [source_path, Path(source['urdf_path']), *(Path(p) for p in source['sources'])]
     before = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
-    source_tree = ET.parse(source['urdf_path']).getroot()
+    # dexbench: package URDFs name meshes relative to themselves; compare the files they resolve to.
+    from bench.simulation.isaacsim_backend.instance_asset import _anchored
+    source_tree = _anchored(ET.parse(source['urdf_path']).getroot(), Path(source['urdf_path']).parent)
     for namespace in ('front', 'rear'):
         path, manifest = assemble_instance(namespace, ASSETS, source_version='isaacsim_6_1_v2', output=tmp_path/namespace)
-        generated = ET.parse(path).getroot()
+        generated = _anchored(ET.parse(path).getroot(), path.parent)
         assert len(source_tree) == len(generated)
         for old, new in zip(source_tree, generated):
             assert old.tag == new.tag

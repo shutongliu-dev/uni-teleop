@@ -17,8 +17,9 @@ from urllib.parse import urlsplit
 from .actions import ActionLimits, ActionValidationError, parse_json_object
 from .bench_http import BenchHTTPClient, BenchHTTPError
 from .geometry_actions import GeometryActionLimits
-from .transport import ModelClient, ModelGatewayConfig, ModelGatewayError
+from .transport import ModelClient, ModelGatewayConfig, ModelGatewayError, GATEWAY_RETRY_POLICY
 from .responses import MicuModelClient, MICU_RETRY_POLICY
+from .qwen import QwenModelClient, QWEN_RETRY_POLICY, is_qwen_endpoint
 from .capture import capture
 from .interaction import InteractionSession, PRIMITIVE_ATTEMPT_ACCOUNTING
 from .learning.robot_api import DEFAULT_MAX_STATUS_QUERIES
@@ -28,7 +29,10 @@ from .program import ProgramLimits, execute_program, program_feedback
 from .visibility import capability_view
 from .time_limits import minimum_limit, optional_positive, optional_seconds
 from .outcomes import classify_report, error_record
+from .scene_tasks import TaskSetupError
+from bench.runtime.task_capabilities import engineering_capabilities
 from bench.protocol.schemas import EpisodeResult, EpisodeSpec, PolicyDescriptor
+from bench.protocol.task_scoring import TerminalScoringContract
 from bench.protocol.allocations import (MAX_EPISODE_SIM_TIME_S, MAX_EPISODE_WALL_TIME_S,
                                         MAX_EPISODE_ACTIONS)
 from scripts.maintenance.freeze_project_sources import verify_if_snapshot
@@ -255,6 +259,17 @@ def mount_prompt(prompt, mount):
     """State the published hand mount; a v1 (or unpublished) mount leaves the prompt unchanged."""
     if not mount or mount.get('mount_convention') in (None, 'flange_axis_centred_v1'):
         return prompt
+    if mount.get('mount_convention') == 'l_adapter_20261104_v1':
+        prompt = prompt.replace(MOUNT_V2_SENTENCES[0][0],
+            'The wrist frame is right_hand_flange, the mounting interface on the L adapter output face;')
+        prompt = prompt.replace(MOUNT_V2_SENTENCES[1][0],
+            'Wrist origin is right_hand_flange, the L adapter output interface. The palm root is 35 mm along local +Z.')
+        prompt = prompt.replace('names that FR3 tool-flange frame (fr3_link8),',
+            'names the L adapter output interface,')
+        return prompt + ('\nHand mount: l_adapter_20261104_v1. Each hand frame has a fixed translation and '
+            'rotation relative to its FR3 flange. Use the published wrist/FK/IK frames and side-specific '
+            'mounts. Fingertip deltas remain in the selected hand frame local axes; the L adapter is '
+            'physical robot geometry and can contact the environment.\n')
     if mount.get('mount_convention') != 'flange_axis_centred_v2':
         raise ValueError('Unknown published hand mount convention')
     for old, new in MOUNT_V2_SENTENCES[:2]:
@@ -317,7 +332,7 @@ def model_system_prompt(control_mode, interaction_mode, controller=None, robot_i
 
 
 def select_geometry_policy(rows, robot_id, *, allow_instances=False):
-    """Pin one advertised public classical executor, never silently substitute."""
+    """Pin one public executor; None defers the robot to unambiguous discovery."""
     if not isinstance(rows, list):
         raise ValueError('Invalid public controller inventory')
     candidates = []
@@ -329,7 +344,7 @@ def select_geometry_policy(rows, robot_id, *, allow_instances=False):
         if (descriptor.policy_id in supported and not descriptor.trained
                 and descriptor.observation_profile == 'vision_proprio'
                 and descriptor.camera_observation_mode == 'decision_only'
-                and robot_id in descriptor.supported_robot_ids
+                and (robot_id is None or robot_id in descriptor.supported_robot_ids)
                 and {'move_geometry','hold'} <= set(descriptor.skills)
                 and {'wrist_pose', 'fingertip_positions'} <= set(descriptor.geometry_inputs)):
             candidates.append(descriptor)
@@ -408,23 +423,31 @@ def model_time_remaining(session):
 def configured_model(args, config):
     """Explicit provider selection; credentials and protocol never fall back."""
     provider = getattr(args, 'provider', 'gateway')
-    if provider not in ('gateway', 'micu'):
+    if provider not in ('gateway', 'micu', 'qwen'):
         raise ValueError('Unknown model provider')
     retries = getattr(args, 'model_retries', None)
-    if retries is None and provider == 'gateway':
-        retries = 0
     policy = getattr(args, 'model_retry_policy', None)
-    expected_policy = MICU_RETRY_POLICY if provider == 'micu' else 'legacy_gateway_v1'
-    if policy is not None and policy != expected_policy:
+    gateway_recovery = provider == 'gateway' and policy == GATEWAY_RETRY_POLICY
+    if retries is None and provider in ('gateway', 'qwen') and not gateway_recovery:
+        retries = 0
+    expected_policy = (MICU_RETRY_POLICY if provider == 'micu' else
+                       QWEN_RETRY_POLICY if provider == 'qwen' else 'legacy_gateway_v1')
+    if policy is not None and policy != expected_policy and not gateway_recovery:
         raise ValueError('Historical retry policy cannot run on this client; create a new frozen plan')
     if provider == 'micu' and not args.credentials:
         raise ValueError('Micu requires an explicit external --credentials profile')
+    if provider == 'qwen' and not args.credentials:
+        raise ValueError('Qwen requires an explicit external --credentials profile')
     hostname = urlsplit(config.public_metadata()['base_url']).hostname or ''
     if provider != 'micu' and (hostname == 'micuapi.ai' or hostname.endswith('.micuapi.ai')):
         raise ValueError('Micu credentials require explicit --provider micu (Responses)')
-    client_type = MicuModelClient if provider == 'micu' else ModelClient
+    if provider != 'qwen' and is_qwen_endpoint(config.public_metadata()['base_url']):
+        raise ValueError('Qwen credentials require explicit --provider qwen (Responses)')
+    client_type = (MicuModelClient if provider == 'micu' else
+                   QwenModelClient if provider == 'qwen' else ModelClient)
     return client_type(config, args.model, timeout_s=args.model_timeout, max_retries=retries,
-                       reasoning_effort=args.reasoning_effort)
+                       reasoning_effort=args.reasoning_effort,
+                       **({'retry_policy': GATEWAY_RETRY_POLICY} if gateway_recovery else {}))
 
 
 class _TerminalResultBinding:
@@ -432,6 +455,7 @@ class _TerminalResultBinding:
 
     def __init__(self):
         self._spec = None
+        self._scoring_contract = None
         self.error = None
 
     def _reject(self):
@@ -441,14 +465,17 @@ class _TerminalResultBinding:
             self.error = error_record(error)
         raise error from None
 
-    def bind(self, spec):
+    def bind(self, spec, *, scoring_contract=None):
         try:
             value = EpisodeSpec.model_validate(spec).model_dump(mode='json')
+            declared = (None if scoring_contract is None else
+                        TerminalScoringContract.model_validate(scoring_contract).model_dump(mode='json', by_alias=True))
         except (ValueError, TypeError):
             self._reject()
-        if self._spec is not None and value != self._spec:
+        if self._spec is not None and (value != self._spec or declared != self._scoring_contract):
             self._reject()
         self._spec = value
+        self._scoring_contract = declared
 
     def validate(self, value, *, allow_pending=True):
         if value is None and allow_pending:
@@ -459,6 +486,11 @@ class _TerminalResultBinding:
             self._reject()
         if (self.error is not None or self._spec is None
                 or parsed.spec.model_dump(mode='json') != self._spec):
+            self._reject()
+        if self._scoring_contract is None:
+            if parsed.scoring is not None:
+                self._reject()
+        elif parsed.scoring is None or not parsed.scoring.matches(self._scoring_contract):
             self._reject()
         return parsed.model_dump(mode='json')
 
@@ -540,10 +572,11 @@ def run(args):
             if visual_input == 'rgbd' else None,
         'reasoning_effort': args.reasoning_effort, 'max_output_tokens': args.max_output_tokens,
         'provider': getattr(args, 'provider', 'gateway'),
-        'gateway': model.public_metadata() if getattr(args, 'provider', 'gateway') == 'micu' else config.public_metadata(),
+        'gateway': model.public_metadata() if getattr(args, 'provider', 'gateway') in ('micu', 'qwen') else config.public_metadata(),
         'model_retries': getattr(args, 'model_retries', None) if getattr(args, 'model_retries', None) is not None
                          else (None if getattr(args, 'provider', 'gateway') == 'micu' else 0),
-        'model_retry_policy': MICU_RETRY_POLICY if getattr(args, 'provider', 'gateway') == 'micu' else 'legacy_gateway_v1',
+        'model_retry_policy': (MICU_RETRY_POLICY if getattr(args, 'provider', 'gateway') == 'micu' else
+                               QWEN_RETRY_POLICY if getattr(args, 'provider', 'gateway') == 'qwen' else 'legacy_gateway_v1'),
         'system_prompt': system_prompt,
         'action_limits': asdict(limits), 'max_decisions': args.max_decisions,
         'model_timeout_s': args.model_timeout, 'http_timeout_s': args.http_timeout,
@@ -585,6 +618,12 @@ def run(args):
         if len(matches) != 1:
             raise ValueError('Task ID is not uniquely advertised by bench')
         task = matches[0]
+        discovered_scoring_contract = deepcopy(task.get('scoring_contract'))
+        if getattr(args, 'configuration', None) is not None:
+            raise ValueError('Robot configuration choice requires agent.model_client.function_runner; the legacy runner never substitutes a dual installation')
+        task_capabilities = engineering_capabilities(task)
+        if task_capabilities is not None:
+            raise TaskSetupError('robot_episodes_unavailable', capabilities=task_capabilities)
         if task.get('task_kind') in ('board_game', 'turn_game'):
             raise ValueError('Player games require agent.model_client.function_runner and authenticated player sessions')
         if control_mode in ('fingertip', 'hybrid'):
@@ -624,11 +663,15 @@ def run(args):
         capabilities, spec = ready['capabilities'], deepcopy(ready['spec'])
         # Discovery omits seed-dependent goals. The created ordinary episode
         # publishes its actual task (notably card-room task0).
+        if discovered_scoring_contract is not None and 'task' not in ready:
+            raise ValueError('Created episode omitted its declared scoring contract')
         if 'task' in ready:
             actual_task = ready['task']
             if not isinstance(actual_task, dict) or actual_task.get('task_id') != args.task:
                 raise ValueError('Created episode public task identity differs')
             task = actual_task
+        if task.get('scoring_contract') != discovered_scoring_contract:
+            raise ValueError('Created episode scoring contract differs from discovery')
         if args.task == 'task0' and (task.get('episode_seed') != spec.get('seed')
                 or len(task.get('goal', {}).get('target_cells', [])) != 3
                 or len(task.get('goal', {}).get('target_positions_m', [])) != 3):
@@ -653,7 +696,7 @@ def run(args):
         if visual_input == 'rgbd' and not capabilities.get('depth_available'):
             raise ValueError('RGB-D requested but the server has no depth sensor')
         # Cleanup must not score a created episode that failed admission above.
-        terminal_binding.bind(spec)
+        terminal_binding.bind(spec, scoring_contract=discovered_scoring_contract)
         observation = ready['observation']
         session = InteractionSession(bench,episode_id,capabilities,spec,observation,output,
             control_mode=control_mode,visual_input=visual_input,tactile_input=tactile_input,
@@ -825,6 +868,9 @@ def run(args):
                                                        category='request_budget_exhausted'))
         else:
             termination = 'client_wall_deadline'
+    except TaskSetupError as exc:
+        failure = type(exc).__name__
+        run_error = {**error_record(exc), **exc.public_metadata()}
     except ModelGatewayError as exc:
         # A request timeout is still an API interruption when its return
         # crosses the episode wall deadline. Only the explicit local budget
@@ -958,12 +1004,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--bench-url', default='http://127.0.0.1:8000')
     parser.add_argument('--credentials', type=Path)
-    parser.add_argument('--provider', choices=('gateway', 'micu'), default='gateway',
-                        help='micu uses Responses at the explicit external credential profile endpoint')
+    parser.add_argument('--provider', choices=('gateway', 'micu', 'qwen'), default='gateway',
+                        help='micu/qwen use Responses at the explicit external credential profile endpoint')
     parser.add_argument('--model-retries', type=int, choices=range(4),
-                        help='Optional additional-request cap 0–3; Micu defaults to retry every 10s until recovery/wall deadline, gateway to 0')
+                        help='Optional additional-request cap 0–3; Micu retries every 10s by default, gateway defaults to 0, Qwen requires 0')
     parser.add_argument('--model', default='gpt-6-astra')
-    parser.add_argument('--reasoning-effort', default='max')
+    parser.add_argument('--reasoning-effort', default='max',
+                        help='Requested provider effort; Qwen3.8 highest is xhigh (max is its documented alias)')
     parser.add_argument('--visual-input', choices=('rgbd', 'rgb'), default='rgbd')
     parser.add_argument('--control-mode', choices=('fingertip', 'joints', 'hybrid'), default='fingertip')
     parser.add_argument('--interaction-mode',choices=('action','tools','code','free'),default='action')

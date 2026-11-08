@@ -29,6 +29,8 @@ def evaluator_sources(task_id):
         files['liquid_dynamics.py'] = root/'tasks/pipette_transfer/liquid.py'
     if task_id == 'solid_weighing':
         files['weight_readout.py'] = root/'weight_readout.py'
+    if task_id == 'tube_clamp_transfer':
+        files['tube_clamp_evidence.py'] = root/'tube_clamp_evidence.py'
     return files
 
 
@@ -121,6 +123,15 @@ def build_task_inputs(task_id, *, asset_manifest, seed=0):
     cameras['overview'].update(eye=[2.85,.82,2.10], target=[.65,1.25,1.0], focal_length_mm=24.)
     cameras['task'].update(eye=[1.90,.65,2.65], target=[.70,1.25,.90], focal_length_mm=23.)
     cameras['room'].update(eye=[3.12,-2.20,2.38], target=[.30,.65,1.15], focal_length_mm=19.)
+    if task_id == 'solid_weighing':
+        from .weight_display import weighing_camera_overrides
+        cameras['task'].update(weighing_camera_overrides())
+    if (task_id == 'pipette_transfer' and metadata['task_parameters']['hydraulics']['schema']
+            == 'laboratory_piston_finite_volume.v2'):
+        from .pipette_presentation import pipette_camera_overrides, receiver_camera_overrides
+        cameras['task'].update(pipette_camera_overrides())
+        cameras['receivers'] = deepcopy(cameras['task'])
+        cameras['receivers'].update(receiver_camera_overrides())
     scene['cameras'] = cameras
     task = {'schema_version': TASK_SCHEMA, 'id': task_id, 'task_id': task_id,
         'title_zh': TITLES[task_id], 'difficulty': 'single_arm_dexterous', 'cloth': False,
@@ -149,6 +160,10 @@ def build_task_inputs(task_id, *, asset_manifest, seed=0):
             'files': {name: digest(path) for name, path in files.items()},
             'class_name': 'ReducedLiquidDynamics', 'configuration': deepcopy(task)}
         scene['native_task_bundle']['volume_visual_bindings'] = deepcopy(metadata['volume_visual_bindings'])
+        if metadata['task_parameters']['hydraulics']['schema'] == 'laboratory_piston_finite_volume.v2':
+            from .tasks.pipette_transfer.feedback import payload_configuration
+            scene['reduced_liquid_payload'] = payload_configuration(metadata)
+            scene['native_task_bundle']['packet_visual_bindings'] = deepcopy(metadata['packet_visual_bindings'])
     if 'visual_state_bindings' in metadata:
         scene['native_task_bundle']['visual_state_bindings'] = deepcopy(metadata['visual_state_bindings'])
     scene['laboratory_task_provenance'] = {'asset_candidate': candidate, 'ready_design': ready,

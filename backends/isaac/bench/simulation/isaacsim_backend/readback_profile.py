@@ -16,7 +16,7 @@ def resolve_profile(scene):
     if profile not in (CUDA_TENSORS, GPU_SOLVER_USD_HOST, CPU_RIGID):
         raise ValueError('Unknown native_readback_profile')
     particles = layer_particles or bundle_particles
-    if profile == CPU_RIGID and (particles or scene.get('cloth', {}).get('enabled') or scene.get('soft_bodies')):
+    if profile == CPU_RIGID and (particles or scene.get('cloth', {}).get('enabled') or scene.get('cloths') or scene.get('soft_bodies')):
         raise ValueError('CPU rigid profile cannot simulate particles, cloth or soft bodies')
     if not particles and profile == GPU_SOLVER_USD_HOST:
         raise ValueError('USD host profile requires declared particle readback capability')

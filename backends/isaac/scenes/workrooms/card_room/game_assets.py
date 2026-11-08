@@ -21,7 +21,7 @@ from bench.simulation.assets.inlay_geometry import (
     rounded_cylinder, rounded_rectangle, rounded_strip,
 )
 from bench.simulation.assets.scene_parts import Asset, write_library
-from .tasks.hex7x7 import assets as heritage
+from . import asset_primitives as primitives
 
 APPEARANCE = 'tabletop_black_white_wood_v3'
 COLORS = {'black': [.023, .026, .023], 'white': [.80, .82, .78]}
@@ -158,7 +158,7 @@ def _wooden_cylinder(radius, height, rounding, z):
 
 def token_mass_properties(geometry):
     """Exactly the established analytic uniform-density two-cylinder prior."""
-    return heritage.token_mass_properties(geometry)
+    return primitives.token_mass_properties(geometry)
 
 
 def token(color, geometry):
@@ -249,7 +249,7 @@ def _coordinate_labels(asset, g):
     metadata = []
     for text, axis, index, center, glyph_height in positions:
         lines = []
-        for line in heritage._LETTERING[text]:
+        for line in primitives._LETTERING[text]:
             path = (np.asarray(line)-.5)*[width, glyph_height]+center
             lines.extend(_strip(a, b, stroke, top+.00009) for a, b in zip(path[:-1], path[1:]))
         asset.add_display(trimesh.util.concatenate(lines), [.69, .61, .45],
@@ -317,7 +317,7 @@ def board(geometry):
     outline = rounded_rectangle([sx-.010, sy-.010], .004)
     # The established Hex frame helper leaves deliberate gaps around A-G.
     # A continuous bottom pinstripe would cut through their lower strokes.
-    frame = (heritage._frame_pinstripe(g) if g.shape == 'hex' else
+    frame = (primitives._frame_pinstripe(g) if g.shape == 'hex' else
              outline_ring(outline, .0006, top+.00004, top+.00006))
     asset.add_display(frame, BOARD_EDGE, 'frame_inlay', roughness=.72, metallic=0.)
     goals = _goal_edges(asset, g)
@@ -344,7 +344,7 @@ def stand(sign, base_height=None, base_distance=None):
     base_distance = ROBOT_BASE_DISTANCE_M if base_distance is None else base_distance
     if sign not in (-1, 1):
         raise ValueError('Pedestal side must be -1 or +1')
-    asset = heritage.stand(sign, base_height)
+    asset = primitives.stand(sign, base_height)
     offset = np.array([0., sign*(base_distance-.52), 0.])
     for _, mesh, _ in asset.visual:
         mesh.apply_translation(offset)
@@ -357,7 +357,7 @@ def stand(sign, base_height=None, base_distance=None):
     asset.data['mount_position_m'] = [.65, sign*base_distance, base_height]
     asset.data['installation'] = 'Ideal rigid anchored pedestal; lowered column keeps foot on floor; mount matches task robot base.'
     asset.data['appearance'] = dict(asset.data['appearance'],
-                                    original_template_version=heritage.APPEARANCE,
+                                    original_template_version=primitives.APPEARANCE,
                                     version=APPEARANCE,
                                     collision_shape='Four solid boxes with versioned mount height and position')
     return asset
@@ -372,7 +372,7 @@ def build_assets(output, geometry):
     generator = 'scenes/workrooms/card_room/game_assets.py'
     from scenes.board_games.tabletop import geometry as geometry_module
     from . import robot_layout
-    dependencies = [Path(__file__), Path(inlay_geometry.__file__), Path(heritage.__file__),
+    dependencies = [Path(__file__), Path(inlay_geometry.__file__), Path(primitives.__file__),
                     Path(geometry_module.__file__), Path(robot_layout.__file__), Path(reserve_assets.__file__)]
     result = write_library(
         output, [(a.asset_id, a) for a in values], generator=generator,

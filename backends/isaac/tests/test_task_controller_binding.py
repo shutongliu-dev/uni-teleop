@@ -126,15 +126,17 @@ def test_default_factory_keeps_single_layout_discovery_and_constructor_hash(monk
     assert policy.robot_configuration['base_position_m'] == [0., 0., .77]
 
 
-def test_http_discovery_requires_task_only_when_configuration_hashes_differ(monkeypatch):
+def test_http_discovery_requires_task_only_when_configuration_hashes_differ(monkeypatch, tmp_path):
     from bench.isaacsim import release
     registry = PolicyRegistry()
     for task_id, digest in (('task_a', 'c'), ('task_b', 'd')):
         registry.register_task_factory(task_id, _teacher(digest).descriptor,
                                        lambda digest=digest: _teacher(digest))
+    for task_id in ('task_a', 'task_b'):
+        (tmp_path/(task_id+'.json')).write_text('{}')
     monkeypatch.setattr(release, 'validate', lambda *args, **kwargs: {
-        'tasks': [{'id': 'task_a'}, {'id': 'task_b'}]})
-    manager = SimpleNamespace(registry=registry, release='operator_release', shutdown=lambda: None)
+        'tasks': [{'id': name, 'task': name+'.json'} for name in ('task_a', 'task_b')]})
+    manager = SimpleNamespace(registry=registry, release=tmp_path, shutdown=lambda: None)
     with TestClient(create_app(service=manager)) as client:
         for endpoint in ('policies', 'interfaces'):
             assert client.get('/'+endpoint).status_code == 422

@@ -14,7 +14,7 @@ def test_l4_native_input_binds_v10_pgs_and_zero_model_contract():
     value = validator.build_native_input()
     assert value['schema'] == 'mechanical_l4_loose_native_probe_input.v1'
     assert value['release'].endswith('/loose_bolt_candidate_v10_pgs')
-    assert value['release_manifest_sha256'] == 'e3fdb6d0ce747bcc0f4b4786dbe9fe4ad11cfd69ab4266919551820357e40a44'
+    assert value['release_manifest_sha256'] == 'd468bb978a67beb9bb2a9f16aa3e0d780b9ba61a46ddbbb446ece716816d69d8'
     assert value['model_calls'] == 0
     assert value['ordinary_agent_validation'] is False
     assert value['task_success_claimed'] is False

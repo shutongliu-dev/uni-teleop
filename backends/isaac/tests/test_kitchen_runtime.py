@@ -165,7 +165,7 @@ def test_generic_loader_dispatches_kitchen_and_rejects_reset_at_goal(tmp_path, m
 
 @pytest.mark.parametrize('changes', [{'robot_id': 'dual_fr3_sharpa_w01'}, {'scene_variant': 'enriched_v2'}])
 @pytest.mark.parametrize('task_id', task_robot_layout.TASK_IDS)
-def test_service_rejects_kitchen_robot_or_scene_changes_before_loading(tmp_path, monkeypatch, changes, task_id):
+def test_service_rejects_kitchen_robot_or_scene_changes_before_worker(tmp_path, monkeypatch, changes, task_id):
     from bench.protocol import PolicyRegistry
     from bench.runtime import service
     from test_agent_service import request
@@ -173,11 +173,15 @@ def test_service_rejects_kitchen_robot_or_scene_changes_before_loading(tmp_path,
         'schema_version': 'isaacsim-kitchen-manipulation-release-v1',
         'tasks': [{'id': task_id}]})
     calls = []
-    monkeypatch.setattr(service, 'task_inputs', lambda *args, **kwargs: calls.append(kwargs))
-    with pytest.raises(service.ServiceError, match='frozen single-arm'):
+    def load(*args, **kwargs):
+        calls.append(kwargs)
+        return {}, {'robot': {'hand_id': 'sharpa_w01_right'}}, {}, {}
+    monkeypatch.setattr(service, 'task_inputs', load)
+    with pytest.raises(service.ServiceError, match='frozen robot'):
         service.EpisodeSession(request(task_id=task_id, **changes), tmp_path/'episode',
-            release=tmp_path, device='cpu', registry=PolicyRegistry(), worker_factory=lambda **kwargs: None)
-    assert not calls
+            release=tmp_path, device='cpu', registry=PolicyRegistry(),
+            worker_factory=lambda **kwargs: pytest.fail('Invalid frozen robot must be rejected before worker startup'))
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize('task_id', task_robot_layout.TASK_IDS)

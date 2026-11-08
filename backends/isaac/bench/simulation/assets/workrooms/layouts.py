@@ -9,6 +9,7 @@ FAMILY_LIGHTING = {
     'study': dict(temperature_k=3300., ceiling_scale=1.25, sun=1550., sky=420.),
     'card_room': dict(temperature_k=3000., ceiling_scale=1.05, sun=1000., sky=340.),
     'living_room': dict(temperature_k=3500., ceiling_scale=1.30, sun=1450., sky=450.),
+    'laundry_room': dict(temperature_k=4200., ceiling_scale=1.00, sun=1600., sky=650.),
 }
 
 LIGHTING_PROFILES = {

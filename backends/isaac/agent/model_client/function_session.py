@@ -12,8 +12,10 @@ import math
 from pathlib import Path
 import time
 from uuid import uuid4
+from pydantic import ValidationError
 
 from bench.protocol.board_games import INTENT_ADAPTER, PlayerBinding
+from bench.protocol.card_games import INTENT_ADAPTER as CARD_INTENT_ADAPTER
 from bench.protocol.functions import ACTION_FUNCTIONS, FUNCTION_INPUTS, FunctionFailure
 from bench.protocol.turn_games import PlayerBinding as TurnPlayerBinding, TurnIntent
 
@@ -23,6 +25,9 @@ from .capture import save
 from .learning.journal import canonical_json, checked_directory
 from .learning.robot_api import ActionPendingError, ActionRecoveryError, RobotAPI
 from .time_limits import minimum_limit
+from .card_games import CARD_TASKS, CARD_INTENTS, BASELINE_GUIDANCE, intent_tools as card_intent_tools
+from .decision_recall import ReadDecisionArguments, RecallError, recall_tool
+from .validation_feedback import controlled_validation_details
 
 
 _HOST_FIELDS = frozenset(('action_id', 'observation_sequence', 'request_id', 'episode_id',
@@ -66,8 +71,8 @@ def _turn_intent_tools(task_id):
 
 
 class FunctionDecisionError(ValueError):
-    def __init__(self, code, message):
-        self.code = code
+    def __init__(self, code, message, *, details=None):
+        self.code, self.details = code, details
         super().__init__(message)
 
 
@@ -88,7 +93,7 @@ class FunctionSession:
 
     def __init__(self, client, *, output: Path, spec: dict, trial_id: str,
                  max_actions: int, max_calls: int, deadline: float | None = None,
-                 max_status_queries: int = 1200):
+                 max_status_queries: int = 1200, decision_archive=None, local_functions=None, local_execute=None):
         self.client = client
         self.episode_id = _token(client.episode_id)
         self.trial_id = _token(trial_id)
@@ -109,6 +114,16 @@ class FunctionSession:
         self.binding = None if binding is None else binding_model.model_validate(binding).model_dump(mode='json')
         self.prefix = self.binding['player_id'] if self.binding else 'agent'
         self.output = checked_directory(output, create=True)
+        self.decision_archive = decision_archive
+        self.local_functions = dict(local_functions or {})
+        self.local_execute = local_execute
+        if self.local_functions and (not callable(local_execute)
+                or set(self.local_functions) & (set(FUNCTION_INPUTS) | {'read_decision'})):
+            raise ValueError('Local functions require an executor and distinct public names')
+        if decision_archive is not None and (decision_archive.episode_id != self.episode_id
+                or decision_archive.player_id != (self.prefix if self.binding else 'single')
+                or decision_archive.root != self.output / 'decisions'):
+            raise ValueError('Decision archive must belong to this exact player session and output')
         self.calls = self.actions = 0
         self.state = self.observation = self.catalog = self.robot = None
         self.last_feedback = None
@@ -183,7 +198,9 @@ class FunctionSession:
 
     def _tools(self):
         tools = []
-        resetting = self._tower_reset_pending()
+        card_reset = self._card_baseline_pending()
+        resetting = self._tower_reset_pending() or card_reset
+        reset_guidance = BASELINE_GUIDANCE if card_reset else _TOWER_RESET_GUIDANCE
         for name, model in FUNCTION_INPUTS.items():
             if name not in self._available:
                 continue
@@ -202,16 +219,23 @@ class FunctionSession:
                 schema['required'].append('mode')
             tool = {'function': name, 'arguments_schema': schema}
             if resetting and name == 'hold':
-                tool['scope'] = _TOWER_RESET_GUIDANCE
+                tool['scope'] = reset_guidance
             if name in ('get_action', 'cancel_action'):
                 tool['scope'] = 'The host selects this session\'s latest owned action; no action ID is accepted.'
             tools.append(tool)
         if self.binding is not None and not resetting:
             if self.session_kind == 'turn_game':
                 tools.append(_turn_intent_tools(self.spec.get('task_id'))[0])
+            elif self.spec.get('task_id') in CARD_TASKS:
+                tools.append(card_intent_tools(self.spec['task_id'], self.binding['color'])[0])
             else:
                 tools.append({'intent': INTENT_ADAPTER.json_schema(),
                               'scope': 'Reserve or cancel a placement; physical release and referee settlement are still required.'})
+        if self.decision_archive is not None:
+            tools.append(recall_tool())
+        tools.extend({'function': name, 'arguments_schema': model.model_json_schema(),
+                      'scope': 'Pure computation on explicitly supplied public numbers; no Bench request, private state or physics action.'}
+                     for name, model in self.local_functions.items())
         return tools
 
     def _player_schema(self, name, schema):
@@ -221,7 +245,7 @@ class FunctionSession:
         for selector in ('hand', 'side'):
             if selector in properties:
                 properties[selector]['enum'] = [side]
-        if name not in ('move_geometry', 'query_ik'):
+        if name not in ('move_geometry', 'query_ik', 'query_motion'):
             return
         properties.pop('geometry', None)
         properties['hand_geometries'] = {
@@ -237,11 +261,15 @@ class FunctionSession:
             raise RuntimeError('Initialize the function session before requesting model context')
         self.refresh()
         examples = []
-        resetting = self._tower_reset_pending()
+        resetting = self._tower_reset_pending() or self._card_baseline_pending()
         if resetting:
-            examples = [{'function': 'hold', 'arguments': {'duration_s': .2, 'mode': 'acknowledged_drive'}}]
+            examples = [{'function': 'hold', 'arguments': {
+                'duration_s': .5 if self._card_baseline_pending() else .2, 'mode': 'acknowledged_drive'}}]
         elif self.session_kind == 'turn_game':
             examples = _turn_intent_tools(self.spec.get('task_id'))[1]
+        elif self.spec.get('task_id') in CARD_TASKS:
+            examples = card_intent_tools(self.spec['task_id'], self.binding['color'])[1]
+            examples.insert(0, {'function': 'hold', 'arguments': {'duration_s': .5, 'mode': 'acknowledged_drive'}})
         elif self.binding:
             examples = [{'intent': {'type': 'placement_intent', 'piece_id': 'owned piece', 'q': 0, 'r': 0}},
                         {'intent': {'type': 'cancel_placement'}}]
@@ -252,7 +280,8 @@ class FunctionSession:
             'host_contract': {'identities': 'Host assigns request/action IDs and binds the displayed observation sequence.',
                 'action_recovery': 'An unresolved action blocks new motion and turn handoff; query or cancel only that owned action.',
                 'robot_queries': 'Use query_ik and hand_preset through these functions; player commands use only the owned robot instance.',
-                **({'reset_phase': _TOWER_RESET_GUIDANCE} if resetting else {}),
+                **({'reset_phase': BASELINE_GUIDANCE if self._card_baseline_pending() else _TOWER_RESET_GUIDANCE} if resetting else {}),
+                **({'card_game_baseline': BASELINE_GUIDANCE} if self.spec.get('task_id') in CARD_TASKS else {}),
                 **({'turn_handoff': 'Only the current player may act; multiple actions may be needed in one turn. The bench native referee decides handoff. A turn_changed or board_turn_changed cancellation confirms handoff, not completion of the requested motion.'} if self.binding else {}),
                 'execution': 'A successful function response is not evidence of grasp, placement or task success.'},
             'budgets': {'calls': self.calls, 'max_calls': self.max_calls,
@@ -269,18 +298,22 @@ class FunctionSession:
         if self.binding is None:
             return
         side, joints = self.binding['hand'], set(self.binding['joint_names'])
-        if name in ACTION_FUNCTIONS or name == 'finish_episode':
+        if name in ACTION_FUNCTIONS or name in ('finish_episode', 'query_motion'):
             if not self._is_current_player():
                 raise FunctionDecisionError('permission_denied', 'Only the current player may issue motion or finish the game')
         if (self._tower_reset_pending() and name in ACTION_FUNCTIONS
                 and (name != 'hold' or arguments.get('mode') != 'acknowledged_drive')):
             raise FunctionDecisionError('permission_denied',
                 'Tower reset_pending permits only explicit hold(mode="acknowledged_drive"); wait for await_intent before other motion')
+        if (self._card_baseline_pending() and name in ACTION_FUNCTIONS
+                and (name != 'hold' or arguments.get('mode') != 'acknowledged_drive')):
+            raise FunctionDecisionError('permission_denied',
+                'Card baseline requires explicit hold(mode="acknowledged_drive") before other motion')
         if name in ('move_wrist', 'set_hand_targets') and arguments['hand'] != side:
             raise FunctionDecisionError('permission_denied', 'Targets must use the player-owned hand')
         if name == 'hand_preset' and arguments['side'] != side:
             raise FunctionDecisionError('permission_denied', 'Preset must select the player-owned hand')
-        if name in ('move_geometry', 'query_ik'):
+        if name in ('move_geometry', 'query_ik', 'query_motion'):
             if arguments.get('geometry') is not None or set(arguments.get('hand_geometries') or {}) != {side}:
                 raise FunctionDecisionError('permission_denied', 'Use hand_geometries with only the player-owned hand')
             objectives = arguments['hand_geometries'].values()
@@ -300,7 +333,7 @@ class FunctionSession:
         if not isinstance(supplied, dict) or _HOST_FIELDS & supplied.keys():
             raise FunctionDecisionError('invalid_arguments', 'Arguments must omit host-owned identifiers and observation sequence')
         arguments = deepcopy(supplied)
-        if self.binding is not None and name in ('move_geometry', 'query_ik'):
+        if self.binding is not None and name in ('move_geometry', 'query_ik', 'query_motion'):
             side = self.binding['hand']
             geometries = arguments.get('hand_geometries')
             if isinstance(geometries, dict) and isinstance(geometries.get(side), dict):
@@ -321,6 +354,10 @@ class FunctionSession:
             arguments['action_id'] = action_id
         try:
             arguments = FUNCTION_INPUTS[name].model_validate(arguments).model_dump(mode='json', exclude_none=True)
+        except ValidationError as error:
+            raise FunctionDecisionError('invalid_arguments', 'Arguments do not satisfy the advertised function schema',
+                details=controlled_validation_details(error, FUNCTION_INPUTS[name].model_json_schema(),
+                    names=self.robot.get('arm_joints', []) + self.robot.get('hand_joints', []))) from None
         except (TypeError, ValueError):
             raise FunctionDecisionError('invalid_arguments', 'Arguments do not satisfy the advertised function schema') from None
         self._owned(name, arguments)
@@ -359,14 +396,26 @@ class FunctionSession:
         if self._tower_reset_pending():
             raise FunctionDecisionError('permission_denied',
                 'Tower reset_pending has no turn intents; explicitly hold(mode="acknowledged_drive") and wait for await_intent')
+        if self._card_baseline_pending():
+            raise FunctionDecisionError('permission_denied',
+                'Card baseline has no intents; explicitly hold(mode="acknowledged_drive") and inspect the new phase')
         try:
             intent = (TurnIntent.model_validate(value) if self.session_kind == 'turn_game'
+                      else CARD_INTENT_ADAPTER.validate_python(value) if self.spec.get('task_id') in CARD_TASKS
                       else INTENT_ADAPTER.validate_python(value)).model_dump(mode='json')
+            if self.spec.get('task_id') in CARD_TASKS and intent['type'] not in CARD_INTENTS[self.spec['task_id']]:
+                raise ValueError('Intent belongs to another card game')
+        except ValidationError as error:
+            schema = (TurnIntent.model_json_schema() if self.session_kind == 'turn_game'
+                      else CARD_INTENT_ADAPTER.json_schema() if self.spec.get('task_id') in CARD_TASKS
+                      else INTENT_ADAPTER.json_schema())
+            raise FunctionDecisionError('invalid_arguments', 'Intent does not satisfy the advertised game schema',
+                details=controlled_validation_details(error, schema)) from None
         except (TypeError, ValueError):
             raise FunctionDecisionError('invalid_arguments', 'Intent does not satisfy the advertised game schema') from None
         if not self._is_current_player():
             raise FunctionDecisionError('permission_denied', 'Only the current player may change game intent')
-        if intent['type'] == 'placement_intent' and not intent['piece_id'].startswith(self.binding['color'] + '_'):
+        if intent['type'] in ('placement_intent', 'place_piece', 'place_barrier', 'shoot_disk') and not intent['piece_id'].startswith(self.binding['color'] + '_'):
             raise FunctionDecisionError('permission_denied', 'Placement must select an owned piece')
         result = self.http(self.client.intent, intent)
         self.refresh()
@@ -385,6 +434,12 @@ class FunctionSession:
         game = (self.state or {}).get('turn_game', {})
         return game.get('status') == 'active' and game.get('public_progress', {}).get('status') == 'reset_pending'
 
+    def _card_baseline_pending(self):
+        if self.session_kind != 'board_game' or self.spec.get('task_id') not in CARD_TASKS:
+            return False
+        game = (self.state or {}).get('board_game', {})
+        return not game.get('terminal') and game.get('phase') == 'awaiting_native_baseline'
+
     @staticmethod
     def _error_feedback(error, name):
         response = getattr(error, 'response', None)
@@ -395,6 +450,8 @@ class FunctionSession:
                 pass
         if isinstance(error, FunctionDecisionError):
             detail = {'code': error.code, 'message': str(error)}
+            if error.details:
+                detail.update(deepcopy(error.details))
         elif isinstance(error, ActionPendingError):
             detail = {'code': 'action_pending', 'message': 'Resolve the owned action before issuing another command'}
         elif isinstance(error, ActionRecoveryError):
@@ -411,6 +468,8 @@ class FunctionSession:
         if not isinstance(name, str):
             name = None
         recorded_call = None
+        local_recall = name == 'read_decision' and self.decision_archive is not None
+        local_call = local_recall or name in self.local_functions
         try:
             if self.robot is None:
                 raise RuntimeError('Initialize the session before executing decisions')
@@ -425,8 +484,31 @@ class FunctionSession:
             if not isinstance(decision, dict):
                 raise FunctionDecisionError('invalid_arguments', 'Decision must be a JSON object')
             expected = self.observation['sequence']
-            self.refresh()
-            if set(decision) == {'intent'}:
+            if local_call:
+                self.remaining()
+                if set(decision) != {'function', 'arguments'}:
+                    raise FunctionDecisionError('invalid_arguments', 'Choose one advertised function and its arguments')
+                try:
+                    if local_recall:
+                        result = self.decision_archive.read(decision['arguments'])
+                    else:
+                        arguments = self.local_functions[name].model_validate(decision['arguments']).model_dump(mode='json')
+                        result = self.local_execute(name, arguments)
+                        canonical_json(result)  # Fail closed on non-JSON/nonfinite helper output.
+                except ValidationError as error:
+                    model = ReadDecisionArguments if local_recall else self.local_functions[name]
+                    raise FunctionDecisionError('invalid_arguments', 'Arguments do not satisfy the advertised local function schema',
+                        details=controlled_validation_details(error, model.model_json_schema())) from None
+                except RecallError as error:
+                    raise FunctionDecisionError(error.code, str(error)) from None
+                except (TypeError, ValueError, ArithmeticError):
+                    raise FunctionDecisionError('invalid_arguments', 'Local computation could not produce a valid finite result') from None
+                feedback = {'ok': True, 'function': name, 'result': result}
+            else:
+                self.refresh()
+            if local_call:
+                pass
+            elif set(decision) == {'intent'}:
                 feedback = self._intent(decision['intent'])
             else:
                 if set(decision) != {'function', 'arguments'} or name not in self._available:
@@ -452,10 +534,11 @@ class FunctionSession:
             feedback = self._error_feedback(error, name)
             # A known rejection can be corrected using a newly sampled state;
             # infrastructure failure remains explicit even if refresh succeeds.
-            try:
-                self.refresh()
-            except BenchHTTPError as refresh_error:
-                feedback['refresh_error'] = refresh_error.public_metadata()
+            if not local_call:
+                try:
+                    self.refresh()
+                except BenchHTTPError as refresh_error:
+                    feedback['refresh_error'] = refresh_error.public_metadata()
         feedback['pending_action'] = self._pending_summary()
         self.last_feedback = deepcopy(feedback)
         if recorded_call is not None:

@@ -15,13 +15,41 @@ from scenes.workrooms import catalog
 from scenes.board_games.runtime_release import validate_board_game_release
 
 
+WRAPPERS = ('workroom_robot_revision_release.v1', 'workroom_randomized_release.v1')
+
+
+def canonical_definition(family, task_id):
+    """The original-profile definition bound to the canonical family release.
+
+    Seed cases and the L-mount revision wrap that release; both robot profiles
+    must resolve to the same canonical inputs.
+    """
+    roots = set()
+    for profile in ('original', 'l_mount'):
+        reference = catalog.task_definition(family, task_id, robot_profile=profile)['source_release']
+        manifest = load_json(Path(reference['path']) / 'release_manifest.json')
+        while manifest['schema'] in WRAPPERS:
+            reference = {key: manifest['base_release'][key] for key in ('path', 'manifest_sha256')}
+            manifest = load_json(Path(reference['path']) / 'release_manifest.json')
+        roots.add(json.dumps(reference, sort_keys=True))
+    reference, = roots
+    definition = catalog.task_definition(family, task_id, robot_profile='original')
+    definition.update(source_release=json.loads(reference), release_schema=manifest['schema'],
+                      release_schema_version=manifest.get('schema_version'))
+    return definition
+
+
 @pytest.fixture
 def board_release(tmp_path, monkeypatch):
-    definition = catalog.task_definition('card_room', 'tic_tac_toe_3x3')
+    # The L-mount task wraps this exact original board release, which owns the
+    # tabletop contract under test; copying the wrapper would make every
+    # rejection below vacuous.
+    definition = canonical_definition('card_room', 'tic_tac_toe_3x3')
+    assert definition['release_schema'] == 'robot_board_game_task_release.v1'
     root = tmp_path / 'release'
     shutil.copytree(definition['source_release']['path'], root)
     definition['source_release']['path'] = str(root)
-    monkeypatch.setattr(catalog, 'task_definition', lambda *_: deepcopy(definition))
+    monkeypatch.setattr(catalog, 'task_definition', lambda *_, **__: deepcopy(definition))
     return root, definition
 
 
@@ -121,7 +149,9 @@ def test_current_board_game_catalog_preserves_canonical_frozen_inputs(game):
 def test_mechanical_catalog_checks_canonical_asset_hashes(tmp_path, monkeypatch, damage):
     from bench.isaacsim.release import validate
 
-    definition = catalog.task_definition('mechanical_assembly', 'fastener_assembly')
+    # Asset pins live in the canonical release that both robot profiles wrap.
+    definition = canonical_definition('mechanical_assembly', 'fastener_assembly')
+    assert definition['release_schema'] == 'mechanical_fastener_task_release.v1'
     root = tmp_path / 'release'
     shutil.copytree(definition['source_release']['path'], root)
     # The published candidate is sealed. Mutate only this disposable copy.
@@ -139,7 +169,7 @@ def test_mechanical_catalog_checks_canonical_asset_hashes(tmp_path, monkeypatch,
         updates['asset_file_hashes.json'] = inventory
     (root / 'release_manifest.json').write_text(json.dumps(manifest))
     repin(root, definition, updates)
-    monkeypatch.setattr(catalog, 'task_definition', lambda *_: deepcopy(definition))
+    monkeypatch.setattr(catalog, 'task_definition', lambda *_, **__: deepcopy(definition))
     with pytest.raises(ValueError, match='Frozen input changed'):
         validate(root)
     with pytest.raises(ValueError, match='Frozen input changed'):

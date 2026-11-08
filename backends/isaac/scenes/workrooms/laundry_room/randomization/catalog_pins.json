@@ -1,0 +1,3127 @@
+{
+  "schema": "laundry_seed_catalog.v1",
+  "tasks": {
+    "towel_flattening": {
+      "family": "laundry_room",
+      "task_id": "towel_flattening",
+      "default_configuration_id": "dual_opposed",
+      "base_release": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/towel_flattening/dual_opposed",
+        "manifest_sha256": "a7d4f67d27aab1f131918c786c933dc76cc3fe906f1fec2838d394659ae429e7"
+      },
+      "configurations": {
+        "single_arm": {
+          "source_release": {
+            "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/towel_flattening/single_arm",
+            "manifest_sha256": "f552a8e08a1b6ddfe7a24aed61afe0f55e6a2752c7820284c43f947f39ebe7bb"
+          },
+          "release_schema": "laundry_randomized_release.v1",
+          "release_schema_version": "isaacsim-laundry-randomized-release-v1",
+          "robot_requirements": {
+            "hand_id": "sharpa_w01_right",
+            "assembly_version": "isaacsim_6_1_v2",
+            "articulations": 1,
+            "active_sides": [
+              "right"
+            ]
+          },
+          "layout": {
+            "robot_layout_id": "laundry_single_arm_sharpa_v2",
+            "placements": {
+              "right": {
+                "base_position_m": [
+                  0.75,
+                  -1.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "right"
+              }
+            },
+            "reference_surface": "unchanged laundry folding table",
+            "frame": "world",
+            "units": "metres",
+            "control_scope": "one_agent_29_dof"
+          },
+          "objects": {
+            "roles": [
+              "towel"
+            ],
+            "model": "live_surface_deformable",
+            "material_profile": "towel_4mm_density_v1",
+            "cloths": [
+              {
+                "id": "towel",
+                "mass_kg": 0.144,
+                "physical_thickness_m": 0.004
+              }
+            ],
+            "properties_basis": "simulation_priors",
+            "material_calibrated": false
+          },
+          "rules": {
+            "implementation": "scenes.workrooms.laundry_room.rules:configuration_rules",
+            "contract": {
+              "schema": "laundry_rules.v2",
+              "task_id": "towel_flattening",
+              "instruction_zh": "把局部折回的毛巾展开、摊平，长边沿台面X方向，摆到指定区域并完全释放。",
+              "referee": {
+                "schema": "physical_task_referee_contract.v1",
+                "task_id": "towel_flattening",
+                "instruction_zh": "把局部折回的毛巾展开、摊平，长边沿台面X方向，摆到指定区域并完全释放。",
+                "phases": {
+                  "working": "整理任务毛巾。",
+                  "settling": "机器人与全部任务衣物完全分离，等待放置稳定。"
+                },
+                "reason_descriptions": {
+                  "reset_baseline_not_scored": "初态只建立基准，不得分。",
+                  "task_in_progress": "目标或必要操作尚未完成，可继续调整。",
+                  "waiting_for_release_and_stability": "需释放全部外部控制并保持稳定。",
+                  "success": "形状、位置与支撑合格，全部释放后保持稳定；小幅仿真抖动不单独判失败。",
+                  "native_evidence_unknown": "原生记录缺失或不连续，本次不评分。",
+                  "physics_safety_stop": "明显穿透、异常大幅拉伸或大范围交叉，停止本次任务。",
+                  "incomplete_budget": "预算耗尽，任务未完成。",
+                  "contact_recovery_required": "局部交叉、接触或变形暂未恢复，可继续整理；恢复后重新计稳定时间。"
+                },
+                "success_conditions": [
+                  "同时检查展开面积、整片对应位置、长边朝向、残余高度与台面支撑；允许180度等价朝向。",
+                  "重力和碰撞保持启用，无隐藏固定点；所有抓点释放后连续稳定0.5秒。",
+                  "初态不能直接得分；必须有明确操作及至少2.5厘米的毛巾位移。",
+                  "允许轻微褶皱和边角不齐：摊平/对折对应误差RMS不超过3厘米；对折与叠放中心误差不超过5厘米。",
+                  "稳定速度按每条毛巾、每一帧的节点速度P95判断（不超过8厘米/秒），同时检查相邻步位置差；所有节点在0.5秒内漂移不超过1.5厘米。",
+                  "允许最多2毫米接触包络压入、1.5倍局部边长；最终稳定期间无实际布面交叉，叠放几何支撑比例至少85%。",
+                  "严格物理诊断独立记录，不以单个抖动节点或整理中已恢复的小接触异常一票否决。",
+                  "任务毛巾连续处于实际手部碰撞形状的保守几何接近带期间，至少一只手相对该段起点移动1厘米，且任务毛巾在同一连续接近段内有至少2.5厘米位移；静止接近、空中挥手或纯被动下落不得分。",
+                  "释放以全部机器人碰撞形状与全部毛巾的几何分离为准；不要求零抖动，不测量夹持力。"
+                ],
+                "recovery": [
+                  "允许重抓、纠偏与重新整理；未达到目标时可继续。",
+                  "局部接触异常、放置不准或释放后滑动可调整后重试；稳定时间从恢复并完全松手后重新计算。"
+                ],
+                "thresholds": {
+                  "stable_s": 0.5,
+                  "max_time_s": 120.0,
+                  "max_grasp_patches": 2,
+                  "max_grasp_patch_diameter_m": 0.075,
+                  "max_node_speed_m_s": 0.08,
+                  "stable_node_drift_m": 0.015,
+                  "max_edge_stretch_ratio": 1.5,
+                  "min_triangle_area_ratio": 0.01,
+                  "max_penetration_m": 0.002,
+                  "operation_displacement_m": 0.025,
+                  "flat_target_rms_m": 0.03,
+                  "flat_target_max_m": 0.07,
+                  "flat_projected_area_ratio_min": 0.9,
+                  "flat_height_range_m": 0.025,
+                  "placement_error_m": 0.05,
+                  "folded_pair_rms_m": 0.03,
+                  "folded_pair_max_m": 0.06,
+                  "layer_gap_min_m": 0.001,
+                  "layer_gap_max_m": 0.025,
+                  "layer_order_fraction_min": 0.85,
+                  "support_gap_max_m": 0.012,
+                  "stacking_alignment_m": 0.05,
+                  "stacking_gap_min_m": 0.001,
+                  "stacking_gap_max_m": 0.02,
+                  "speed_node_percentile": 95.0,
+                  "folded_extent_tolerance_m": 0.05,
+                  "folded_height_range_m": 0.04,
+                  "stacking_support_fraction_min": 0.85,
+                  "hard_penetration_m": 0.01,
+                  "hard_edge_stretch_ratio": 2.0,
+                  "hard_intersection_pairs": 8
+                },
+                "outcomes": {
+                  "ongoing": "可以继续。",
+                  "success": "本次控制模式下完成。",
+                  "task_failure": "任务失败。",
+                  "evaluator_invalid": "证据不完整，不评分。",
+                  "safety_stop": "物理异常停止。",
+                  "budget_exhaustion": "未完成。",
+                  "cancelled": "取消。"
+                },
+                "physical_actions": "一个Agent控制一台FR3和官方右SHARPA，共29个关节。只接受机器人关节目标；不允许直接写布节点、隐藏固定点或工程抓持。允许单手重抓、借助台面整理，不要求双手同时操作。",
+                "observation_scope": "规则和标称物性公开；完整布节点、控制掩码、层次和物理审计为私有证据。没有布料接触力或张力测量。",
+                "object_properties": [
+                  {
+                    "id": "towel",
+                    "label": "动态厚毛巾",
+                    "nominal_mass_kg": 0.144,
+                    "basis": "冻结资产的名义厚度4毫米、质量144克；材料与求解器参数为仿真先验，未经实物标定。"
+                  }
+                ]
+              },
+              "reset_credit": false,
+              "episode_seed": 0,
+              "randomization": "Frozen finite initial XY placement and render-only fabric texture case; cloth shape, material, target and robot parameters are unchanged.",
+              "qualification_scope": "Robot joint actions with native geometry evidence; grasp forces and material calibration are not measured.",
+              "rule_profile": "laundry_practical_task.v2",
+              "tolerance_basis": "User-authorized practical simulation tolerances; engineering priors, not material calibration.",
+              "control_mode": "robot_joint_targets",
+              "robot_configuration_id": "single_arm",
+              "material_contract": {
+                "schema": "laundry_asset_material_contract.v1",
+                "material_profile": "towel_4mm_density_v1",
+                "cloths": [
+                  {
+                    "id": "towel",
+                    "physical_thickness_m": 0.004,
+                    "mass_kg": 0.144
+                  }
+                ]
+              }
+            }
+          },
+          "qualification": {
+            "status": "prepared_unvalidated",
+            "native_preflight": false,
+            "agent_bench_interface": false,
+            "workspace_ik": false,
+            "workspace_clearance": false,
+            "robot_manipulation": false,
+            "physics_accepted": false,
+            "scope": "Immutable XY/albedo case inputs; validation evidence remains external and episode outcomes are not inherited."
+          }
+        },
+        "dual_same_side": {
+          "source_release": {
+            "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/towel_flattening/dual_same_side",
+            "manifest_sha256": "0cbb16fc79c5c8faa46da0874de377e7b63c6ede8885ddf59dbecf195733e702"
+          },
+          "release_schema": "laundry_randomized_release.v1",
+          "release_schema_version": "isaacsim-laundry-randomized-release-v1",
+          "robot_requirements": {
+            "hand_id": "dual_fr3_sharpa_w01",
+            "assembly_version": "isaacsim_6_1_v2",
+            "articulations": 2,
+            "active_sides": [
+              "left",
+              "right"
+            ]
+          },
+          "layout": {
+            "robot_layout_id": "laundry_dual_same_side_sharpa_v2",
+            "placements": {
+              "left": {
+                "base_position_m": [
+                  0.45,
+                  -1.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "left"
+              },
+              "right": {
+                "base_position_m": [
+                  1.05,
+                  -1.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "right"
+              }
+            },
+            "reference_surface": "unchanged laundry folding table",
+            "frame": "world",
+            "units": "metres",
+            "control_scope": "one_agent_58_dof"
+          },
+          "objects": {
+            "roles": [
+              "towel"
+            ],
+            "model": "live_surface_deformable",
+            "material_profile": "towel_4mm_density_v1",
+            "cloths": [
+              {
+                "id": "towel",
+                "mass_kg": 0.144,
+                "physical_thickness_m": 0.004
+              }
+            ],
+            "properties_basis": "simulation_priors",
+            "material_calibrated": false
+          },
+          "rules": {
+            "implementation": "scenes.workrooms.laundry_room.rules:configuration_rules",
+            "contract": {
+              "schema": "laundry_rules.v2",
+              "task_id": "towel_flattening",
+              "instruction_zh": "把局部折回的毛巾展开、摊平，长边沿台面X方向，摆到指定区域并完全释放。",
+              "referee": {
+                "schema": "physical_task_referee_contract.v1",
+                "task_id": "towel_flattening",
+                "instruction_zh": "把局部折回的毛巾展开、摊平，长边沿台面X方向，摆到指定区域并完全释放。",
+                "phases": {
+                  "working": "整理任务毛巾。",
+                  "settling": "机器人与全部任务衣物完全分离，等待放置稳定。"
+                },
+                "reason_descriptions": {
+                  "reset_baseline_not_scored": "初态只建立基准，不得分。",
+                  "task_in_progress": "目标或必要操作尚未完成，可继续调整。",
+                  "waiting_for_release_and_stability": "需释放全部外部控制并保持稳定。",
+                  "success": "形状、位置与支撑合格，全部释放后保持稳定；小幅仿真抖动不单独判失败。",
+                  "native_evidence_unknown": "原生记录缺失或不连续，本次不评分。",
+                  "physics_safety_stop": "明显穿透、异常大幅拉伸或大范围交叉，停止本次任务。",
+                  "incomplete_budget": "预算耗尽，任务未完成。",
+                  "contact_recovery_required": "局部交叉、接触或变形暂未恢复，可继续整理；恢复后重新计稳定时间。"
+                },
+                "success_conditions": [
+                  "同时检查展开面积、整片对应位置、长边朝向、残余高度与台面支撑；允许180度等价朝向。",
+                  "重力和碰撞保持启用，无隐藏固定点；所有抓点释放后连续稳定0.5秒。",
+                  "初态不能直接得分；必须有明确操作及至少2.5厘米的毛巾位移。",
+                  "允许轻微褶皱和边角不齐：摊平/对折对应误差RMS不超过3厘米；对折与叠放中心误差不超过5厘米。",
+                  "稳定速度按每条毛巾、每一帧的节点速度P95判断（不超过8厘米/秒），同时检查相邻步位置差；所有节点在0.5秒内漂移不超过1.5厘米。",
+                  "允许最多2毫米接触包络压入、1.5倍局部边长；最终稳定期间无实际布面交叉，叠放几何支撑比例至少85%。",
+                  "严格物理诊断独立记录，不以单个抖动节点或整理中已恢复的小接触异常一票否决。",
+                  "任务毛巾连续处于实际手部碰撞形状的保守几何接近带期间，至少一只手相对该段起点移动1厘米，且任务毛巾在同一连续接近段内有至少2.5厘米位移；静止接近、空中挥手或纯被动下落不得分。",
+                  "释放以全部机器人碰撞形状与全部毛巾的几何分离为准；不要求零抖动，不测量夹持力。"
+                ],
+                "recovery": [
+                  "允许重抓、纠偏与重新整理；未达到目标时可继续。",
+                  "局部接触异常、放置不准或释放后滑动可调整后重试；稳定时间从恢复并完全松手后重新计算。"
+                ],
+                "thresholds": {
+                  "stable_s": 0.5,
+                  "max_time_s": 120.0,
+                  "max_grasp_patches": 2,
+                  "max_grasp_patch_diameter_m": 0.075,
+                  "max_node_speed_m_s": 0.08,
+                  "stable_node_drift_m": 0.015,
+                  "max_edge_stretch_ratio": 1.5,
+                  "min_triangle_area_ratio": 0.01,
+                  "max_penetration_m": 0.002,
+                  "operation_displacement_m": 0.025,
+                  "flat_target_rms_m": 0.03,
+                  "flat_target_max_m": 0.07,
+                  "flat_projected_area_ratio_min": 0.9,
+                  "flat_height_range_m": 0.025,
+                  "placement_error_m": 0.05,
+                  "folded_pair_rms_m": 0.03,
+                  "folded_pair_max_m": 0.06,
+                  "layer_gap_min_m": 0.001,
+                  "layer_gap_max_m": 0.025,
+                  "layer_order_fraction_min": 0.85,
+                  "support_gap_max_m": 0.012,
+                  "stacking_alignment_m": 0.05,
+                  "stacking_gap_min_m": 0.001,
+                  "stacking_gap_max_m": 0.02,
+                  "speed_node_percentile": 95.0,
+                  "folded_extent_tolerance_m": 0.05,
+                  "folded_height_range_m": 0.04,
+                  "stacking_support_fraction_min": 0.85,
+                  "hard_penetration_m": 0.01,
+                  "hard_edge_stretch_ratio": 2.0,
+                  "hard_intersection_pairs": 8
+                },
+                "outcomes": {
+                  "ongoing": "可以继续。",
+                  "success": "本次控制模式下完成。",
+                  "task_failure": "任务失败。",
+                  "evaluator_invalid": "证据不完整，不评分。",
+                  "safety_stop": "物理异常停止。",
+                  "budget_exhaustion": "未完成。",
+                  "cancelled": "取消。"
+                },
+                "physical_actions": "一个Agent同时控制两台FR3和官方左、右SHARPA，共58个关节。只接受机器人关节目标；不允许直接写布节点、隐藏固定点或工程抓持。允许重抓与整理，不要求固定的双手动作顺序。",
+                "observation_scope": "规则和标称物性公开；完整布节点、控制掩码、层次和物理审计为私有证据。没有布料接触力或张力测量。",
+                "object_properties": [
+                  {
+                    "id": "towel",
+                    "label": "动态厚毛巾",
+                    "nominal_mass_kg": 0.144,
+                    "basis": "冻结资产的名义厚度4毫米、质量144克；材料与求解器参数为仿真先验，未经实物标定。"
+                  }
+                ]
+              },
+              "reset_credit": false,
+              "episode_seed": 0,
+              "randomization": "Frozen finite initial XY placement and render-only fabric texture case; cloth shape, material, target and robot parameters are unchanged.",
+              "qualification_scope": "Robot joint actions with native geometry evidence; grasp forces and material calibration are not measured.",
+              "rule_profile": "laundry_practical_task.v2",
+              "tolerance_basis": "User-authorized practical simulation tolerances; engineering priors, not material calibration.",
+              "control_mode": "robot_joint_targets",
+              "robot_configuration_id": "dual_same_side",
+              "material_contract": {
+                "schema": "laundry_asset_material_contract.v1",
+                "material_profile": "towel_4mm_density_v1",
+                "cloths": [
+                  {
+                    "id": "towel",
+                    "physical_thickness_m": 0.004,
+                    "mass_kg": 0.144
+                  }
+                ]
+              }
+            }
+          },
+          "qualification": {
+            "status": "prepared_unvalidated",
+            "native_preflight": false,
+            "agent_bench_interface": false,
+            "workspace_ik": false,
+            "workspace_clearance": false,
+            "robot_manipulation": false,
+            "physics_accepted": false,
+            "scope": "Immutable XY/albedo case inputs; validation evidence remains external and episode outcomes are not inherited."
+          }
+        },
+        "dual_opposed": {
+          "source_release": {
+            "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/towel_flattening/dual_opposed",
+            "manifest_sha256": "a7d4f67d27aab1f131918c786c933dc76cc3fe906f1fec2838d394659ae429e7"
+          },
+          "release_schema": "laundry_randomized_release.v1",
+          "release_schema_version": "isaacsim-laundry-randomized-release-v1",
+          "robot_requirements": {
+            "hand_id": "dual_fr3_sharpa_w01",
+            "assembly_version": "isaacsim_6_1_v2",
+            "articulations": 2,
+            "active_sides": [
+              "left",
+              "right"
+            ]
+          },
+          "layout": {
+            "robot_layout_id": "laundry_dual_opposed_sharpa_v2",
+            "placements": {
+              "left": {
+                "base_position_m": [
+                  0.75,
+                  0.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  -0.7071067811865475
+                ],
+                "base_yaw_rad": -1.5707963267948966,
+                "hand_chirality": "left"
+              },
+              "right": {
+                "base_position_m": [
+                  0.75,
+                  -1.25,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "right"
+              }
+            },
+            "reference_surface": "unchanged laundry folding table",
+            "frame": "world",
+            "units": "metres",
+            "control_scope": "one_agent_58_dof"
+          },
+          "objects": {
+            "roles": [
+              "towel"
+            ],
+            "model": "live_surface_deformable",
+            "material_profile": "towel_4mm_density_v1",
+            "cloths": [
+              {
+                "id": "towel",
+                "mass_kg": 0.144,
+                "physical_thickness_m": 0.004
+              }
+            ],
+            "properties_basis": "simulation_priors",
+            "material_calibrated": false
+          },
+          "rules": {
+            "implementation": "scenes.workrooms.laundry_room.rules:configuration_rules",
+            "contract": {
+              "schema": "laundry_rules.v2",
+              "task_id": "towel_flattening",
+              "instruction_zh": "把局部折回的毛巾展开、摊平，长边沿台面X方向，摆到指定区域并完全释放。",
+              "referee": {
+                "schema": "physical_task_referee_contract.v1",
+                "task_id": "towel_flattening",
+                "instruction_zh": "把局部折回的毛巾展开、摊平，长边沿台面X方向，摆到指定区域并完全释放。",
+                "phases": {
+                  "working": "整理任务毛巾。",
+                  "settling": "机器人与全部任务衣物完全分离，等待放置稳定。"
+                },
+                "reason_descriptions": {
+                  "reset_baseline_not_scored": "初态只建立基准，不得分。",
+                  "task_in_progress": "目标或必要操作尚未完成，可继续调整。",
+                  "waiting_for_release_and_stability": "需释放全部外部控制并保持稳定。",
+                  "success": "形状、位置与支撑合格，全部释放后保持稳定；小幅仿真抖动不单独判失败。",
+                  "native_evidence_unknown": "原生记录缺失或不连续，本次不评分。",
+                  "physics_safety_stop": "明显穿透、异常大幅拉伸或大范围交叉，停止本次任务。",
+                  "incomplete_budget": "预算耗尽，任务未完成。",
+                  "contact_recovery_required": "局部交叉、接触或变形暂未恢复，可继续整理；恢复后重新计稳定时间。"
+                },
+                "success_conditions": [
+                  "同时检查展开面积、整片对应位置、长边朝向、残余高度与台面支撑；允许180度等价朝向。",
+                  "重力和碰撞保持启用，无隐藏固定点；所有抓点释放后连续稳定0.5秒。",
+                  "初态不能直接得分；必须有明确操作及至少2.5厘米的毛巾位移。",
+                  "允许轻微褶皱和边角不齐：摊平/对折对应误差RMS不超过3厘米；对折与叠放中心误差不超过5厘米。",
+                  "稳定速度按每条毛巾、每一帧的节点速度P95判断（不超过8厘米/秒），同时检查相邻步位置差；所有节点在0.5秒内漂移不超过1.5厘米。",
+                  "允许最多2毫米接触包络压入、1.5倍局部边长；最终稳定期间无实际布面交叉，叠放几何支撑比例至少85%。",
+                  "严格物理诊断独立记录，不以单个抖动节点或整理中已恢复的小接触异常一票否决。",
+                  "任务毛巾连续处于实际手部碰撞形状的保守几何接近带期间，至少一只手相对该段起点移动1厘米，且任务毛巾在同一连续接近段内有至少2.5厘米位移；静止接近、空中挥手或纯被动下落不得分。",
+                  "释放以全部机器人碰撞形状与全部毛巾的几何分离为准；不要求零抖动，不测量夹持力。"
+                ],
+                "recovery": [
+                  "允许重抓、纠偏与重新整理；未达到目标时可继续。",
+                  "局部接触异常、放置不准或释放后滑动可调整后重试；稳定时间从恢复并完全松手后重新计算。"
+                ],
+                "thresholds": {
+                  "stable_s": 0.5,
+                  "max_time_s": 120.0,
+                  "max_grasp_patches": 2,
+                  "max_grasp_patch_diameter_m": 0.075,
+                  "max_node_speed_m_s": 0.08,
+                  "stable_node_drift_m": 0.015,
+                  "max_edge_stretch_ratio": 1.5,
+                  "min_triangle_area_ratio": 0.01,
+                  "max_penetration_m": 0.002,
+                  "operation_displacement_m": 0.025,
+                  "flat_target_rms_m": 0.03,
+                  "flat_target_max_m": 0.07,
+                  "flat_projected_area_ratio_min": 0.9,
+                  "flat_height_range_m": 0.025,
+                  "placement_error_m": 0.05,
+                  "folded_pair_rms_m": 0.03,
+                  "folded_pair_max_m": 0.06,
+                  "layer_gap_min_m": 0.001,
+                  "layer_gap_max_m": 0.025,
+                  "layer_order_fraction_min": 0.85,
+                  "support_gap_max_m": 0.012,
+                  "stacking_alignment_m": 0.05,
+                  "stacking_gap_min_m": 0.001,
+                  "stacking_gap_max_m": 0.02,
+                  "speed_node_percentile": 95.0,
+                  "folded_extent_tolerance_m": 0.05,
+                  "folded_height_range_m": 0.04,
+                  "stacking_support_fraction_min": 0.85,
+                  "hard_penetration_m": 0.01,
+                  "hard_edge_stretch_ratio": 2.0,
+                  "hard_intersection_pairs": 8
+                },
+                "outcomes": {
+                  "ongoing": "可以继续。",
+                  "success": "本次控制模式下完成。",
+                  "task_failure": "任务失败。",
+                  "evaluator_invalid": "证据不完整，不评分。",
+                  "safety_stop": "物理异常停止。",
+                  "budget_exhaustion": "未完成。",
+                  "cancelled": "取消。"
+                },
+                "physical_actions": "一个Agent同时控制两台FR3和官方左、右SHARPA，共58个关节。只接受机器人关节目标；不允许直接写布节点、隐藏固定点或工程抓持。允许重抓与整理，不要求固定的双手动作顺序。",
+                "observation_scope": "规则和标称物性公开；完整布节点、控制掩码、层次和物理审计为私有证据。没有布料接触力或张力测量。",
+                "object_properties": [
+                  {
+                    "id": "towel",
+                    "label": "动态厚毛巾",
+                    "nominal_mass_kg": 0.144,
+                    "basis": "冻结资产的名义厚度4毫米、质量144克；材料与求解器参数为仿真先验，未经实物标定。"
+                  }
+                ]
+              },
+              "reset_credit": false,
+              "episode_seed": 0,
+              "randomization": "Frozen finite initial XY placement and render-only fabric texture case; cloth shape, material, target and robot parameters are unchanged.",
+              "qualification_scope": "Robot joint actions with native geometry evidence; grasp forces and material calibration are not measured.",
+              "rule_profile": "laundry_practical_task.v2",
+              "tolerance_basis": "User-authorized practical simulation tolerances; engineering priors, not material calibration.",
+              "control_mode": "robot_joint_targets",
+              "robot_configuration_id": "dual_opposed",
+              "material_contract": {
+                "schema": "laundry_asset_material_contract.v1",
+                "material_profile": "towel_4mm_density_v1",
+                "cloths": [
+                  {
+                    "id": "towel",
+                    "physical_thickness_m": 0.004,
+                    "mass_kg": 0.144
+                  }
+                ]
+              }
+            }
+          },
+          "qualification": {
+            "status": "prepared_unvalidated",
+            "native_preflight": false,
+            "agent_bench_interface": false,
+            "workspace_ik": false,
+            "workspace_clearance": false,
+            "robot_manipulation": false,
+            "physics_accepted": false,
+            "scope": "Immutable XY/albedo case inputs; validation evidence remains external and episode outcomes are not inherited."
+          }
+        }
+      }
+    },
+    "towel_folding": {
+      "family": "laundry_room",
+      "task_id": "towel_folding",
+      "default_configuration_id": "dual_opposed",
+      "base_release": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/towel_folding/dual_opposed",
+        "manifest_sha256": "bf50cea4b6aa8bdb29c2c27bd9194f04158e0ff38b337446018db6336daa7fec"
+      },
+      "configurations": {
+        "single_arm": {
+          "source_release": {
+            "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/towel_folding/single_arm",
+            "manifest_sha256": "78658dadd4fb8c2503024dd9b02b21a1237e26d1f0d82fa4e969825986122162"
+          },
+          "release_schema": "laundry_randomized_release.v1",
+          "release_schema_version": "isaacsim-laundry-randomized-release-v1",
+          "robot_requirements": {
+            "hand_id": "sharpa_w01_right",
+            "assembly_version": "isaacsim_6_1_v2",
+            "articulations": 1,
+            "active_sides": [
+              "right"
+            ]
+          },
+          "layout": {
+            "robot_layout_id": "laundry_single_arm_sharpa_v2",
+            "placements": {
+              "right": {
+                "base_position_m": [
+                  0.75,
+                  -1.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "right"
+              }
+            },
+            "reference_surface": "unchanged laundry folding table",
+            "frame": "world",
+            "units": "metres",
+            "control_scope": "one_agent_29_dof"
+          },
+          "objects": {
+            "roles": [
+              "towel"
+            ],
+            "model": "live_surface_deformable",
+            "material_profile": "towel_4mm_density_v1",
+            "cloths": [
+              {
+                "id": "towel",
+                "mass_kg": 0.144,
+                "physical_thickness_m": 0.004
+              }
+            ],
+            "properties_basis": "simulation_priors",
+            "material_calibrated": false
+          },
+          "rules": {
+            "implementation": "scenes.workrooms.laundry_room.rules:configuration_rules",
+            "contract": {
+              "schema": "laundry_rules.v6",
+              "task_id": "towel_folding",
+              "instruction_zh": "沿毛巾长边的中线对折成约30×40厘米，使两半边角基本重合，摆入目标区域后释放。",
+              "referee": {
+                "schema": "physical_task_referee_contract.v1",
+                "task_id": "towel_folding",
+                "instruction_zh": "沿毛巾长边的中线对折成约30×40厘米，使两半边角基本重合，摆入目标区域后释放。",
+                "phases": {
+                  "working": "整理任务毛巾。",
+                  "settling": "机器人与全部任务衣物完全分离，等待放置稳定。"
+                },
+                "reason_descriptions": {
+                  "reset_baseline_not_scored": "初态只建立基准，不得分。",
+                  "task_in_progress": "目标或必要操作尚未完成，可继续调整。",
+                  "waiting_for_release_and_stability": "需释放全部外部控制并保持稳定。",
+                  "success": "形状、位置与支撑合格，全部释放后保持稳定；小幅仿真抖动不单独判失败。",
+                  "native_evidence_unknown": "原生记录缺失或不连续，本次不评分。",
+                  "physics_safety_stop": "明显穿透、异常大幅拉伸或大范围交叉，停止本次任务。",
+                  "incomplete_budget": "预算耗尽，任务未完成。",
+                  "contact_recovery_required": "局部交叉、接触或变形暂未恢复，可继续整理；恢复后重新计稳定时间。"
+                },
+                "success_conditions": [
+                  "两半对应位置、两层间距、边界、目标位置和折形同时合格；允许任一半翻折及180度等价朝向。",
+                  "重力和碰撞保持启用，无隐藏固定点；所有抓点释放后连续稳定0.5秒。",
+                  "初态不能直接得分；必须有明确操作及至少2.5厘米的毛巾位移。",
+                  "允许轻微褶皱和边角不齐：摊平/对折对应误差RMS不超过3厘米；对折与叠放中心误差不超过5厘米。",
+                  "稳定速度按每条毛巾、每一帧的节点速度P95判断（不超过8厘米/秒），同时检查相邻步位置差；所有节点在0.5秒内漂移不超过1.5厘米。",
+                  "允许最多2毫米接触包络压入、1.5倍局部边长；最终稳定期间无实际布面交叉，叠放几何支撑比例至少85%。",
+                  "严格物理诊断独立记录，不以单个抖动节点或整理中已恢复的小接触异常一票否决。",
+                  "对折两半XY对应误差按每对两端的静止材料面积权重计算：RMS不超过3厘米、P95不超过6厘米、全点绝对最大误差不超过8厘米。允许少量自由边角卷起，但轮廓、高度、统一层序、支撑、物理与完整释放稳定要求不变；不得用平均值掩盖漏折或大范围错位。",
+                  "任务毛巾连续处于实际手部碰撞形状的保守几何接近带期间，至少一只手相对该段起点移动1厘米，且任务毛巾在同一连续接近段内有至少2.5厘米位移；静止接近、空中挥手或纯被动下落不得分。",
+                  "释放以全部机器人碰撞形状与全部毛巾的几何分离为准；不要求零抖动，不测量夹持力。"
+                ],
+                "recovery": [
+                  "允许重抓、纠偏与重新整理；未达到目标时可继续。",
+                  "局部接触异常、放置不准或释放后滑动可调整后重试；稳定时间从恢复并完全松手后重新计算。"
+                ],
+                "thresholds": {
+                  "stable_s": 0.5,
+                  "max_time_s": 120.0,
+                  "max_grasp_patches": 2,
+                  "max_grasp_patch_diameter_m": 0.075,
+                  "max_node_speed_m_s": 0.08,
+                  "stable_node_drift_m": 0.015,
+                  "max_edge_stretch_ratio": 1.5,
+                  "min_triangle_area_ratio": 0.01,
+                  "max_penetration_m": 0.002,
+                  "operation_displacement_m": 0.025,
+                  "flat_target_rms_m": 0.03,
+                  "flat_target_max_m": 0.07,
+                  "flat_projected_area_ratio_min": 0.9,
+                  "flat_height_range_m": 0.025,
+                  "placement_error_m": 0.05,
+                  "folded_pair_rms_m": 0.03,
+                  "folded_pair_max_m": 0.08,
+                  "layer_gap_min_m": 0.001,
+                  "layer_gap_max_m": 0.025,
+                  "layer_order_fraction_min": 0.85,
+                  "support_gap_max_m": 0.012,
+                  "stacking_alignment_m": 0.05,
+                  "stacking_gap_min_m": 0.001,
+                  "stacking_gap_max_m": 0.02,
+                  "speed_node_percentile": 95.0,
+                  "folded_extent_tolerance_m": 0.05,
+                  "folded_height_range_m": 0.04,
+                  "stacking_support_fraction_min": 0.85,
+                  "hard_penetration_m": 0.01,
+                  "hard_edge_stretch_ratio": 2.0,
+                  "hard_intersection_pairs": 8,
+                  "folded_pair_area_percentile": 95.0,
+                  "folded_pair_percentile_m": 0.06
+                },
+                "outcomes": {
+                  "ongoing": "可以继续。",
+                  "success": "本次控制模式下完成。",
+                  "task_failure": "任务失败。",
+                  "evaluator_invalid": "证据不完整，不评分。",
+                  "safety_stop": "物理异常停止。",
+                  "budget_exhaustion": "未完成。",
+                  "cancelled": "取消。"
+                },
+                "physical_actions": "一个Agent控制一台FR3和官方右SHARPA，共29个关节。只接受机器人关节目标；不允许直接写布节点、隐藏固定点或工程抓持。允许单手重抓、借助台面整理，不要求双手同时操作。",
+                "observation_scope": "规则和标称物性公开；完整布节点、控制掩码、层次和物理审计为私有证据。没有布料接触力或张力测量。",
+                "object_properties": [
+                  {
+                    "id": "towel",
+                    "label": "动态厚毛巾",
+                    "nominal_mass_kg": 0.144,
+                    "basis": "冻结资产的名义厚度4毫米、质量144克；材料与求解器参数为仿真先验，未经实物标定。"
+                  }
+                ]
+              },
+              "reset_credit": false,
+              "episode_seed": 0,
+              "randomization": "Frozen finite initial XY placement and render-only fabric texture case; cloth shape, material, target and robot parameters are unchanged.",
+              "qualification_scope": "Robot joint actions with native geometry evidence; grasp forces and material calibration are not measured.",
+              "rule_profile": "laundry_practical_folding_task.v3",
+              "tolerance_basis": "User-authorized practical simulation tolerances; engineering priors, not material calibration.",
+              "control_mode": "robot_joint_targets",
+              "robot_configuration_id": "single_arm",
+              "material_contract": {
+                "schema": "laundry_asset_material_contract.v1",
+                "material_profile": "towel_4mm_density_v1",
+                "cloths": [
+                  {
+                    "id": "towel",
+                    "physical_thickness_m": 0.004,
+                    "mass_kg": 0.144
+                  }
+                ]
+              }
+            }
+          },
+          "qualification": {
+            "status": "prepared_unvalidated",
+            "native_preflight": false,
+            "agent_bench_interface": false,
+            "workspace_ik": false,
+            "workspace_clearance": false,
+            "robot_manipulation": false,
+            "physics_accepted": false,
+            "scope": "Immutable XY/albedo case inputs; validation evidence remains external and episode outcomes are not inherited."
+          }
+        },
+        "dual_same_side": {
+          "source_release": {
+            "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/towel_folding/dual_same_side",
+            "manifest_sha256": "7e5ddf2cb713f0b341ecb7f1f5777f61b00fc445da512e645ecc2035b9e33ac2"
+          },
+          "release_schema": "laundry_randomized_release.v1",
+          "release_schema_version": "isaacsim-laundry-randomized-release-v1",
+          "robot_requirements": {
+            "hand_id": "dual_fr3_sharpa_w01",
+            "assembly_version": "isaacsim_6_1_v2",
+            "articulations": 2,
+            "active_sides": [
+              "left",
+              "right"
+            ]
+          },
+          "layout": {
+            "robot_layout_id": "laundry_dual_same_side_sharpa_v2",
+            "placements": {
+              "left": {
+                "base_position_m": [
+                  0.45,
+                  -1.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "left"
+              },
+              "right": {
+                "base_position_m": [
+                  1.05,
+                  -1.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "right"
+              }
+            },
+            "reference_surface": "unchanged laundry folding table",
+            "frame": "world",
+            "units": "metres",
+            "control_scope": "one_agent_58_dof"
+          },
+          "objects": {
+            "roles": [
+              "towel"
+            ],
+            "model": "live_surface_deformable",
+            "material_profile": "towel_4mm_density_v1",
+            "cloths": [
+              {
+                "id": "towel",
+                "mass_kg": 0.144,
+                "physical_thickness_m": 0.004
+              }
+            ],
+            "properties_basis": "simulation_priors",
+            "material_calibrated": false
+          },
+          "rules": {
+            "implementation": "scenes.workrooms.laundry_room.rules:configuration_rules",
+            "contract": {
+              "schema": "laundry_rules.v6",
+              "task_id": "towel_folding",
+              "instruction_zh": "沿毛巾长边的中线对折成约30×40厘米，使两半边角基本重合，摆入目标区域后释放。",
+              "referee": {
+                "schema": "physical_task_referee_contract.v1",
+                "task_id": "towel_folding",
+                "instruction_zh": "沿毛巾长边的中线对折成约30×40厘米，使两半边角基本重合，摆入目标区域后释放。",
+                "phases": {
+                  "working": "整理任务毛巾。",
+                  "settling": "机器人与全部任务衣物完全分离，等待放置稳定。"
+                },
+                "reason_descriptions": {
+                  "reset_baseline_not_scored": "初态只建立基准，不得分。",
+                  "task_in_progress": "目标或必要操作尚未完成，可继续调整。",
+                  "waiting_for_release_and_stability": "需释放全部外部控制并保持稳定。",
+                  "success": "形状、位置与支撑合格，全部释放后保持稳定；小幅仿真抖动不单独判失败。",
+                  "native_evidence_unknown": "原生记录缺失或不连续，本次不评分。",
+                  "physics_safety_stop": "明显穿透、异常大幅拉伸或大范围交叉，停止本次任务。",
+                  "incomplete_budget": "预算耗尽，任务未完成。",
+                  "contact_recovery_required": "局部交叉、接触或变形暂未恢复，可继续整理；恢复后重新计稳定时间。"
+                },
+                "success_conditions": [
+                  "两半对应位置、两层间距、边界、目标位置和折形同时合格；允许任一半翻折及180度等价朝向。",
+                  "重力和碰撞保持启用，无隐藏固定点；所有抓点释放后连续稳定0.5秒。",
+                  "初态不能直接得分；必须有明确操作及至少2.5厘米的毛巾位移。",
+                  "允许轻微褶皱和边角不齐：摊平/对折对应误差RMS不超过3厘米；对折与叠放中心误差不超过5厘米。",
+                  "稳定速度按每条毛巾、每一帧的节点速度P95判断（不超过8厘米/秒），同时检查相邻步位置差；所有节点在0.5秒内漂移不超过1.5厘米。",
+                  "允许最多2毫米接触包络压入、1.5倍局部边长；最终稳定期间无实际布面交叉，叠放几何支撑比例至少85%。",
+                  "严格物理诊断独立记录，不以单个抖动节点或整理中已恢复的小接触异常一票否决。",
+                  "对折两半XY对应误差按每对两端的静止材料面积权重计算：RMS不超过3厘米、P95不超过6厘米、全点绝对最大误差不超过8厘米。允许少量自由边角卷起，但轮廓、高度、统一层序、支撑、物理与完整释放稳定要求不变；不得用平均值掩盖漏折或大范围错位。",
+                  "任务毛巾连续处于实际手部碰撞形状的保守几何接近带期间，至少一只手相对该段起点移动1厘米，且任务毛巾在同一连续接近段内有至少2.5厘米位移；静止接近、空中挥手或纯被动下落不得分。",
+                  "释放以全部机器人碰撞形状与全部毛巾的几何分离为准；不要求零抖动，不测量夹持力。"
+                ],
+                "recovery": [
+                  "允许重抓、纠偏与重新整理；未达到目标时可继续。",
+                  "局部接触异常、放置不准或释放后滑动可调整后重试；稳定时间从恢复并完全松手后重新计算。"
+                ],
+                "thresholds": {
+                  "stable_s": 0.5,
+                  "max_time_s": 120.0,
+                  "max_grasp_patches": 2,
+                  "max_grasp_patch_diameter_m": 0.075,
+                  "max_node_speed_m_s": 0.08,
+                  "stable_node_drift_m": 0.015,
+                  "max_edge_stretch_ratio": 1.5,
+                  "min_triangle_area_ratio": 0.01,
+                  "max_penetration_m": 0.002,
+                  "operation_displacement_m": 0.025,
+                  "flat_target_rms_m": 0.03,
+                  "flat_target_max_m": 0.07,
+                  "flat_projected_area_ratio_min": 0.9,
+                  "flat_height_range_m": 0.025,
+                  "placement_error_m": 0.05,
+                  "folded_pair_rms_m": 0.03,
+                  "folded_pair_max_m": 0.08,
+                  "layer_gap_min_m": 0.001,
+                  "layer_gap_max_m": 0.025,
+                  "layer_order_fraction_min": 0.85,
+                  "support_gap_max_m": 0.012,
+                  "stacking_alignment_m": 0.05,
+                  "stacking_gap_min_m": 0.001,
+                  "stacking_gap_max_m": 0.02,
+                  "speed_node_percentile": 95.0,
+                  "folded_extent_tolerance_m": 0.05,
+                  "folded_height_range_m": 0.04,
+                  "stacking_support_fraction_min": 0.85,
+                  "hard_penetration_m": 0.01,
+                  "hard_edge_stretch_ratio": 2.0,
+                  "hard_intersection_pairs": 8,
+                  "folded_pair_area_percentile": 95.0,
+                  "folded_pair_percentile_m": 0.06
+                },
+                "outcomes": {
+                  "ongoing": "可以继续。",
+                  "success": "本次控制模式下完成。",
+                  "task_failure": "任务失败。",
+                  "evaluator_invalid": "证据不完整，不评分。",
+                  "safety_stop": "物理异常停止。",
+                  "budget_exhaustion": "未完成。",
+                  "cancelled": "取消。"
+                },
+                "physical_actions": "一个Agent同时控制两台FR3和官方左、右SHARPA，共58个关节。只接受机器人关节目标；不允许直接写布节点、隐藏固定点或工程抓持。允许重抓与整理，不要求固定的双手动作顺序。",
+                "observation_scope": "规则和标称物性公开；完整布节点、控制掩码、层次和物理审计为私有证据。没有布料接触力或张力测量。",
+                "object_properties": [
+                  {
+                    "id": "towel",
+                    "label": "动态厚毛巾",
+                    "nominal_mass_kg": 0.144,
+                    "basis": "冻结资产的名义厚度4毫米、质量144克；材料与求解器参数为仿真先验，未经实物标定。"
+                  }
+                ]
+              },
+              "reset_credit": false,
+              "episode_seed": 0,
+              "randomization": "Frozen finite initial XY placement and render-only fabric texture case; cloth shape, material, target and robot parameters are unchanged.",
+              "qualification_scope": "Robot joint actions with native geometry evidence; grasp forces and material calibration are not measured.",
+              "rule_profile": "laundry_practical_folding_task.v3",
+              "tolerance_basis": "User-authorized practical simulation tolerances; engineering priors, not material calibration.",
+              "control_mode": "robot_joint_targets",
+              "robot_configuration_id": "dual_same_side",
+              "material_contract": {
+                "schema": "laundry_asset_material_contract.v1",
+                "material_profile": "towel_4mm_density_v1",
+                "cloths": [
+                  {
+                    "id": "towel",
+                    "physical_thickness_m": 0.004,
+                    "mass_kg": 0.144
+                  }
+                ]
+              }
+            }
+          },
+          "qualification": {
+            "status": "prepared_unvalidated",
+            "native_preflight": false,
+            "agent_bench_interface": false,
+            "workspace_ik": false,
+            "workspace_clearance": false,
+            "robot_manipulation": false,
+            "physics_accepted": false,
+            "scope": "Immutable XY/albedo case inputs; validation evidence remains external and episode outcomes are not inherited."
+          }
+        },
+        "dual_opposed": {
+          "source_release": {
+            "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/towel_folding/dual_opposed",
+            "manifest_sha256": "bf50cea4b6aa8bdb29c2c27bd9194f04158e0ff38b337446018db6336daa7fec"
+          },
+          "release_schema": "laundry_randomized_release.v1",
+          "release_schema_version": "isaacsim-laundry-randomized-release-v1",
+          "robot_requirements": {
+            "hand_id": "dual_fr3_sharpa_w01",
+            "assembly_version": "isaacsim_6_1_v2",
+            "articulations": 2,
+            "active_sides": [
+              "left",
+              "right"
+            ]
+          },
+          "layout": {
+            "robot_layout_id": "laundry_dual_opposed_sharpa_v2",
+            "placements": {
+              "left": {
+                "base_position_m": [
+                  0.75,
+                  0.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  -0.7071067811865475
+                ],
+                "base_yaw_rad": -1.5707963267948966,
+                "hand_chirality": "left"
+              },
+              "right": {
+                "base_position_m": [
+                  0.75,
+                  -1.25,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "right"
+              }
+            },
+            "reference_surface": "unchanged laundry folding table",
+            "frame": "world",
+            "units": "metres",
+            "control_scope": "one_agent_58_dof"
+          },
+          "objects": {
+            "roles": [
+              "towel"
+            ],
+            "model": "live_surface_deformable",
+            "material_profile": "towel_4mm_density_v1",
+            "cloths": [
+              {
+                "id": "towel",
+                "mass_kg": 0.144,
+                "physical_thickness_m": 0.004
+              }
+            ],
+            "properties_basis": "simulation_priors",
+            "material_calibrated": false
+          },
+          "rules": {
+            "implementation": "scenes.workrooms.laundry_room.rules:configuration_rules",
+            "contract": {
+              "schema": "laundry_rules.v6",
+              "task_id": "towel_folding",
+              "instruction_zh": "沿毛巾长边的中线对折成约30×40厘米，使两半边角基本重合，摆入目标区域后释放。",
+              "referee": {
+                "schema": "physical_task_referee_contract.v1",
+                "task_id": "towel_folding",
+                "instruction_zh": "沿毛巾长边的中线对折成约30×40厘米，使两半边角基本重合，摆入目标区域后释放。",
+                "phases": {
+                  "working": "整理任务毛巾。",
+                  "settling": "机器人与全部任务衣物完全分离，等待放置稳定。"
+                },
+                "reason_descriptions": {
+                  "reset_baseline_not_scored": "初态只建立基准，不得分。",
+                  "task_in_progress": "目标或必要操作尚未完成，可继续调整。",
+                  "waiting_for_release_and_stability": "需释放全部外部控制并保持稳定。",
+                  "success": "形状、位置与支撑合格，全部释放后保持稳定；小幅仿真抖动不单独判失败。",
+                  "native_evidence_unknown": "原生记录缺失或不连续，本次不评分。",
+                  "physics_safety_stop": "明显穿透、异常大幅拉伸或大范围交叉，停止本次任务。",
+                  "incomplete_budget": "预算耗尽，任务未完成。",
+                  "contact_recovery_required": "局部交叉、接触或变形暂未恢复，可继续整理；恢复后重新计稳定时间。"
+                },
+                "success_conditions": [
+                  "两半对应位置、两层间距、边界、目标位置和折形同时合格；允许任一半翻折及180度等价朝向。",
+                  "重力和碰撞保持启用，无隐藏固定点；所有抓点释放后连续稳定0.5秒。",
+                  "初态不能直接得分；必须有明确操作及至少2.5厘米的毛巾位移。",
+                  "允许轻微褶皱和边角不齐：摊平/对折对应误差RMS不超过3厘米；对折与叠放中心误差不超过5厘米。",
+                  "稳定速度按每条毛巾、每一帧的节点速度P95判断（不超过8厘米/秒），同时检查相邻步位置差；所有节点在0.5秒内漂移不超过1.5厘米。",
+                  "允许最多2毫米接触包络压入、1.5倍局部边长；最终稳定期间无实际布面交叉，叠放几何支撑比例至少85%。",
+                  "严格物理诊断独立记录，不以单个抖动节点或整理中已恢复的小接触异常一票否决。",
+                  "对折两半XY对应误差按每对两端的静止材料面积权重计算：RMS不超过3厘米、P95不超过6厘米、全点绝对最大误差不超过8厘米。允许少量自由边角卷起，但轮廓、高度、统一层序、支撑、物理与完整释放稳定要求不变；不得用平均值掩盖漏折或大范围错位。",
+                  "任务毛巾连续处于实际手部碰撞形状的保守几何接近带期间，至少一只手相对该段起点移动1厘米，且任务毛巾在同一连续接近段内有至少2.5厘米位移；静止接近、空中挥手或纯被动下落不得分。",
+                  "释放以全部机器人碰撞形状与全部毛巾的几何分离为准；不要求零抖动，不测量夹持力。"
+                ],
+                "recovery": [
+                  "允许重抓、纠偏与重新整理；未达到目标时可继续。",
+                  "局部接触异常、放置不准或释放后滑动可调整后重试；稳定时间从恢复并完全松手后重新计算。"
+                ],
+                "thresholds": {
+                  "stable_s": 0.5,
+                  "max_time_s": 120.0,
+                  "max_grasp_patches": 2,
+                  "max_grasp_patch_diameter_m": 0.075,
+                  "max_node_speed_m_s": 0.08,
+                  "stable_node_drift_m": 0.015,
+                  "max_edge_stretch_ratio": 1.5,
+                  "min_triangle_area_ratio": 0.01,
+                  "max_penetration_m": 0.002,
+                  "operation_displacement_m": 0.025,
+                  "flat_target_rms_m": 0.03,
+                  "flat_target_max_m": 0.07,
+                  "flat_projected_area_ratio_min": 0.9,
+                  "flat_height_range_m": 0.025,
+                  "placement_error_m": 0.05,
+                  "folded_pair_rms_m": 0.03,
+                  "folded_pair_max_m": 0.08,
+                  "layer_gap_min_m": 0.001,
+                  "layer_gap_max_m": 0.025,
+                  "layer_order_fraction_min": 0.85,
+                  "support_gap_max_m": 0.012,
+                  "stacking_alignment_m": 0.05,
+                  "stacking_gap_min_m": 0.001,
+                  "stacking_gap_max_m": 0.02,
+                  "speed_node_percentile": 95.0,
+                  "folded_extent_tolerance_m": 0.05,
+                  "folded_height_range_m": 0.04,
+                  "stacking_support_fraction_min": 0.85,
+                  "hard_penetration_m": 0.01,
+                  "hard_edge_stretch_ratio": 2.0,
+                  "hard_intersection_pairs": 8,
+                  "folded_pair_area_percentile": 95.0,
+                  "folded_pair_percentile_m": 0.06
+                },
+                "outcomes": {
+                  "ongoing": "可以继续。",
+                  "success": "本次控制模式下完成。",
+                  "task_failure": "任务失败。",
+                  "evaluator_invalid": "证据不完整，不评分。",
+                  "safety_stop": "物理异常停止。",
+                  "budget_exhaustion": "未完成。",
+                  "cancelled": "取消。"
+                },
+                "physical_actions": "一个Agent同时控制两台FR3和官方左、右SHARPA，共58个关节。只接受机器人关节目标；不允许直接写布节点、隐藏固定点或工程抓持。允许重抓与整理，不要求固定的双手动作顺序。",
+                "observation_scope": "规则和标称物性公开；完整布节点、控制掩码、层次和物理审计为私有证据。没有布料接触力或张力测量。",
+                "object_properties": [
+                  {
+                    "id": "towel",
+                    "label": "动态厚毛巾",
+                    "nominal_mass_kg": 0.144,
+                    "basis": "冻结资产的名义厚度4毫米、质量144克；材料与求解器参数为仿真先验，未经实物标定。"
+                  }
+                ]
+              },
+              "reset_credit": false,
+              "episode_seed": 0,
+              "randomization": "Frozen finite initial XY placement and render-only fabric texture case; cloth shape, material, target and robot parameters are unchanged.",
+              "qualification_scope": "Robot joint actions with native geometry evidence; grasp forces and material calibration are not measured.",
+              "rule_profile": "laundry_practical_folding_task.v3",
+              "tolerance_basis": "User-authorized practical simulation tolerances; engineering priors, not material calibration.",
+              "control_mode": "robot_joint_targets",
+              "robot_configuration_id": "dual_opposed",
+              "material_contract": {
+                "schema": "laundry_asset_material_contract.v1",
+                "material_profile": "towel_4mm_density_v1",
+                "cloths": [
+                  {
+                    "id": "towel",
+                    "physical_thickness_m": 0.004,
+                    "mass_kg": 0.144
+                  }
+                ]
+              }
+            }
+          },
+          "qualification": {
+            "status": "prepared_unvalidated",
+            "native_preflight": false,
+            "agent_bench_interface": false,
+            "workspace_ik": false,
+            "workspace_clearance": false,
+            "robot_manipulation": false,
+            "physics_accepted": false,
+            "scope": "Immutable XY/albedo case inputs; validation evidence remains external and episode outcomes are not inherited."
+          }
+        }
+      }
+    },
+    "towel_stacking": {
+      "family": "laundry_room",
+      "task_id": "towel_stacking",
+      "default_configuration_id": "dual_opposed",
+      "base_release": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/towel_stacking/dual_opposed",
+        "manifest_sha256": "0417496f35cd9285014acb1d0e7c2c52d69a6b0d7c532850981449cfdf582f16"
+      },
+      "configurations": {
+        "single_arm": {
+          "source_release": {
+            "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/towel_stacking/single_arm",
+            "manifest_sha256": "6a28cfeb54f4f3fdd1079be4824cbf7944c51a1ebc8d2d8f617e077153c05f4e"
+          },
+          "release_schema": "laundry_randomized_release.v1",
+          "release_schema_version": "isaacsim-laundry-randomized-release-v1",
+          "robot_requirements": {
+            "hand_id": "sharpa_w01_right",
+            "assembly_version": "isaacsim_6_1_v2",
+            "articulations": 1,
+            "active_sides": [
+              "right"
+            ]
+          },
+          "layout": {
+            "robot_layout_id": "laundry_single_arm_sharpa_v2",
+            "placements": {
+              "right": {
+                "base_position_m": [
+                  0.75,
+                  -1.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "right"
+              }
+            },
+            "reference_surface": "unchanged laundry folding table",
+            "frame": "world",
+            "units": "metres",
+            "control_scope": "one_agent_29_dof"
+          },
+          "objects": {
+            "roles": [
+              "towel",
+              "towel_base"
+            ],
+            "model": "live_surface_deformable",
+            "material_profile": "towel_4mm_density_v1",
+            "cloths": [
+              {
+                "id": "towel",
+                "mass_kg": 0.144,
+                "physical_thickness_m": 0.004
+              },
+              {
+                "id": "towel_base",
+                "mass_kg": 0.144,
+                "physical_thickness_m": 0.004
+              }
+            ],
+            "properties_basis": "simulation_priors",
+            "material_calibrated": false
+          },
+          "rules": {
+            "implementation": "scenes.workrooms.laundry_room.rules:configuration_rules",
+            "contract": {
+              "schema": "laundry_rules.v5",
+              "task_id": "towel_stacking",
+              "instruction_zh": "把左侧已折毛巾移到右侧另一条已折毛巾上，两条都保持折形，释放后稳定叠放。",
+              "referee": {
+                "schema": "physical_task_referee_contract.v1",
+                "task_id": "towel_stacking",
+                "instruction_zh": "把左侧已折毛巾移到右侧另一条已折毛巾上，两条都保持折形，释放后稳定叠放。",
+                "phases": {
+                  "working": "整理任务毛巾。",
+                  "settling": "机器人与全部任务衣物完全分离，等待放置稳定。"
+                },
+                "reason_descriptions": {
+                  "reset_baseline_not_scored": "初态只建立基准，不得分。",
+                  "task_in_progress": "目标或必要操作尚未完成，可继续调整。",
+                  "waiting_for_release_and_stability": "需释放全部外部控制并保持稳定。",
+                  "success": "形状、位置与支撑合格，全部释放后保持稳定；小幅仿真抖动不单独判失败。",
+                  "native_evidence_unknown": "原生记录缺失或不连续，本次不评分。",
+                  "physics_safety_stop": "明显穿透、异常大幅拉伸或大范围交叉，停止本次任务。",
+                  "incomplete_budget": "预算耗尽，任务未完成。",
+                  "contact_recovery_required": "局部交叉、接触或变形暂未恢复，可继续整理；恢复后重新计稳定时间。"
+                },
+                "success_conditions": [
+                  "两条毛巾均为动态布料且保持对折形态；上层由下层实际布面支撑，下层由折衣台支撑。",
+                  "重力和碰撞保持启用，无隐藏固定点；所有抓点释放后连续稳定0.5秒。",
+                  "初态不能直接得分；必须有明确操作及至少2.5厘米的毛巾位移。",
+                  "允许轻微褶皱和边角不齐：摊平/对折对应误差RMS不超过3厘米；对折与叠放中心误差不超过5厘米。",
+                  "稳定速度按每条毛巾每一原生帧与20毫秒前真实位置差计算，节点速度P95不超过8厘米/秒；全部节点在连续0.5秒窗口相对窗口起点漂移不超过8毫米。须有连续原生帧及额外20毫秒前史；原始速度和相邻步位置速度完整保留诊断。",
+                  "允许最多2毫米接触包络压入、1.5倍局部边长；最终稳定期间无实际布面交叉，叠放几何支撑比例至少85%。",
+                  "严格物理诊断独立记录，不以单个抖动节点或整理中已恢复的小接触异常一票否决。",
+                  "每条折后毛巾按静止三角面积均分到顶点的权重计算高度P99，减全节点最低高度不超过40毫米；全节点绝对高度差仍不得超过45毫米。仅允许不超过1%材料面积的边缘轻卷，其余对应关系、层序、支撑、自交和释放要求不变。",
+                  "任务毛巾连续处于实际手部碰撞形状的保守几何接近带期间，至少一只手相对该段起点移动1厘米，且任务毛巾在同一连续接近段内有至少2.5厘米位移；静止接近、空中挥手或纯被动下落不得分。",
+                  "释放以全部机器人碰撞形状与全部毛巾的几何分离为准；不要求零抖动，不测量夹持力。"
+                ],
+                "recovery": [
+                  "允许重抓、纠偏与重新整理；未达到目标时可继续。",
+                  "局部接触异常、放置不准或释放后滑动可调整后重试；稳定时间从恢复并完全松手后重新计算。"
+                ],
+                "thresholds": {
+                  "stable_s": 0.5,
+                  "max_time_s": 120.0,
+                  "max_grasp_patches": 2,
+                  "max_grasp_patch_diameter_m": 0.075,
+                  "max_node_speed_m_s": 0.08,
+                  "stable_node_drift_m": 0.008,
+                  "max_edge_stretch_ratio": 1.5,
+                  "min_triangle_area_ratio": 0.01,
+                  "max_penetration_m": 0.002,
+                  "operation_displacement_m": 0.025,
+                  "flat_target_rms_m": 0.03,
+                  "flat_target_max_m": 0.07,
+                  "flat_projected_area_ratio_min": 0.9,
+                  "flat_height_range_m": 0.025,
+                  "placement_error_m": 0.05,
+                  "folded_pair_rms_m": 0.03,
+                  "folded_pair_max_m": 0.06,
+                  "layer_gap_min_m": 0.001,
+                  "layer_gap_max_m": 0.025,
+                  "layer_order_fraction_min": 0.85,
+                  "support_gap_max_m": 0.012,
+                  "stacking_alignment_m": 0.05,
+                  "stacking_gap_min_m": 0.001,
+                  "stacking_gap_max_m": 0.02,
+                  "speed_node_percentile": 95.0,
+                  "folded_extent_tolerance_m": 0.05,
+                  "folded_height_range_m": 0.04,
+                  "stacking_support_fraction_min": 0.85,
+                  "hard_penetration_m": 0.01,
+                  "hard_edge_stretch_ratio": 2.0,
+                  "hard_intersection_pairs": 8,
+                  "stability_position_interval_s": 0.02,
+                  "folded_height_area_percentile": 99.0,
+                  "folded_height_absolute_max_m": 0.045
+                },
+                "outcomes": {
+                  "ongoing": "可以继续。",
+                  "success": "本次控制模式下完成。",
+                  "task_failure": "任务失败。",
+                  "evaluator_invalid": "证据不完整，不评分。",
+                  "safety_stop": "物理异常停止。",
+                  "budget_exhaustion": "未完成。",
+                  "cancelled": "取消。"
+                },
+                "physical_actions": "一个Agent控制一台FR3和官方右SHARPA，共29个关节。只接受机器人关节目标；不允许直接写布节点、隐藏固定点或工程抓持。允许单手重抓、借助台面整理，不要求双手同时操作。",
+                "observation_scope": "规则和标称物性公开；完整布节点、控制掩码、层次和物理审计为私有证据。没有布料接触力或张力测量。",
+                "object_properties": [
+                  {
+                    "id": "towel",
+                    "label": "动态厚毛巾",
+                    "nominal_mass_kg": 0.144,
+                    "basis": "冻结资产的名义厚度4毫米、质量144克；材料与求解器参数为仿真先验，未经实物标定。"
+                  },
+                  {
+                    "id": "towel_base",
+                    "label": "动态厚毛巾",
+                    "nominal_mass_kg": 0.144,
+                    "basis": "冻结资产的名义厚度4毫米、质量144克；材料与求解器参数为仿真先验，未经实物标定。"
+                  }
+                ]
+              },
+              "reset_credit": false,
+              "episode_seed": 0,
+              "randomization": "Frozen finite initial XY placement and render-only fabric texture case; cloth shape, material, target and robot parameters are unchanged.",
+              "qualification_scope": "Robot joint actions with native geometry evidence; grasp forces and material calibration are not measured.",
+              "rule_profile": "laundry_practical_stacking_task.v3",
+              "tolerance_basis": "User-authorized practical simulation tolerances; engineering priors, not material calibration.",
+              "control_mode": "robot_joint_targets",
+              "robot_configuration_id": "single_arm",
+              "material_contract": {
+                "schema": "laundry_asset_material_contract.v1",
+                "material_profile": "towel_4mm_density_v1",
+                "cloths": [
+                  {
+                    "id": "towel",
+                    "physical_thickness_m": 0.004,
+                    "mass_kg": 0.144
+                  },
+                  {
+                    "id": "towel_base",
+                    "physical_thickness_m": 0.004,
+                    "mass_kg": 0.144
+                  }
+                ]
+              }
+            }
+          },
+          "qualification": {
+            "status": "prepared_unvalidated",
+            "native_preflight": false,
+            "agent_bench_interface": false,
+            "workspace_ik": false,
+            "workspace_clearance": false,
+            "robot_manipulation": false,
+            "physics_accepted": false,
+            "scope": "Immutable XY/albedo case inputs; validation evidence remains external and episode outcomes are not inherited."
+          }
+        },
+        "dual_same_side": {
+          "source_release": {
+            "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/towel_stacking/dual_same_side",
+            "manifest_sha256": "7d8954084234ff4e3abd1a16f7982eb7df9704d246de7772831d3f19c12fdc1b"
+          },
+          "release_schema": "laundry_randomized_release.v1",
+          "release_schema_version": "isaacsim-laundry-randomized-release-v1",
+          "robot_requirements": {
+            "hand_id": "dual_fr3_sharpa_w01",
+            "assembly_version": "isaacsim_6_1_v2",
+            "articulations": 2,
+            "active_sides": [
+              "left",
+              "right"
+            ]
+          },
+          "layout": {
+            "robot_layout_id": "laundry_dual_same_side_sharpa_v2",
+            "placements": {
+              "left": {
+                "base_position_m": [
+                  0.45,
+                  -1.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "left"
+              },
+              "right": {
+                "base_position_m": [
+                  1.05,
+                  -1.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "right"
+              }
+            },
+            "reference_surface": "unchanged laundry folding table",
+            "frame": "world",
+            "units": "metres",
+            "control_scope": "one_agent_58_dof"
+          },
+          "objects": {
+            "roles": [
+              "towel",
+              "towel_base"
+            ],
+            "model": "live_surface_deformable",
+            "material_profile": "towel_4mm_density_v1",
+            "cloths": [
+              {
+                "id": "towel",
+                "mass_kg": 0.144,
+                "physical_thickness_m": 0.004
+              },
+              {
+                "id": "towel_base",
+                "mass_kg": 0.144,
+                "physical_thickness_m": 0.004
+              }
+            ],
+            "properties_basis": "simulation_priors",
+            "material_calibrated": false
+          },
+          "rules": {
+            "implementation": "scenes.workrooms.laundry_room.rules:configuration_rules",
+            "contract": {
+              "schema": "laundry_rules.v5",
+              "task_id": "towel_stacking",
+              "instruction_zh": "把左侧已折毛巾移到右侧另一条已折毛巾上，两条都保持折形，释放后稳定叠放。",
+              "referee": {
+                "schema": "physical_task_referee_contract.v1",
+                "task_id": "towel_stacking",
+                "instruction_zh": "把左侧已折毛巾移到右侧另一条已折毛巾上，两条都保持折形，释放后稳定叠放。",
+                "phases": {
+                  "working": "整理任务毛巾。",
+                  "settling": "机器人与全部任务衣物完全分离，等待放置稳定。"
+                },
+                "reason_descriptions": {
+                  "reset_baseline_not_scored": "初态只建立基准，不得分。",
+                  "task_in_progress": "目标或必要操作尚未完成，可继续调整。",
+                  "waiting_for_release_and_stability": "需释放全部外部控制并保持稳定。",
+                  "success": "形状、位置与支撑合格，全部释放后保持稳定；小幅仿真抖动不单独判失败。",
+                  "native_evidence_unknown": "原生记录缺失或不连续，本次不评分。",
+                  "physics_safety_stop": "明显穿透、异常大幅拉伸或大范围交叉，停止本次任务。",
+                  "incomplete_budget": "预算耗尽，任务未完成。",
+                  "contact_recovery_required": "局部交叉、接触或变形暂未恢复，可继续整理；恢复后重新计稳定时间。"
+                },
+                "success_conditions": [
+                  "两条毛巾均为动态布料且保持对折形态；上层由下层实际布面支撑，下层由折衣台支撑。",
+                  "重力和碰撞保持启用，无隐藏固定点；所有抓点释放后连续稳定0.5秒。",
+                  "初态不能直接得分；必须有明确操作及至少2.5厘米的毛巾位移。",
+                  "允许轻微褶皱和边角不齐：摊平/对折对应误差RMS不超过3厘米；对折与叠放中心误差不超过5厘米。",
+                  "稳定速度按每条毛巾每一原生帧与20毫秒前真实位置差计算，节点速度P95不超过8厘米/秒；全部节点在连续0.5秒窗口相对窗口起点漂移不超过8毫米。须有连续原生帧及额外20毫秒前史；原始速度和相邻步位置速度完整保留诊断。",
+                  "允许最多2毫米接触包络压入、1.5倍局部边长；最终稳定期间无实际布面交叉，叠放几何支撑比例至少85%。",
+                  "严格物理诊断独立记录，不以单个抖动节点或整理中已恢复的小接触异常一票否决。",
+                  "每条折后毛巾按静止三角面积均分到顶点的权重计算高度P99，减全节点最低高度不超过40毫米；全节点绝对高度差仍不得超过45毫米。仅允许不超过1%材料面积的边缘轻卷，其余对应关系、层序、支撑、自交和释放要求不变。",
+                  "任务毛巾连续处于实际手部碰撞形状的保守几何接近带期间，至少一只手相对该段起点移动1厘米，且任务毛巾在同一连续接近段内有至少2.5厘米位移；静止接近、空中挥手或纯被动下落不得分。",
+                  "释放以全部机器人碰撞形状与全部毛巾的几何分离为准；不要求零抖动，不测量夹持力。"
+                ],
+                "recovery": [
+                  "允许重抓、纠偏与重新整理；未达到目标时可继续。",
+                  "局部接触异常、放置不准或释放后滑动可调整后重试；稳定时间从恢复并完全松手后重新计算。"
+                ],
+                "thresholds": {
+                  "stable_s": 0.5,
+                  "max_time_s": 120.0,
+                  "max_grasp_patches": 2,
+                  "max_grasp_patch_diameter_m": 0.075,
+                  "max_node_speed_m_s": 0.08,
+                  "stable_node_drift_m": 0.008,
+                  "max_edge_stretch_ratio": 1.5,
+                  "min_triangle_area_ratio": 0.01,
+                  "max_penetration_m": 0.002,
+                  "operation_displacement_m": 0.025,
+                  "flat_target_rms_m": 0.03,
+                  "flat_target_max_m": 0.07,
+                  "flat_projected_area_ratio_min": 0.9,
+                  "flat_height_range_m": 0.025,
+                  "placement_error_m": 0.05,
+                  "folded_pair_rms_m": 0.03,
+                  "folded_pair_max_m": 0.06,
+                  "layer_gap_min_m": 0.001,
+                  "layer_gap_max_m": 0.025,
+                  "layer_order_fraction_min": 0.85,
+                  "support_gap_max_m": 0.012,
+                  "stacking_alignment_m": 0.05,
+                  "stacking_gap_min_m": 0.001,
+                  "stacking_gap_max_m": 0.02,
+                  "speed_node_percentile": 95.0,
+                  "folded_extent_tolerance_m": 0.05,
+                  "folded_height_range_m": 0.04,
+                  "stacking_support_fraction_min": 0.85,
+                  "hard_penetration_m": 0.01,
+                  "hard_edge_stretch_ratio": 2.0,
+                  "hard_intersection_pairs": 8,
+                  "stability_position_interval_s": 0.02,
+                  "folded_height_area_percentile": 99.0,
+                  "folded_height_absolute_max_m": 0.045
+                },
+                "outcomes": {
+                  "ongoing": "可以继续。",
+                  "success": "本次控制模式下完成。",
+                  "task_failure": "任务失败。",
+                  "evaluator_invalid": "证据不完整，不评分。",
+                  "safety_stop": "物理异常停止。",
+                  "budget_exhaustion": "未完成。",
+                  "cancelled": "取消。"
+                },
+                "physical_actions": "一个Agent同时控制两台FR3和官方左、右SHARPA，共58个关节。只接受机器人关节目标；不允许直接写布节点、隐藏固定点或工程抓持。允许重抓与整理，不要求固定的双手动作顺序。",
+                "observation_scope": "规则和标称物性公开；完整布节点、控制掩码、层次和物理审计为私有证据。没有布料接触力或张力测量。",
+                "object_properties": [
+                  {
+                    "id": "towel",
+                    "label": "动态厚毛巾",
+                    "nominal_mass_kg": 0.144,
+                    "basis": "冻结资产的名义厚度4毫米、质量144克；材料与求解器参数为仿真先验，未经实物标定。"
+                  },
+                  {
+                    "id": "towel_base",
+                    "label": "动态厚毛巾",
+                    "nominal_mass_kg": 0.144,
+                    "basis": "冻结资产的名义厚度4毫米、质量144克；材料与求解器参数为仿真先验，未经实物标定。"
+                  }
+                ]
+              },
+              "reset_credit": false,
+              "episode_seed": 0,
+              "randomization": "Frozen finite initial XY placement and render-only fabric texture case; cloth shape, material, target and robot parameters are unchanged.",
+              "qualification_scope": "Robot joint actions with native geometry evidence; grasp forces and material calibration are not measured.",
+              "rule_profile": "laundry_practical_stacking_task.v3",
+              "tolerance_basis": "User-authorized practical simulation tolerances; engineering priors, not material calibration.",
+              "control_mode": "robot_joint_targets",
+              "robot_configuration_id": "dual_same_side",
+              "material_contract": {
+                "schema": "laundry_asset_material_contract.v1",
+                "material_profile": "towel_4mm_density_v1",
+                "cloths": [
+                  {
+                    "id": "towel",
+                    "physical_thickness_m": 0.004,
+                    "mass_kg": 0.144
+                  },
+                  {
+                    "id": "towel_base",
+                    "physical_thickness_m": 0.004,
+                    "mass_kg": 0.144
+                  }
+                ]
+              }
+            }
+          },
+          "qualification": {
+            "status": "prepared_unvalidated",
+            "native_preflight": false,
+            "agent_bench_interface": false,
+            "workspace_ik": false,
+            "workspace_clearance": false,
+            "robot_manipulation": false,
+            "physics_accepted": false,
+            "scope": "Immutable XY/albedo case inputs; validation evidence remains external and episode outcomes are not inherited."
+          }
+        },
+        "dual_opposed": {
+          "source_release": {
+            "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/towel_stacking/dual_opposed",
+            "manifest_sha256": "0417496f35cd9285014acb1d0e7c2c52d69a6b0d7c532850981449cfdf582f16"
+          },
+          "release_schema": "laundry_randomized_release.v1",
+          "release_schema_version": "isaacsim-laundry-randomized-release-v1",
+          "robot_requirements": {
+            "hand_id": "dual_fr3_sharpa_w01",
+            "assembly_version": "isaacsim_6_1_v2",
+            "articulations": 2,
+            "active_sides": [
+              "left",
+              "right"
+            ]
+          },
+          "layout": {
+            "robot_layout_id": "laundry_dual_opposed_sharpa_v2",
+            "placements": {
+              "left": {
+                "base_position_m": [
+                  0.75,
+                  0.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  -0.7071067811865475
+                ],
+                "base_yaw_rad": -1.5707963267948966,
+                "hand_chirality": "left"
+              },
+              "right": {
+                "base_position_m": [
+                  0.75,
+                  -1.25,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "right"
+              }
+            },
+            "reference_surface": "unchanged laundry folding table",
+            "frame": "world",
+            "units": "metres",
+            "control_scope": "one_agent_58_dof"
+          },
+          "objects": {
+            "roles": [
+              "towel",
+              "towel_base"
+            ],
+            "model": "live_surface_deformable",
+            "material_profile": "towel_4mm_density_v1",
+            "cloths": [
+              {
+                "id": "towel",
+                "mass_kg": 0.144,
+                "physical_thickness_m": 0.004
+              },
+              {
+                "id": "towel_base",
+                "mass_kg": 0.144,
+                "physical_thickness_m": 0.004
+              }
+            ],
+            "properties_basis": "simulation_priors",
+            "material_calibrated": false
+          },
+          "rules": {
+            "implementation": "scenes.workrooms.laundry_room.rules:configuration_rules",
+            "contract": {
+              "schema": "laundry_rules.v5",
+              "task_id": "towel_stacking",
+              "instruction_zh": "把左侧已折毛巾移到右侧另一条已折毛巾上，两条都保持折形，释放后稳定叠放。",
+              "referee": {
+                "schema": "physical_task_referee_contract.v1",
+                "task_id": "towel_stacking",
+                "instruction_zh": "把左侧已折毛巾移到右侧另一条已折毛巾上，两条都保持折形，释放后稳定叠放。",
+                "phases": {
+                  "working": "整理任务毛巾。",
+                  "settling": "机器人与全部任务衣物完全分离，等待放置稳定。"
+                },
+                "reason_descriptions": {
+                  "reset_baseline_not_scored": "初态只建立基准，不得分。",
+                  "task_in_progress": "目标或必要操作尚未完成，可继续调整。",
+                  "waiting_for_release_and_stability": "需释放全部外部控制并保持稳定。",
+                  "success": "形状、位置与支撑合格，全部释放后保持稳定；小幅仿真抖动不单独判失败。",
+                  "native_evidence_unknown": "原生记录缺失或不连续，本次不评分。",
+                  "physics_safety_stop": "明显穿透、异常大幅拉伸或大范围交叉，停止本次任务。",
+                  "incomplete_budget": "预算耗尽，任务未完成。",
+                  "contact_recovery_required": "局部交叉、接触或变形暂未恢复，可继续整理；恢复后重新计稳定时间。"
+                },
+                "success_conditions": [
+                  "两条毛巾均为动态布料且保持对折形态；上层由下层实际布面支撑，下层由折衣台支撑。",
+                  "重力和碰撞保持启用，无隐藏固定点；所有抓点释放后连续稳定0.5秒。",
+                  "初态不能直接得分；必须有明确操作及至少2.5厘米的毛巾位移。",
+                  "允许轻微褶皱和边角不齐：摊平/对折对应误差RMS不超过3厘米；对折与叠放中心误差不超过5厘米。",
+                  "稳定速度按每条毛巾每一原生帧与20毫秒前真实位置差计算，节点速度P95不超过8厘米/秒；全部节点在连续0.5秒窗口相对窗口起点漂移不超过8毫米。须有连续原生帧及额外20毫秒前史；原始速度和相邻步位置速度完整保留诊断。",
+                  "允许最多2毫米接触包络压入、1.5倍局部边长；最终稳定期间无实际布面交叉，叠放几何支撑比例至少85%。",
+                  "严格物理诊断独立记录，不以单个抖动节点或整理中已恢复的小接触异常一票否决。",
+                  "每条折后毛巾按静止三角面积均分到顶点的权重计算高度P99，减全节点最低高度不超过40毫米；全节点绝对高度差仍不得超过45毫米。仅允许不超过1%材料面积的边缘轻卷，其余对应关系、层序、支撑、自交和释放要求不变。",
+                  "任务毛巾连续处于实际手部碰撞形状的保守几何接近带期间，至少一只手相对该段起点移动1厘米，且任务毛巾在同一连续接近段内有至少2.5厘米位移；静止接近、空中挥手或纯被动下落不得分。",
+                  "释放以全部机器人碰撞形状与全部毛巾的几何分离为准；不要求零抖动，不测量夹持力。"
+                ],
+                "recovery": [
+                  "允许重抓、纠偏与重新整理；未达到目标时可继续。",
+                  "局部接触异常、放置不准或释放后滑动可调整后重试；稳定时间从恢复并完全松手后重新计算。"
+                ],
+                "thresholds": {
+                  "stable_s": 0.5,
+                  "max_time_s": 120.0,
+                  "max_grasp_patches": 2,
+                  "max_grasp_patch_diameter_m": 0.075,
+                  "max_node_speed_m_s": 0.08,
+                  "stable_node_drift_m": 0.008,
+                  "max_edge_stretch_ratio": 1.5,
+                  "min_triangle_area_ratio": 0.01,
+                  "max_penetration_m": 0.002,
+                  "operation_displacement_m": 0.025,
+                  "flat_target_rms_m": 0.03,
+                  "flat_target_max_m": 0.07,
+                  "flat_projected_area_ratio_min": 0.9,
+                  "flat_height_range_m": 0.025,
+                  "placement_error_m": 0.05,
+                  "folded_pair_rms_m": 0.03,
+                  "folded_pair_max_m": 0.06,
+                  "layer_gap_min_m": 0.001,
+                  "layer_gap_max_m": 0.025,
+                  "layer_order_fraction_min": 0.85,
+                  "support_gap_max_m": 0.012,
+                  "stacking_alignment_m": 0.05,
+                  "stacking_gap_min_m": 0.001,
+                  "stacking_gap_max_m": 0.02,
+                  "speed_node_percentile": 95.0,
+                  "folded_extent_tolerance_m": 0.05,
+                  "folded_height_range_m": 0.04,
+                  "stacking_support_fraction_min": 0.85,
+                  "hard_penetration_m": 0.01,
+                  "hard_edge_stretch_ratio": 2.0,
+                  "hard_intersection_pairs": 8,
+                  "stability_position_interval_s": 0.02,
+                  "folded_height_area_percentile": 99.0,
+                  "folded_height_absolute_max_m": 0.045
+                },
+                "outcomes": {
+                  "ongoing": "可以继续。",
+                  "success": "本次控制模式下完成。",
+                  "task_failure": "任务失败。",
+                  "evaluator_invalid": "证据不完整，不评分。",
+                  "safety_stop": "物理异常停止。",
+                  "budget_exhaustion": "未完成。",
+                  "cancelled": "取消。"
+                },
+                "physical_actions": "一个Agent同时控制两台FR3和官方左、右SHARPA，共58个关节。只接受机器人关节目标；不允许直接写布节点、隐藏固定点或工程抓持。允许重抓与整理，不要求固定的双手动作顺序。",
+                "observation_scope": "规则和标称物性公开；完整布节点、控制掩码、层次和物理审计为私有证据。没有布料接触力或张力测量。",
+                "object_properties": [
+                  {
+                    "id": "towel",
+                    "label": "动态厚毛巾",
+                    "nominal_mass_kg": 0.144,
+                    "basis": "冻结资产的名义厚度4毫米、质量144克；材料与求解器参数为仿真先验，未经实物标定。"
+                  },
+                  {
+                    "id": "towel_base",
+                    "label": "动态厚毛巾",
+                    "nominal_mass_kg": 0.144,
+                    "basis": "冻结资产的名义厚度4毫米、质量144克；材料与求解器参数为仿真先验，未经实物标定。"
+                  }
+                ]
+              },
+              "reset_credit": false,
+              "episode_seed": 0,
+              "randomization": "Frozen finite initial XY placement and render-only fabric texture case; cloth shape, material, target and robot parameters are unchanged.",
+              "qualification_scope": "Robot joint actions with native geometry evidence; grasp forces and material calibration are not measured.",
+              "rule_profile": "laundry_practical_stacking_task.v3",
+              "tolerance_basis": "User-authorized practical simulation tolerances; engineering priors, not material calibration.",
+              "control_mode": "robot_joint_targets",
+              "robot_configuration_id": "dual_opposed",
+              "material_contract": {
+                "schema": "laundry_asset_material_contract.v1",
+                "material_profile": "towel_4mm_density_v1",
+                "cloths": [
+                  {
+                    "id": "towel",
+                    "physical_thickness_m": 0.004,
+                    "mass_kg": 0.144
+                  },
+                  {
+                    "id": "towel_base",
+                    "physical_thickness_m": 0.004,
+                    "mass_kg": 0.144
+                  }
+                ]
+              }
+            }
+          },
+          "qualification": {
+            "status": "prepared_unvalidated",
+            "native_preflight": false,
+            "agent_bench_interface": false,
+            "workspace_ik": false,
+            "workspace_clearance": false,
+            "robot_manipulation": false,
+            "physics_accepted": false,
+            "scope": "Immutable XY/albedo case inputs; validation evidence remains external and episode outcomes are not inherited."
+          }
+        }
+      }
+    },
+    "shirt_folding": {
+      "family": "laundry_room",
+      "task_id": "shirt_folding",
+      "default_configuration_id": "dual_opposed",
+      "base_release": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/shirt_folding/dual_opposed",
+        "manifest_sha256": "7737243f13e3197c47fc630ef60514fe0956fd2abb30f39c89d631320c67c390"
+      },
+      "configurations": {
+        "single_arm": {
+          "source_release": {
+            "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication02/releases/shirt_folding/single_arm",
+            "manifest_sha256": "9c1d95e89cac238aae5a01a88b2a66414f995e7b8f7a6a09659d948d96791b39"
+          },
+          "release_schema": "laundry_randomized_release.v1",
+          "release_schema_version": "isaacsim-laundry-randomized-release-v1",
+          "robot_requirements": {
+            "hand_id": "sharpa_w01_right",
+            "assembly_version": "isaacsim_6_1_v2",
+            "articulations": 1,
+            "active_sides": [
+              "right"
+            ]
+          },
+          "layout": {
+            "robot_layout_id": "laundry_single_arm_sharpa_v2",
+            "placements": {
+              "right": {
+                "base_position_m": [
+                  0.75,
+                  -1.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "right"
+              }
+            },
+            "reference_surface": "unchanged laundry folding table",
+            "frame": "world",
+            "units": "metres",
+            "control_scope": "one_agent_29_dof"
+          },
+          "objects": {
+            "roles": [
+              "towel"
+            ],
+            "model": "live_surface_deformable",
+            "material_profile": "shirt_16mm_density_v1",
+            "cloths": [
+              {
+                "id": "towel",
+                "mass_kg": 0.24,
+                "physical_thickness_m": 0.0016
+              }
+            ],
+            "properties_basis": "simulation_priors",
+            "material_calibrated": false
+          },
+          "rules": {
+            "implementation": "scenes.workrooms.laundry_room.rules:configuration_rules",
+            "contract": {
+              "schema": "laundry_rules.v4",
+              "task_id": "shirt_folding",
+              "instruction_zh": "把台面上展开的单件T恤整理折好：将左右袖部向内收拢，再将下摆向领口方向对折，形成紧凑、基本对齐的折形，放在台面目标区域并完全松手。",
+              "referee": {
+                "schema": "physical_task_referee_contract.v1",
+                "task_id": "shirt_folding",
+                "instruction_zh": "把台面上展开的单件T恤整理折好：将左右袖部向内收拢，再将下摆向领口方向对折，形成紧凑、基本对齐的折形，放在台面目标区域并完全松手。",
+                "phases": {
+                  "working": "整理任务T恤。",
+                  "settling": "机器人与全部任务衣物完全分离，等待放置稳定。"
+                },
+                "reason_descriptions": {
+                  "reset_baseline_not_scored": "初态只建立基准，不得分。",
+                  "task_in_progress": "目标或必要操作尚未完成，可继续调整。",
+                  "waiting_for_release_and_stability": "需释放全部外部控制并保持稳定。",
+                  "success": "形状、位置与支撑合格，全部释放后保持稳定；小幅仿真抖动不单独判失败。",
+                  "native_evidence_unknown": "原生记录缺失或不连续，本次不评分。",
+                  "physics_safety_stop": "明显穿透、异常大幅拉伸或大范围交叉，停止本次任务。",
+                  "incomplete_budget": "预算耗尽，任务未完成。",
+                  "contact_recovery_required": "交叉尺度、接触或局部变形尚超出实用容差，可继续整理；恢复后重新计稳定时间。"
+                },
+                "success_conditions": [
+                  "初态只有一件展开的T恤；必须实际折叠本件衣物，不是搬运已折成品，也不是叠到另一件衣物上。",
+                  "不限定抓取点和动作先后，只检查最终折叠结果；衣物可在台面内整体旋转和小幅偏移，允许自然褶皱与边角不完全重合。",
+                  "按材料对应关系检查整件折形：刚体对齐后的形状RMS不超过3厘米、形状误差P95不超过6厘米；允许在台面参考区域中心15厘米内放置，仍须完整折形与实际台面支撑，不能只压成小团或只缩小外包围框。",
+                  "至少85%的对应材料层具有正确上下顺序，XY相对位置误差不超过3厘米；层距至少为0.5毫米和名义厚度一半中的较大值，最多为参考层距加25毫米。单件折叠允许自然褶皱和未压平的折层空气，也允许空气层压实；整件形状、额外高度不超过4厘米和天然衣片厚度仍须分别合格。至少85%的目标底面采样须由原有台面实际支撑。",
+                  "缝合衣物的天然前后衣片另行检查：至少85%的冻结对应点保留不小于材料厚度45%的有向层距，不能把天然双面完全压成零厚度；长裤允许任一裤腿翻到另一裤腿上。",
+                  "重力和碰撞保持启用，无隐藏固定点；完全释放后保持连续0.5秒，原始/位置差分节点速度P95均不超过8厘米/秒，所有节点漂移不超过1.5厘米。",
+                  "允许最多2毫米接触包络压入和1.5倍局部边长。最终可保留少量局部布面交叉，但须同时满足：单对交线不超过12毫米、逐对保守总长不超过75毫米、连通缺陷簇直径不超过20毫米、涉及的唯一材料三角形面积不超过整件的0.2%、共面重叠面积之和不超过1平方毫米；原始交叉对数完整保留，不凭对数放行。",
+                  "初态、被动下落和无衣物动作不能得分；需实际控制操作与至少2.5厘米材料位移。",
+                  "至少一只手在同一连续实际手部几何接近段内净移动1厘米，且衣物在该段内移动至少2.5厘米；接触离开后不能追认之前的被动位移。",
+                  "全部机器人碰撞形状与本件衣物分离后才开始释放稳定计时；不要求零抖动或固定双手动作顺序。",
+                  "较大的局部交叉须恢复后重新计稳定；交线单对超过5厘米、保守总长超过50厘米、单簇直径超过10厘米、受影响材料面积超过2%或共面重叠面积之和超过50平方毫米会停止任务。缺失或截断的交叉尺度证据不得分。"
+                ],
+                "recovery": [
+                  "允许重抓、纠偏与重新整理；未达到目标时可继续。",
+                  "局部接触异常、放置不准或释放后滑动可调整后重试；稳定时间从恢复并完全松手后重新计算。"
+                ],
+                "thresholds": {
+                  "stable_s": 0.5,
+                  "max_time_s": 120.0,
+                  "max_grasp_patches": 2,
+                  "max_grasp_patch_diameter_m": 0.075,
+                  "max_node_speed_m_s": 0.08,
+                  "stable_node_drift_m": 0.015,
+                  "max_edge_stretch_ratio": 1.5,
+                  "min_triangle_area_ratio": 0.01,
+                  "max_penetration_m": 0.002,
+                  "operation_displacement_m": 0.025,
+                  "flat_target_rms_m": 0.03,
+                  "flat_target_max_m": 0.07,
+                  "flat_projected_area_ratio_min": 0.9,
+                  "flat_height_range_m": 0.025,
+                  "placement_error_m": 0.15,
+                  "folded_pair_rms_m": 0.03,
+                  "folded_pair_max_m": 0.06,
+                  "layer_gap_min_m": 0.001,
+                  "layer_gap_max_m": 0.025,
+                  "layer_order_fraction_min": 0.85,
+                  "support_gap_max_m": 0.012,
+                  "stacking_alignment_m": 0.05,
+                  "stacking_gap_min_m": 0.0005,
+                  "stacking_gap_max_m": 0.02,
+                  "speed_node_percentile": 95.0,
+                  "folded_extent_tolerance_m": 0.05,
+                  "folded_height_range_m": 0.04,
+                  "stacking_support_fraction_min": 0.85,
+                  "hard_penetration_m": 0.01,
+                  "hard_edge_stretch_ratio": 2.0,
+                  "garment_shape_rms_m": 0.03,
+                  "garment_shape_p95_m": 0.06,
+                  "garment_extent_tolerance_m": 0.05,
+                  "garment_height_excess_m": 0.04,
+                  "garment_projected_area_ratio_min": 0.8,
+                  "garment_projected_area_ratio_max": 1.2,
+                  "garment_layer_gap_min_m": 0.0005,
+                  "garment_layer_gap_error_m": 0.025,
+                  "garment_layer_xy_error_m": 0.03,
+                  "garment_layer_fraction_min": 0.85,
+                  "garment_table_support_fraction_min": 0.85,
+                  "garment_layer_thickness_ratio_min": 0.5,
+                  "garment_shell_layer_thickness_ratio_min": 0.45,
+                  "garment_shell_layer_fraction_min": 0.85,
+                  "crossing_pair_length_max_m": 0.012,
+                  "crossing_total_length_max_m": 0.075,
+                  "crossing_component_diameter_max_m": 0.02,
+                  "crossing_rest_area_fraction_max": 0.002,
+                  "crossing_coplanar_area_max_m2": 1e-06,
+                  "hard_crossing_pair_length_m": 0.05,
+                  "hard_crossing_total_length_m": 0.5,
+                  "hard_crossing_component_diameter_m": 0.1,
+                  "hard_crossing_rest_area_fraction": 0.02,
+                  "hard_crossing_coplanar_area_m2": 5e-05
+                },
+                "outcomes": {
+                  "ongoing": "可以继续。",
+                  "success": "本次控制模式下完成。",
+                  "task_failure": "任务失败。",
+                  "evaluator_invalid": "证据不完整，不评分。",
+                  "safety_stop": "物理异常停止。",
+                  "budget_exhaustion": "未完成。",
+                  "cancelled": "取消。"
+                },
+                "physical_actions": "一个Agent控制一台FR3和官方右SHARPA，共29个关节。只接受机器人关节目标；不允许直接写布节点、隐藏固定点或工程抓持。允许单手重抓、借助台面整理，不要求双手同时操作。",
+                "observation_scope": "规则和标称物性公开；完整布节点、控制掩码、层次和物理审计为私有证据。没有布料接触力或张力测量。",
+                "object_properties": [
+                  {
+                    "id": "towel",
+                    "label": "动态展开单件T恤",
+                    "nominal_mass_kg": 0.24,
+                    "basis": "冻结资产的名义厚度1.6毫米、质量240克；材料与求解器参数为仿真先验，未经实物标定。"
+                  }
+                ]
+              },
+              "reset_credit": false,
+              "episode_seed": 0,
+              "randomization": "Frozen finite initial XY placement and render-only fabric texture case; cloth shape, material, target and robot parameters are unchanged.",
+              "qualification_scope": "Robot joint actions with native geometry evidence; grasp forces and material calibration are not measured.",
+              "rule_profile": "laundry_single_garment_folding_task.v4",
+              "tolerance_basis": "User-authorized practical simulation tolerances; engineering priors, not material calibration.",
+              "control_mode": "robot_joint_targets",
+              "robot_configuration_id": "single_arm",
+              "material_contract": {
+                "schema": "laundry_asset_material_contract.v1",
+                "material_profile": "shirt_16mm_density_v1",
+                "cloths": [
+                  {
+                    "id": "towel",
+                    "physical_thickness_m": 0.0016,
+                    "mass_kg": 0.24
+                  }
+                ]
+              }
+            }
+          },
+          "qualification": {
+            "status": "prepared_unvalidated",
+            "native_preflight": false,
+            "agent_bench_interface": false,
+            "workspace_ik": false,
+            "workspace_clearance": false,
+            "robot_manipulation": false,
+            "physics_accepted": false,
+            "scope": "Immutable XY/albedo case inputs; validation evidence remains external and episode outcomes are not inherited."
+          }
+        },
+        "dual_same_side": {
+          "source_release": {
+            "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication02/releases/shirt_folding/dual_same_side",
+            "manifest_sha256": "ff21b2ea12df143eb129b7b0113c85703a2f3c9982e4517fa1d0449cdb8cc7cf"
+          },
+          "release_schema": "laundry_randomized_release.v1",
+          "release_schema_version": "isaacsim-laundry-randomized-release-v1",
+          "robot_requirements": {
+            "hand_id": "dual_fr3_sharpa_w01",
+            "assembly_version": "isaacsim_6_1_v2",
+            "articulations": 2,
+            "active_sides": [
+              "left",
+              "right"
+            ]
+          },
+          "layout": {
+            "robot_layout_id": "laundry_dual_same_side_sharpa_v2",
+            "placements": {
+              "left": {
+                "base_position_m": [
+                  0.45,
+                  -1.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "left"
+              },
+              "right": {
+                "base_position_m": [
+                  1.05,
+                  -1.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "right"
+              }
+            },
+            "reference_surface": "unchanged laundry folding table",
+            "frame": "world",
+            "units": "metres",
+            "control_scope": "one_agent_58_dof"
+          },
+          "objects": {
+            "roles": [
+              "towel"
+            ],
+            "model": "live_surface_deformable",
+            "material_profile": "shirt_16mm_density_v1",
+            "cloths": [
+              {
+                "id": "towel",
+                "mass_kg": 0.24,
+                "physical_thickness_m": 0.0016
+              }
+            ],
+            "properties_basis": "simulation_priors",
+            "material_calibrated": false
+          },
+          "rules": {
+            "implementation": "scenes.workrooms.laundry_room.rules:configuration_rules",
+            "contract": {
+              "schema": "laundry_rules.v4",
+              "task_id": "shirt_folding",
+              "instruction_zh": "把台面上展开的单件T恤整理折好：将左右袖部向内收拢，再将下摆向领口方向对折，形成紧凑、基本对齐的折形，放在台面目标区域并完全松手。",
+              "referee": {
+                "schema": "physical_task_referee_contract.v1",
+                "task_id": "shirt_folding",
+                "instruction_zh": "把台面上展开的单件T恤整理折好：将左右袖部向内收拢，再将下摆向领口方向对折，形成紧凑、基本对齐的折形，放在台面目标区域并完全松手。",
+                "phases": {
+                  "working": "整理任务T恤。",
+                  "settling": "机器人与全部任务衣物完全分离，等待放置稳定。"
+                },
+                "reason_descriptions": {
+                  "reset_baseline_not_scored": "初态只建立基准，不得分。",
+                  "task_in_progress": "目标或必要操作尚未完成，可继续调整。",
+                  "waiting_for_release_and_stability": "需释放全部外部控制并保持稳定。",
+                  "success": "形状、位置与支撑合格，全部释放后保持稳定；小幅仿真抖动不单独判失败。",
+                  "native_evidence_unknown": "原生记录缺失或不连续，本次不评分。",
+                  "physics_safety_stop": "明显穿透、异常大幅拉伸或大范围交叉，停止本次任务。",
+                  "incomplete_budget": "预算耗尽，任务未完成。",
+                  "contact_recovery_required": "交叉尺度、接触或局部变形尚超出实用容差，可继续整理；恢复后重新计稳定时间。"
+                },
+                "success_conditions": [
+                  "初态只有一件展开的T恤；必须实际折叠本件衣物，不是搬运已折成品，也不是叠到另一件衣物上。",
+                  "不限定抓取点和动作先后，只检查最终折叠结果；衣物可在台面内整体旋转和小幅偏移，允许自然褶皱与边角不完全重合。",
+                  "按材料对应关系检查整件折形：刚体对齐后的形状RMS不超过3厘米、形状误差P95不超过6厘米；允许在台面参考区域中心15厘米内放置，仍须完整折形与实际台面支撑，不能只压成小团或只缩小外包围框。",
+                  "至少85%的对应材料层具有正确上下顺序，XY相对位置误差不超过3厘米；层距至少为0.5毫米和名义厚度一半中的较大值，最多为参考层距加25毫米。单件折叠允许自然褶皱和未压平的折层空气，也允许空气层压实；整件形状、额外高度不超过4厘米和天然衣片厚度仍须分别合格。至少85%的目标底面采样须由原有台面实际支撑。",
+                  "缝合衣物的天然前后衣片另行检查：至少85%的冻结对应点保留不小于材料厚度45%的有向层距，不能把天然双面完全压成零厚度；长裤允许任一裤腿翻到另一裤腿上。",
+                  "重力和碰撞保持启用，无隐藏固定点；完全释放后保持连续0.5秒，原始/位置差分节点速度P95均不超过8厘米/秒，所有节点漂移不超过1.5厘米。",
+                  "允许最多2毫米接触包络压入和1.5倍局部边长。最终可保留少量局部布面交叉，但须同时满足：单对交线不超过12毫米、逐对保守总长不超过75毫米、连通缺陷簇直径不超过20毫米、涉及的唯一材料三角形面积不超过整件的0.2%、共面重叠面积之和不超过1平方毫米；原始交叉对数完整保留，不凭对数放行。",
+                  "初态、被动下落和无衣物动作不能得分；需实际控制操作与至少2.5厘米材料位移。",
+                  "至少一只手在同一连续实际手部几何接近段内净移动1厘米，且衣物在该段内移动至少2.5厘米；接触离开后不能追认之前的被动位移。",
+                  "全部机器人碰撞形状与本件衣物分离后才开始释放稳定计时；不要求零抖动或固定双手动作顺序。",
+                  "较大的局部交叉须恢复后重新计稳定；交线单对超过5厘米、保守总长超过50厘米、单簇直径超过10厘米、受影响材料面积超过2%或共面重叠面积之和超过50平方毫米会停止任务。缺失或截断的交叉尺度证据不得分。"
+                ],
+                "recovery": [
+                  "允许重抓、纠偏与重新整理；未达到目标时可继续。",
+                  "局部接触异常、放置不准或释放后滑动可调整后重试；稳定时间从恢复并完全松手后重新计算。"
+                ],
+                "thresholds": {
+                  "stable_s": 0.5,
+                  "max_time_s": 120.0,
+                  "max_grasp_patches": 2,
+                  "max_grasp_patch_diameter_m": 0.075,
+                  "max_node_speed_m_s": 0.08,
+                  "stable_node_drift_m": 0.015,
+                  "max_edge_stretch_ratio": 1.5,
+                  "min_triangle_area_ratio": 0.01,
+                  "max_penetration_m": 0.002,
+                  "operation_displacement_m": 0.025,
+                  "flat_target_rms_m": 0.03,
+                  "flat_target_max_m": 0.07,
+                  "flat_projected_area_ratio_min": 0.9,
+                  "flat_height_range_m": 0.025,
+                  "placement_error_m": 0.15,
+                  "folded_pair_rms_m": 0.03,
+                  "folded_pair_max_m": 0.06,
+                  "layer_gap_min_m": 0.001,
+                  "layer_gap_max_m": 0.025,
+                  "layer_order_fraction_min": 0.85,
+                  "support_gap_max_m": 0.012,
+                  "stacking_alignment_m": 0.05,
+                  "stacking_gap_min_m": 0.0005,
+                  "stacking_gap_max_m": 0.02,
+                  "speed_node_percentile": 95.0,
+                  "folded_extent_tolerance_m": 0.05,
+                  "folded_height_range_m": 0.04,
+                  "stacking_support_fraction_min": 0.85,
+                  "hard_penetration_m": 0.01,
+                  "hard_edge_stretch_ratio": 2.0,
+                  "garment_shape_rms_m": 0.03,
+                  "garment_shape_p95_m": 0.06,
+                  "garment_extent_tolerance_m": 0.05,
+                  "garment_height_excess_m": 0.04,
+                  "garment_projected_area_ratio_min": 0.8,
+                  "garment_projected_area_ratio_max": 1.2,
+                  "garment_layer_gap_min_m": 0.0005,
+                  "garment_layer_gap_error_m": 0.025,
+                  "garment_layer_xy_error_m": 0.03,
+                  "garment_layer_fraction_min": 0.85,
+                  "garment_table_support_fraction_min": 0.85,
+                  "garment_layer_thickness_ratio_min": 0.5,
+                  "garment_shell_layer_thickness_ratio_min": 0.45,
+                  "garment_shell_layer_fraction_min": 0.85,
+                  "crossing_pair_length_max_m": 0.012,
+                  "crossing_total_length_max_m": 0.075,
+                  "crossing_component_diameter_max_m": 0.02,
+                  "crossing_rest_area_fraction_max": 0.002,
+                  "crossing_coplanar_area_max_m2": 1e-06,
+                  "hard_crossing_pair_length_m": 0.05,
+                  "hard_crossing_total_length_m": 0.5,
+                  "hard_crossing_component_diameter_m": 0.1,
+                  "hard_crossing_rest_area_fraction": 0.02,
+                  "hard_crossing_coplanar_area_m2": 5e-05
+                },
+                "outcomes": {
+                  "ongoing": "可以继续。",
+                  "success": "本次控制模式下完成。",
+                  "task_failure": "任务失败。",
+                  "evaluator_invalid": "证据不完整，不评分。",
+                  "safety_stop": "物理异常停止。",
+                  "budget_exhaustion": "未完成。",
+                  "cancelled": "取消。"
+                },
+                "physical_actions": "一个Agent同时控制两台FR3和官方左、右SHARPA，共58个关节。只接受机器人关节目标；不允许直接写布节点、隐藏固定点或工程抓持。允许重抓与整理，不要求固定的双手动作顺序。",
+                "observation_scope": "规则和标称物性公开；完整布节点、控制掩码、层次和物理审计为私有证据。没有布料接触力或张力测量。",
+                "object_properties": [
+                  {
+                    "id": "towel",
+                    "label": "动态展开单件T恤",
+                    "nominal_mass_kg": 0.24,
+                    "basis": "冻结资产的名义厚度1.6毫米、质量240克；材料与求解器参数为仿真先验，未经实物标定。"
+                  }
+                ]
+              },
+              "reset_credit": false,
+              "episode_seed": 0,
+              "randomization": "Frozen finite initial XY placement and render-only fabric texture case; cloth shape, material, target and robot parameters are unchanged.",
+              "qualification_scope": "Robot joint actions with native geometry evidence; grasp forces and material calibration are not measured.",
+              "rule_profile": "laundry_single_garment_folding_task.v4",
+              "tolerance_basis": "User-authorized practical simulation tolerances; engineering priors, not material calibration.",
+              "control_mode": "robot_joint_targets",
+              "robot_configuration_id": "dual_same_side",
+              "material_contract": {
+                "schema": "laundry_asset_material_contract.v1",
+                "material_profile": "shirt_16mm_density_v1",
+                "cloths": [
+                  {
+                    "id": "towel",
+                    "physical_thickness_m": 0.0016,
+                    "mass_kg": 0.24
+                  }
+                ]
+              }
+            }
+          },
+          "qualification": {
+            "status": "prepared_unvalidated",
+            "native_preflight": false,
+            "agent_bench_interface": false,
+            "workspace_ik": false,
+            "workspace_clearance": false,
+            "robot_manipulation": false,
+            "physics_accepted": false,
+            "scope": "Immutable XY/albedo case inputs; validation evidence remains external and episode outcomes are not inherited."
+          }
+        },
+        "dual_opposed": {
+          "source_release": {
+            "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/shirt_folding/dual_opposed",
+            "manifest_sha256": "7737243f13e3197c47fc630ef60514fe0956fd2abb30f39c89d631320c67c390"
+          },
+          "release_schema": "laundry_randomized_release.v1",
+          "release_schema_version": "isaacsim-laundry-randomized-release-v1",
+          "robot_requirements": {
+            "hand_id": "dual_fr3_sharpa_w01",
+            "assembly_version": "isaacsim_6_1_v2",
+            "articulations": 2,
+            "active_sides": [
+              "left",
+              "right"
+            ]
+          },
+          "layout": {
+            "robot_layout_id": "laundry_dual_opposed_sharpa_v2",
+            "placements": {
+              "left": {
+                "base_position_m": [
+                  0.75,
+                  0.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  -0.7071067811865475
+                ],
+                "base_yaw_rad": -1.5707963267948966,
+                "hand_chirality": "left"
+              },
+              "right": {
+                "base_position_m": [
+                  0.75,
+                  -1.25,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "right"
+              }
+            },
+            "reference_surface": "unchanged laundry folding table",
+            "frame": "world",
+            "units": "metres",
+            "control_scope": "one_agent_58_dof"
+          },
+          "objects": {
+            "roles": [
+              "towel"
+            ],
+            "model": "live_surface_deformable",
+            "material_profile": "shirt_16mm_density_v1",
+            "cloths": [
+              {
+                "id": "towel",
+                "mass_kg": 0.24,
+                "physical_thickness_m": 0.0016
+              }
+            ],
+            "properties_basis": "simulation_priors",
+            "material_calibrated": false
+          },
+          "rules": {
+            "implementation": "scenes.workrooms.laundry_room.rules:configuration_rules",
+            "contract": {
+              "schema": "laundry_rules.v4",
+              "task_id": "shirt_folding",
+              "instruction_zh": "把台面上展开的单件T恤整理折好：将左右袖部向内收拢，再将下摆向领口方向对折，形成紧凑、基本对齐的折形，放在台面目标区域并完全松手。",
+              "referee": {
+                "schema": "physical_task_referee_contract.v1",
+                "task_id": "shirt_folding",
+                "instruction_zh": "把台面上展开的单件T恤整理折好：将左右袖部向内收拢，再将下摆向领口方向对折，形成紧凑、基本对齐的折形，放在台面目标区域并完全松手。",
+                "phases": {
+                  "working": "整理任务T恤。",
+                  "settling": "机器人与全部任务衣物完全分离，等待放置稳定。"
+                },
+                "reason_descriptions": {
+                  "reset_baseline_not_scored": "初态只建立基准，不得分。",
+                  "task_in_progress": "目标或必要操作尚未完成，可继续调整。",
+                  "waiting_for_release_and_stability": "需释放全部外部控制并保持稳定。",
+                  "success": "形状、位置与支撑合格，全部释放后保持稳定；小幅仿真抖动不单独判失败。",
+                  "native_evidence_unknown": "原生记录缺失或不连续，本次不评分。",
+                  "physics_safety_stop": "明显穿透、异常大幅拉伸或大范围交叉，停止本次任务。",
+                  "incomplete_budget": "预算耗尽，任务未完成。",
+                  "contact_recovery_required": "交叉尺度、接触或局部变形尚超出实用容差，可继续整理；恢复后重新计稳定时间。"
+                },
+                "success_conditions": [
+                  "初态只有一件展开的T恤；必须实际折叠本件衣物，不是搬运已折成品，也不是叠到另一件衣物上。",
+                  "不限定抓取点和动作先后，只检查最终折叠结果；衣物可在台面内整体旋转和小幅偏移，允许自然褶皱与边角不完全重合。",
+                  "按材料对应关系检查整件折形：刚体对齐后的形状RMS不超过3厘米、形状误差P95不超过6厘米；允许在台面参考区域中心15厘米内放置，仍须完整折形与实际台面支撑，不能只压成小团或只缩小外包围框。",
+                  "至少85%的对应材料层具有正确上下顺序，XY相对位置误差不超过3厘米；层距至少为0.5毫米和名义厚度一半中的较大值，最多为参考层距加25毫米。单件折叠允许自然褶皱和未压平的折层空气，也允许空气层压实；整件形状、额外高度不超过4厘米和天然衣片厚度仍须分别合格。至少85%的目标底面采样须由原有台面实际支撑。",
+                  "缝合衣物的天然前后衣片另行检查：至少85%的冻结对应点保留不小于材料厚度45%的有向层距，不能把天然双面完全压成零厚度；长裤允许任一裤腿翻到另一裤腿上。",
+                  "重力和碰撞保持启用，无隐藏固定点；完全释放后保持连续0.5秒，原始/位置差分节点速度P95均不超过8厘米/秒，所有节点漂移不超过1.5厘米。",
+                  "允许最多2毫米接触包络压入和1.5倍局部边长。最终可保留少量局部布面交叉，但须同时满足：单对交线不超过12毫米、逐对保守总长不超过75毫米、连通缺陷簇直径不超过20毫米、涉及的唯一材料三角形面积不超过整件的0.2%、共面重叠面积之和不超过1平方毫米；原始交叉对数完整保留，不凭对数放行。",
+                  "初态、被动下落和无衣物动作不能得分；需实际控制操作与至少2.5厘米材料位移。",
+                  "至少一只手在同一连续实际手部几何接近段内净移动1厘米，且衣物在该段内移动至少2.5厘米；接触离开后不能追认之前的被动位移。",
+                  "全部机器人碰撞形状与本件衣物分离后才开始释放稳定计时；不要求零抖动或固定双手动作顺序。",
+                  "较大的局部交叉须恢复后重新计稳定；交线单对超过5厘米、保守总长超过50厘米、单簇直径超过10厘米、受影响材料面积超过2%或共面重叠面积之和超过50平方毫米会停止任务。缺失或截断的交叉尺度证据不得分。"
+                ],
+                "recovery": [
+                  "允许重抓、纠偏与重新整理；未达到目标时可继续。",
+                  "局部接触异常、放置不准或释放后滑动可调整后重试；稳定时间从恢复并完全松手后重新计算。"
+                ],
+                "thresholds": {
+                  "stable_s": 0.5,
+                  "max_time_s": 120.0,
+                  "max_grasp_patches": 2,
+                  "max_grasp_patch_diameter_m": 0.075,
+                  "max_node_speed_m_s": 0.08,
+                  "stable_node_drift_m": 0.015,
+                  "max_edge_stretch_ratio": 1.5,
+                  "min_triangle_area_ratio": 0.01,
+                  "max_penetration_m": 0.002,
+                  "operation_displacement_m": 0.025,
+                  "flat_target_rms_m": 0.03,
+                  "flat_target_max_m": 0.07,
+                  "flat_projected_area_ratio_min": 0.9,
+                  "flat_height_range_m": 0.025,
+                  "placement_error_m": 0.15,
+                  "folded_pair_rms_m": 0.03,
+                  "folded_pair_max_m": 0.06,
+                  "layer_gap_min_m": 0.001,
+                  "layer_gap_max_m": 0.025,
+                  "layer_order_fraction_min": 0.85,
+                  "support_gap_max_m": 0.012,
+                  "stacking_alignment_m": 0.05,
+                  "stacking_gap_min_m": 0.0005,
+                  "stacking_gap_max_m": 0.02,
+                  "speed_node_percentile": 95.0,
+                  "folded_extent_tolerance_m": 0.05,
+                  "folded_height_range_m": 0.04,
+                  "stacking_support_fraction_min": 0.85,
+                  "hard_penetration_m": 0.01,
+                  "hard_edge_stretch_ratio": 2.0,
+                  "garment_shape_rms_m": 0.03,
+                  "garment_shape_p95_m": 0.06,
+                  "garment_extent_tolerance_m": 0.05,
+                  "garment_height_excess_m": 0.04,
+                  "garment_projected_area_ratio_min": 0.8,
+                  "garment_projected_area_ratio_max": 1.2,
+                  "garment_layer_gap_min_m": 0.0005,
+                  "garment_layer_gap_error_m": 0.025,
+                  "garment_layer_xy_error_m": 0.03,
+                  "garment_layer_fraction_min": 0.85,
+                  "garment_table_support_fraction_min": 0.85,
+                  "garment_layer_thickness_ratio_min": 0.5,
+                  "garment_shell_layer_thickness_ratio_min": 0.45,
+                  "garment_shell_layer_fraction_min": 0.85,
+                  "crossing_pair_length_max_m": 0.012,
+                  "crossing_total_length_max_m": 0.075,
+                  "crossing_component_diameter_max_m": 0.02,
+                  "crossing_rest_area_fraction_max": 0.002,
+                  "crossing_coplanar_area_max_m2": 1e-06,
+                  "hard_crossing_pair_length_m": 0.05,
+                  "hard_crossing_total_length_m": 0.5,
+                  "hard_crossing_component_diameter_m": 0.1,
+                  "hard_crossing_rest_area_fraction": 0.02,
+                  "hard_crossing_coplanar_area_m2": 5e-05
+                },
+                "outcomes": {
+                  "ongoing": "可以继续。",
+                  "success": "本次控制模式下完成。",
+                  "task_failure": "任务失败。",
+                  "evaluator_invalid": "证据不完整，不评分。",
+                  "safety_stop": "物理异常停止。",
+                  "budget_exhaustion": "未完成。",
+                  "cancelled": "取消。"
+                },
+                "physical_actions": "一个Agent同时控制两台FR3和官方左、右SHARPA，共58个关节。只接受机器人关节目标；不允许直接写布节点、隐藏固定点或工程抓持。允许重抓与整理，不要求固定的双手动作顺序。",
+                "observation_scope": "规则和标称物性公开；完整布节点、控制掩码、层次和物理审计为私有证据。没有布料接触力或张力测量。",
+                "object_properties": [
+                  {
+                    "id": "towel",
+                    "label": "动态展开单件T恤",
+                    "nominal_mass_kg": 0.24,
+                    "basis": "冻结资产的名义厚度1.6毫米、质量240克；材料与求解器参数为仿真先验，未经实物标定。"
+                  }
+                ]
+              },
+              "reset_credit": false,
+              "episode_seed": 0,
+              "randomization": "Frozen finite initial XY placement and render-only fabric texture case; cloth shape, material, target and robot parameters are unchanged.",
+              "qualification_scope": "Robot joint actions with native geometry evidence; grasp forces and material calibration are not measured.",
+              "rule_profile": "laundry_single_garment_folding_task.v4",
+              "tolerance_basis": "User-authorized practical simulation tolerances; engineering priors, not material calibration.",
+              "control_mode": "robot_joint_targets",
+              "robot_configuration_id": "dual_opposed",
+              "material_contract": {
+                "schema": "laundry_asset_material_contract.v1",
+                "material_profile": "shirt_16mm_density_v1",
+                "cloths": [
+                  {
+                    "id": "towel",
+                    "physical_thickness_m": 0.0016,
+                    "mass_kg": 0.24
+                  }
+                ]
+              }
+            }
+          },
+          "qualification": {
+            "status": "prepared_unvalidated",
+            "native_preflight": false,
+            "agent_bench_interface": false,
+            "workspace_ik": false,
+            "workspace_clearance": false,
+            "robot_manipulation": false,
+            "physics_accepted": false,
+            "scope": "Immutable XY/albedo case inputs; validation evidence remains external and episode outcomes are not inherited."
+          }
+        }
+      }
+    },
+    "trousers_folding": {
+      "family": "laundry_room",
+      "task_id": "trousers_folding",
+      "default_configuration_id": "dual_opposed",
+      "base_release": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/trousers_folding/dual_opposed",
+        "manifest_sha256": "6917a8d67fb17d8859ccd77a79a67870af04ce2d22e97461dfc6e6082b52c257"
+      },
+      "configurations": {
+        "single_arm": {
+          "source_release": {
+            "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/trousers_folding/single_arm",
+            "manifest_sha256": "211e8e51b95e092dc386bcfa043ac3f5f9885aafb8f49c943dad7864b721c616"
+          },
+          "release_schema": "laundry_randomized_release.v1",
+          "release_schema_version": "isaacsim-laundry-randomized-release-v1",
+          "robot_requirements": {
+            "hand_id": "sharpa_w01_right",
+            "assembly_version": "isaacsim_6_1_v2",
+            "articulations": 1,
+            "active_sides": [
+              "right"
+            ]
+          },
+          "layout": {
+            "robot_layout_id": "laundry_single_arm_sharpa_v2",
+            "placements": {
+              "right": {
+                "base_position_m": [
+                  0.75,
+                  -1.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "right"
+              }
+            },
+            "reference_surface": "unchanged laundry folding table",
+            "frame": "world",
+            "units": "metres",
+            "control_scope": "one_agent_29_dof"
+          },
+          "objects": {
+            "roles": [
+              "towel"
+            ],
+            "model": "live_surface_deformable",
+            "material_profile": "trousers_18mm_density_v1",
+            "cloths": [
+              {
+                "id": "towel",
+                "mass_kg": 0.39,
+                "physical_thickness_m": 0.0018
+              }
+            ],
+            "properties_basis": "simulation_priors",
+            "material_calibrated": false
+          },
+          "rules": {
+            "implementation": "scenes.workrooms.laundry_room.rules:configuration_rules",
+            "contract": {
+              "schema": "laundry_rules.v4",
+              "task_id": "trousers_folding",
+              "instruction_zh": "把台面上展开的单件长裤整理折好：先将两条裤腿对齐折在一起，再将裤脚向腰部方向对折，形成紧凑、基本对齐的折形，放在台面目标区域并完全松手。",
+              "referee": {
+                "schema": "physical_task_referee_contract.v1",
+                "task_id": "trousers_folding",
+                "instruction_zh": "把台面上展开的单件长裤整理折好：先将两条裤腿对齐折在一起，再将裤脚向腰部方向对折，形成紧凑、基本对齐的折形，放在台面目标区域并完全松手。",
+                "phases": {
+                  "working": "整理任务长裤。",
+                  "settling": "机器人与全部任务衣物完全分离，等待放置稳定。"
+                },
+                "reason_descriptions": {
+                  "reset_baseline_not_scored": "初态只建立基准，不得分。",
+                  "task_in_progress": "目标或必要操作尚未完成，可继续调整。",
+                  "waiting_for_release_and_stability": "需释放全部外部控制并保持稳定。",
+                  "success": "形状、位置与支撑合格，全部释放后保持稳定；小幅仿真抖动不单独判失败。",
+                  "native_evidence_unknown": "原生记录缺失或不连续，本次不评分。",
+                  "physics_safety_stop": "明显穿透、异常大幅拉伸或大范围交叉，停止本次任务。",
+                  "incomplete_budget": "预算耗尽，任务未完成。",
+                  "contact_recovery_required": "交叉尺度、接触或局部变形尚超出实用容差，可继续整理；恢复后重新计稳定时间。"
+                },
+                "success_conditions": [
+                  "初态只有一件展开的长裤；必须实际折叠本件衣物，不是搬运已折成品，也不是叠到另一件衣物上。",
+                  "不限定抓取点和动作先后，只检查最终折叠结果；衣物可在台面内整体旋转和小幅偏移，允许自然褶皱与边角不完全重合。",
+                  "按材料对应关系检查整件折形：刚体对齐后的形状RMS不超过3厘米、形状误差P95不超过6厘米；允许在台面参考区域中心15厘米内放置，仍须完整折形与实际台面支撑，不能只压成小团或只缩小外包围框。",
+                  "至少85%的对应材料层具有正确上下顺序，XY相对位置误差不超过3厘米；层距至少为0.5毫米和名义厚度一半中的较大值，最多为参考层距加25毫米。单件折叠允许自然褶皱和未压平的折层空气，也允许空气层压实；整件形状、额外高度不超过4厘米和天然衣片厚度仍须分别合格。至少85%的目标底面采样须由原有台面实际支撑。",
+                  "缝合衣物的天然前后衣片另行检查：至少85%的冻结对应点保留不小于材料厚度45%的有向层距，不能把天然双面完全压成零厚度；长裤允许任一裤腿翻到另一裤腿上。",
+                  "重力和碰撞保持启用，无隐藏固定点；完全释放后保持连续0.5秒，原始/位置差分节点速度P95均不超过8厘米/秒，所有节点漂移不超过1.5厘米。",
+                  "允许最多2毫米接触包络压入和1.5倍局部边长。最终可保留少量局部布面交叉，但须同时满足：单对交线不超过12毫米、逐对保守总长不超过75毫米、连通缺陷簇直径不超过20毫米、涉及的唯一材料三角形面积不超过整件的0.2%、共面重叠面积之和不超过1平方毫米；原始交叉对数完整保留，不凭对数放行。",
+                  "初态、被动下落和无衣物动作不能得分；需实际控制操作与至少2.5厘米材料位移。",
+                  "至少一只手在同一连续实际手部几何接近段内净移动1厘米，且衣物在该段内移动至少2.5厘米；接触离开后不能追认之前的被动位移。",
+                  "全部机器人碰撞形状与本件衣物分离后才开始释放稳定计时；不要求零抖动或固定双手动作顺序。",
+                  "较大的局部交叉须恢复后重新计稳定；交线单对超过5厘米、保守总长超过50厘米、单簇直径超过10厘米、受影响材料面积超过2%或共面重叠面积之和超过50平方毫米会停止任务。缺失或截断的交叉尺度证据不得分。"
+                ],
+                "recovery": [
+                  "允许重抓、纠偏与重新整理；未达到目标时可继续。",
+                  "局部接触异常、放置不准或释放后滑动可调整后重试；稳定时间从恢复并完全松手后重新计算。"
+                ],
+                "thresholds": {
+                  "stable_s": 0.5,
+                  "max_time_s": 120.0,
+                  "max_grasp_patches": 2,
+                  "max_grasp_patch_diameter_m": 0.075,
+                  "max_node_speed_m_s": 0.08,
+                  "stable_node_drift_m": 0.015,
+                  "max_edge_stretch_ratio": 1.5,
+                  "min_triangle_area_ratio": 0.01,
+                  "max_penetration_m": 0.002,
+                  "operation_displacement_m": 0.025,
+                  "flat_target_rms_m": 0.03,
+                  "flat_target_max_m": 0.07,
+                  "flat_projected_area_ratio_min": 0.9,
+                  "flat_height_range_m": 0.025,
+                  "placement_error_m": 0.15,
+                  "folded_pair_rms_m": 0.03,
+                  "folded_pair_max_m": 0.06,
+                  "layer_gap_min_m": 0.001,
+                  "layer_gap_max_m": 0.025,
+                  "layer_order_fraction_min": 0.85,
+                  "support_gap_max_m": 0.012,
+                  "stacking_alignment_m": 0.05,
+                  "stacking_gap_min_m": 0.0005,
+                  "stacking_gap_max_m": 0.02,
+                  "speed_node_percentile": 95.0,
+                  "folded_extent_tolerance_m": 0.05,
+                  "folded_height_range_m": 0.04,
+                  "stacking_support_fraction_min": 0.85,
+                  "hard_penetration_m": 0.01,
+                  "hard_edge_stretch_ratio": 2.0,
+                  "garment_shape_rms_m": 0.03,
+                  "garment_shape_p95_m": 0.06,
+                  "garment_extent_tolerance_m": 0.05,
+                  "garment_height_excess_m": 0.04,
+                  "garment_projected_area_ratio_min": 0.8,
+                  "garment_projected_area_ratio_max": 1.2,
+                  "garment_layer_gap_min_m": 0.0005,
+                  "garment_layer_gap_error_m": 0.025,
+                  "garment_layer_xy_error_m": 0.03,
+                  "garment_layer_fraction_min": 0.85,
+                  "garment_table_support_fraction_min": 0.85,
+                  "garment_layer_thickness_ratio_min": 0.5,
+                  "garment_shell_layer_thickness_ratio_min": 0.45,
+                  "garment_shell_layer_fraction_min": 0.85,
+                  "crossing_pair_length_max_m": 0.012,
+                  "crossing_total_length_max_m": 0.075,
+                  "crossing_component_diameter_max_m": 0.02,
+                  "crossing_rest_area_fraction_max": 0.002,
+                  "crossing_coplanar_area_max_m2": 1e-06,
+                  "hard_crossing_pair_length_m": 0.05,
+                  "hard_crossing_total_length_m": 0.5,
+                  "hard_crossing_component_diameter_m": 0.1,
+                  "hard_crossing_rest_area_fraction": 0.02,
+                  "hard_crossing_coplanar_area_m2": 5e-05
+                },
+                "outcomes": {
+                  "ongoing": "可以继续。",
+                  "success": "本次控制模式下完成。",
+                  "task_failure": "任务失败。",
+                  "evaluator_invalid": "证据不完整，不评分。",
+                  "safety_stop": "物理异常停止。",
+                  "budget_exhaustion": "未完成。",
+                  "cancelled": "取消。"
+                },
+                "physical_actions": "一个Agent控制一台FR3和官方右SHARPA，共29个关节。只接受机器人关节目标；不允许直接写布节点、隐藏固定点或工程抓持。允许单手重抓、借助台面整理，不要求双手同时操作。",
+                "observation_scope": "规则和标称物性公开；完整布节点、控制掩码、层次和物理审计为私有证据。没有布料接触力或张力测量。",
+                "object_properties": [
+                  {
+                    "id": "towel",
+                    "label": "动态展开单件长裤",
+                    "nominal_mass_kg": 0.39,
+                    "basis": "冻结资产的名义厚度1.8毫米、质量390克；材料与求解器参数为仿真先验，未经实物标定。"
+                  }
+                ]
+              },
+              "reset_credit": false,
+              "episode_seed": 0,
+              "randomization": "Frozen finite initial XY placement and render-only fabric texture case; cloth shape, material, target and robot parameters are unchanged.",
+              "qualification_scope": "Robot joint actions with native geometry evidence; grasp forces and material calibration are not measured.",
+              "rule_profile": "laundry_single_garment_folding_task.v4",
+              "tolerance_basis": "User-authorized practical simulation tolerances; engineering priors, not material calibration.",
+              "control_mode": "robot_joint_targets",
+              "robot_configuration_id": "single_arm",
+              "material_contract": {
+                "schema": "laundry_asset_material_contract.v1",
+                "material_profile": "trousers_18mm_density_v1",
+                "cloths": [
+                  {
+                    "id": "towel",
+                    "physical_thickness_m": 0.0018,
+                    "mass_kg": 0.39
+                  }
+                ]
+              }
+            }
+          },
+          "qualification": {
+            "status": "prepared_unvalidated",
+            "native_preflight": false,
+            "agent_bench_interface": false,
+            "workspace_ik": false,
+            "workspace_clearance": false,
+            "robot_manipulation": false,
+            "physics_accepted": false,
+            "scope": "Immutable XY/albedo case inputs; validation evidence remains external and episode outcomes are not inherited."
+          }
+        },
+        "dual_same_side": {
+          "source_release": {
+            "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/trousers_folding/dual_same_side",
+            "manifest_sha256": "40925322de8fc24fbf13d641b9b18057939d204cb1ef25e87d8acec671102d96"
+          },
+          "release_schema": "laundry_randomized_release.v1",
+          "release_schema_version": "isaacsim-laundry-randomized-release-v1",
+          "robot_requirements": {
+            "hand_id": "dual_fr3_sharpa_w01",
+            "assembly_version": "isaacsim_6_1_v2",
+            "articulations": 2,
+            "active_sides": [
+              "left",
+              "right"
+            ]
+          },
+          "layout": {
+            "robot_layout_id": "laundry_dual_same_side_sharpa_v2",
+            "placements": {
+              "left": {
+                "base_position_m": [
+                  0.45,
+                  -1.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "left"
+              },
+              "right": {
+                "base_position_m": [
+                  1.05,
+                  -1.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "right"
+              }
+            },
+            "reference_surface": "unchanged laundry folding table",
+            "frame": "world",
+            "units": "metres",
+            "control_scope": "one_agent_58_dof"
+          },
+          "objects": {
+            "roles": [
+              "towel"
+            ],
+            "model": "live_surface_deformable",
+            "material_profile": "trousers_18mm_density_v1",
+            "cloths": [
+              {
+                "id": "towel",
+                "mass_kg": 0.39,
+                "physical_thickness_m": 0.0018
+              }
+            ],
+            "properties_basis": "simulation_priors",
+            "material_calibrated": false
+          },
+          "rules": {
+            "implementation": "scenes.workrooms.laundry_room.rules:configuration_rules",
+            "contract": {
+              "schema": "laundry_rules.v4",
+              "task_id": "trousers_folding",
+              "instruction_zh": "把台面上展开的单件长裤整理折好：先将两条裤腿对齐折在一起，再将裤脚向腰部方向对折，形成紧凑、基本对齐的折形，放在台面目标区域并完全松手。",
+              "referee": {
+                "schema": "physical_task_referee_contract.v1",
+                "task_id": "trousers_folding",
+                "instruction_zh": "把台面上展开的单件长裤整理折好：先将两条裤腿对齐折在一起，再将裤脚向腰部方向对折，形成紧凑、基本对齐的折形，放在台面目标区域并完全松手。",
+                "phases": {
+                  "working": "整理任务长裤。",
+                  "settling": "机器人与全部任务衣物完全分离，等待放置稳定。"
+                },
+                "reason_descriptions": {
+                  "reset_baseline_not_scored": "初态只建立基准，不得分。",
+                  "task_in_progress": "目标或必要操作尚未完成，可继续调整。",
+                  "waiting_for_release_and_stability": "需释放全部外部控制并保持稳定。",
+                  "success": "形状、位置与支撑合格，全部释放后保持稳定；小幅仿真抖动不单独判失败。",
+                  "native_evidence_unknown": "原生记录缺失或不连续，本次不评分。",
+                  "physics_safety_stop": "明显穿透、异常大幅拉伸或大范围交叉，停止本次任务。",
+                  "incomplete_budget": "预算耗尽，任务未完成。",
+                  "contact_recovery_required": "交叉尺度、接触或局部变形尚超出实用容差，可继续整理；恢复后重新计稳定时间。"
+                },
+                "success_conditions": [
+                  "初态只有一件展开的长裤；必须实际折叠本件衣物，不是搬运已折成品，也不是叠到另一件衣物上。",
+                  "不限定抓取点和动作先后，只检查最终折叠结果；衣物可在台面内整体旋转和小幅偏移，允许自然褶皱与边角不完全重合。",
+                  "按材料对应关系检查整件折形：刚体对齐后的形状RMS不超过3厘米、形状误差P95不超过6厘米；允许在台面参考区域中心15厘米内放置，仍须完整折形与实际台面支撑，不能只压成小团或只缩小外包围框。",
+                  "至少85%的对应材料层具有正确上下顺序，XY相对位置误差不超过3厘米；层距至少为0.5毫米和名义厚度一半中的较大值，最多为参考层距加25毫米。单件折叠允许自然褶皱和未压平的折层空气，也允许空气层压实；整件形状、额外高度不超过4厘米和天然衣片厚度仍须分别合格。至少85%的目标底面采样须由原有台面实际支撑。",
+                  "缝合衣物的天然前后衣片另行检查：至少85%的冻结对应点保留不小于材料厚度45%的有向层距，不能把天然双面完全压成零厚度；长裤允许任一裤腿翻到另一裤腿上。",
+                  "重力和碰撞保持启用，无隐藏固定点；完全释放后保持连续0.5秒，原始/位置差分节点速度P95均不超过8厘米/秒，所有节点漂移不超过1.5厘米。",
+                  "允许最多2毫米接触包络压入和1.5倍局部边长。最终可保留少量局部布面交叉，但须同时满足：单对交线不超过12毫米、逐对保守总长不超过75毫米、连通缺陷簇直径不超过20毫米、涉及的唯一材料三角形面积不超过整件的0.2%、共面重叠面积之和不超过1平方毫米；原始交叉对数完整保留，不凭对数放行。",
+                  "初态、被动下落和无衣物动作不能得分；需实际控制操作与至少2.5厘米材料位移。",
+                  "至少一只手在同一连续实际手部几何接近段内净移动1厘米，且衣物在该段内移动至少2.5厘米；接触离开后不能追认之前的被动位移。",
+                  "全部机器人碰撞形状与本件衣物分离后才开始释放稳定计时；不要求零抖动或固定双手动作顺序。",
+                  "较大的局部交叉须恢复后重新计稳定；交线单对超过5厘米、保守总长超过50厘米、单簇直径超过10厘米、受影响材料面积超过2%或共面重叠面积之和超过50平方毫米会停止任务。缺失或截断的交叉尺度证据不得分。"
+                ],
+                "recovery": [
+                  "允许重抓、纠偏与重新整理；未达到目标时可继续。",
+                  "局部接触异常、放置不准或释放后滑动可调整后重试；稳定时间从恢复并完全松手后重新计算。"
+                ],
+                "thresholds": {
+                  "stable_s": 0.5,
+                  "max_time_s": 120.0,
+                  "max_grasp_patches": 2,
+                  "max_grasp_patch_diameter_m": 0.075,
+                  "max_node_speed_m_s": 0.08,
+                  "stable_node_drift_m": 0.015,
+                  "max_edge_stretch_ratio": 1.5,
+                  "min_triangle_area_ratio": 0.01,
+                  "max_penetration_m": 0.002,
+                  "operation_displacement_m": 0.025,
+                  "flat_target_rms_m": 0.03,
+                  "flat_target_max_m": 0.07,
+                  "flat_projected_area_ratio_min": 0.9,
+                  "flat_height_range_m": 0.025,
+                  "placement_error_m": 0.15,
+                  "folded_pair_rms_m": 0.03,
+                  "folded_pair_max_m": 0.06,
+                  "layer_gap_min_m": 0.001,
+                  "layer_gap_max_m": 0.025,
+                  "layer_order_fraction_min": 0.85,
+                  "support_gap_max_m": 0.012,
+                  "stacking_alignment_m": 0.05,
+                  "stacking_gap_min_m": 0.0005,
+                  "stacking_gap_max_m": 0.02,
+                  "speed_node_percentile": 95.0,
+                  "folded_extent_tolerance_m": 0.05,
+                  "folded_height_range_m": 0.04,
+                  "stacking_support_fraction_min": 0.85,
+                  "hard_penetration_m": 0.01,
+                  "hard_edge_stretch_ratio": 2.0,
+                  "garment_shape_rms_m": 0.03,
+                  "garment_shape_p95_m": 0.06,
+                  "garment_extent_tolerance_m": 0.05,
+                  "garment_height_excess_m": 0.04,
+                  "garment_projected_area_ratio_min": 0.8,
+                  "garment_projected_area_ratio_max": 1.2,
+                  "garment_layer_gap_min_m": 0.0005,
+                  "garment_layer_gap_error_m": 0.025,
+                  "garment_layer_xy_error_m": 0.03,
+                  "garment_layer_fraction_min": 0.85,
+                  "garment_table_support_fraction_min": 0.85,
+                  "garment_layer_thickness_ratio_min": 0.5,
+                  "garment_shell_layer_thickness_ratio_min": 0.45,
+                  "garment_shell_layer_fraction_min": 0.85,
+                  "crossing_pair_length_max_m": 0.012,
+                  "crossing_total_length_max_m": 0.075,
+                  "crossing_component_diameter_max_m": 0.02,
+                  "crossing_rest_area_fraction_max": 0.002,
+                  "crossing_coplanar_area_max_m2": 1e-06,
+                  "hard_crossing_pair_length_m": 0.05,
+                  "hard_crossing_total_length_m": 0.5,
+                  "hard_crossing_component_diameter_m": 0.1,
+                  "hard_crossing_rest_area_fraction": 0.02,
+                  "hard_crossing_coplanar_area_m2": 5e-05
+                },
+                "outcomes": {
+                  "ongoing": "可以继续。",
+                  "success": "本次控制模式下完成。",
+                  "task_failure": "任务失败。",
+                  "evaluator_invalid": "证据不完整，不评分。",
+                  "safety_stop": "物理异常停止。",
+                  "budget_exhaustion": "未完成。",
+                  "cancelled": "取消。"
+                },
+                "physical_actions": "一个Agent同时控制两台FR3和官方左、右SHARPA，共58个关节。只接受机器人关节目标；不允许直接写布节点、隐藏固定点或工程抓持。允许重抓与整理，不要求固定的双手动作顺序。",
+                "observation_scope": "规则和标称物性公开；完整布节点、控制掩码、层次和物理审计为私有证据。没有布料接触力或张力测量。",
+                "object_properties": [
+                  {
+                    "id": "towel",
+                    "label": "动态展开单件长裤",
+                    "nominal_mass_kg": 0.39,
+                    "basis": "冻结资产的名义厚度1.8毫米、质量390克；材料与求解器参数为仿真先验，未经实物标定。"
+                  }
+                ]
+              },
+              "reset_credit": false,
+              "episode_seed": 0,
+              "randomization": "Frozen finite initial XY placement and render-only fabric texture case; cloth shape, material, target and robot parameters are unchanged.",
+              "qualification_scope": "Robot joint actions with native geometry evidence; grasp forces and material calibration are not measured.",
+              "rule_profile": "laundry_single_garment_folding_task.v4",
+              "tolerance_basis": "User-authorized practical simulation tolerances; engineering priors, not material calibration.",
+              "control_mode": "robot_joint_targets",
+              "robot_configuration_id": "dual_same_side",
+              "material_contract": {
+                "schema": "laundry_asset_material_contract.v1",
+                "material_profile": "trousers_18mm_density_v1",
+                "cloths": [
+                  {
+                    "id": "towel",
+                    "physical_thickness_m": 0.0018,
+                    "mass_kg": 0.39
+                  }
+                ]
+              }
+            }
+          },
+          "qualification": {
+            "status": "prepared_unvalidated",
+            "native_preflight": false,
+            "agent_bench_interface": false,
+            "workspace_ik": false,
+            "workspace_clearance": false,
+            "robot_manipulation": false,
+            "physics_accepted": false,
+            "scope": "Immutable XY/albedo case inputs; validation evidence remains external and episode outcomes are not inherited."
+          }
+        },
+        "dual_opposed": {
+          "source_release": {
+            "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laundry_initial_randomization_v1/publication01/releases/trousers_folding/dual_opposed",
+            "manifest_sha256": "6917a8d67fb17d8859ccd77a79a67870af04ce2d22e97461dfc6e6082b52c257"
+          },
+          "release_schema": "laundry_randomized_release.v1",
+          "release_schema_version": "isaacsim-laundry-randomized-release-v1",
+          "robot_requirements": {
+            "hand_id": "dual_fr3_sharpa_w01",
+            "assembly_version": "isaacsim_6_1_v2",
+            "articulations": 2,
+            "active_sides": [
+              "left",
+              "right"
+            ]
+          },
+          "layout": {
+            "robot_layout_id": "laundry_dual_opposed_sharpa_v2",
+            "placements": {
+              "left": {
+                "base_position_m": [
+                  0.75,
+                  0.15,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  -0.7071067811865475
+                ],
+                "base_yaw_rad": -1.5707963267948966,
+                "hand_chirality": "left"
+              },
+              "right": {
+                "base_position_m": [
+                  0.75,
+                  -1.25,
+                  0.9
+                ],
+                "base_quaternion_wxyz": [
+                  0.7071067811865476,
+                  0.0,
+                  0.0,
+                  0.7071067811865475
+                ],
+                "base_yaw_rad": 1.5707963267948966,
+                "hand_chirality": "right"
+              }
+            },
+            "reference_surface": "unchanged laundry folding table",
+            "frame": "world",
+            "units": "metres",
+            "control_scope": "one_agent_58_dof"
+          },
+          "objects": {
+            "roles": [
+              "towel"
+            ],
+            "model": "live_surface_deformable",
+            "material_profile": "trousers_18mm_density_v1",
+            "cloths": [
+              {
+                "id": "towel",
+                "mass_kg": 0.39,
+                "physical_thickness_m": 0.0018
+              }
+            ],
+            "properties_basis": "simulation_priors",
+            "material_calibrated": false
+          },
+          "rules": {
+            "implementation": "scenes.workrooms.laundry_room.rules:configuration_rules",
+            "contract": {
+              "schema": "laundry_rules.v4",
+              "task_id": "trousers_folding",
+              "instruction_zh": "把台面上展开的单件长裤整理折好：先将两条裤腿对齐折在一起，再将裤脚向腰部方向对折，形成紧凑、基本对齐的折形，放在台面目标区域并完全松手。",
+              "referee": {
+                "schema": "physical_task_referee_contract.v1",
+                "task_id": "trousers_folding",
+                "instruction_zh": "把台面上展开的单件长裤整理折好：先将两条裤腿对齐折在一起，再将裤脚向腰部方向对折，形成紧凑、基本对齐的折形，放在台面目标区域并完全松手。",
+                "phases": {
+                  "working": "整理任务长裤。",
+                  "settling": "机器人与全部任务衣物完全分离，等待放置稳定。"
+                },
+                "reason_descriptions": {
+                  "reset_baseline_not_scored": "初态只建立基准，不得分。",
+                  "task_in_progress": "目标或必要操作尚未完成，可继续调整。",
+                  "waiting_for_release_and_stability": "需释放全部外部控制并保持稳定。",
+                  "success": "形状、位置与支撑合格，全部释放后保持稳定；小幅仿真抖动不单独判失败。",
+                  "native_evidence_unknown": "原生记录缺失或不连续，本次不评分。",
+                  "physics_safety_stop": "明显穿透、异常大幅拉伸或大范围交叉，停止本次任务。",
+                  "incomplete_budget": "预算耗尽，任务未完成。",
+                  "contact_recovery_required": "交叉尺度、接触或局部变形尚超出实用容差，可继续整理；恢复后重新计稳定时间。"
+                },
+                "success_conditions": [
+                  "初态只有一件展开的长裤；必须实际折叠本件衣物，不是搬运已折成品，也不是叠到另一件衣物上。",
+                  "不限定抓取点和动作先后，只检查最终折叠结果；衣物可在台面内整体旋转和小幅偏移，允许自然褶皱与边角不完全重合。",
+                  "按材料对应关系检查整件折形：刚体对齐后的形状RMS不超过3厘米、形状误差P95不超过6厘米；允许在台面参考区域中心15厘米内放置，仍须完整折形与实际台面支撑，不能只压成小团或只缩小外包围框。",
+                  "至少85%的对应材料层具有正确上下顺序，XY相对位置误差不超过3厘米；层距至少为0.5毫米和名义厚度一半中的较大值，最多为参考层距加25毫米。单件折叠允许自然褶皱和未压平的折层空气，也允许空气层压实；整件形状、额外高度不超过4厘米和天然衣片厚度仍须分别合格。至少85%的目标底面采样须由原有台面实际支撑。",
+                  "缝合衣物的天然前后衣片另行检查：至少85%的冻结对应点保留不小于材料厚度45%的有向层距，不能把天然双面完全压成零厚度；长裤允许任一裤腿翻到另一裤腿上。",
+                  "重力和碰撞保持启用，无隐藏固定点；完全释放后保持连续0.5秒，原始/位置差分节点速度P95均不超过8厘米/秒，所有节点漂移不超过1.5厘米。",
+                  "允许最多2毫米接触包络压入和1.5倍局部边长。最终可保留少量局部布面交叉，但须同时满足：单对交线不超过12毫米、逐对保守总长不超过75毫米、连通缺陷簇直径不超过20毫米、涉及的唯一材料三角形面积不超过整件的0.2%、共面重叠面积之和不超过1平方毫米；原始交叉对数完整保留，不凭对数放行。",
+                  "初态、被动下落和无衣物动作不能得分；需实际控制操作与至少2.5厘米材料位移。",
+                  "至少一只手在同一连续实际手部几何接近段内净移动1厘米，且衣物在该段内移动至少2.5厘米；接触离开后不能追认之前的被动位移。",
+                  "全部机器人碰撞形状与本件衣物分离后才开始释放稳定计时；不要求零抖动或固定双手动作顺序。",
+                  "较大的局部交叉须恢复后重新计稳定；交线单对超过5厘米、保守总长超过50厘米、单簇直径超过10厘米、受影响材料面积超过2%或共面重叠面积之和超过50平方毫米会停止任务。缺失或截断的交叉尺度证据不得分。"
+                ],
+                "recovery": [
+                  "允许重抓、纠偏与重新整理；未达到目标时可继续。",
+                  "局部接触异常、放置不准或释放后滑动可调整后重试；稳定时间从恢复并完全松手后重新计算。"
+                ],
+                "thresholds": {
+                  "stable_s": 0.5,
+                  "max_time_s": 120.0,
+                  "max_grasp_patches": 2,
+                  "max_grasp_patch_diameter_m": 0.075,
+                  "max_node_speed_m_s": 0.08,
+                  "stable_node_drift_m": 0.015,
+                  "max_edge_stretch_ratio": 1.5,
+                  "min_triangle_area_ratio": 0.01,
+                  "max_penetration_m": 0.002,
+                  "operation_displacement_m": 0.025,
+                  "flat_target_rms_m": 0.03,
+                  "flat_target_max_m": 0.07,
+                  "flat_projected_area_ratio_min": 0.9,
+                  "flat_height_range_m": 0.025,
+                  "placement_error_m": 0.15,
+                  "folded_pair_rms_m": 0.03,
+                  "folded_pair_max_m": 0.06,
+                  "layer_gap_min_m": 0.001,
+                  "layer_gap_max_m": 0.025,
+                  "layer_order_fraction_min": 0.85,
+                  "support_gap_max_m": 0.012,
+                  "stacking_alignment_m": 0.05,
+                  "stacking_gap_min_m": 0.0005,
+                  "stacking_gap_max_m": 0.02,
+                  "speed_node_percentile": 95.0,
+                  "folded_extent_tolerance_m": 0.05,
+                  "folded_height_range_m": 0.04,
+                  "stacking_support_fraction_min": 0.85,
+                  "hard_penetration_m": 0.01,
+                  "hard_edge_stretch_ratio": 2.0,
+                  "garment_shape_rms_m": 0.03,
+                  "garment_shape_p95_m": 0.06,
+                  "garment_extent_tolerance_m": 0.05,
+                  "garment_height_excess_m": 0.04,
+                  "garment_projected_area_ratio_min": 0.8,
+                  "garment_projected_area_ratio_max": 1.2,
+                  "garment_layer_gap_min_m": 0.0005,
+                  "garment_layer_gap_error_m": 0.025,
+                  "garment_layer_xy_error_m": 0.03,
+                  "garment_layer_fraction_min": 0.85,
+                  "garment_table_support_fraction_min": 0.85,
+                  "garment_layer_thickness_ratio_min": 0.5,
+                  "garment_shell_layer_thickness_ratio_min": 0.45,
+                  "garment_shell_layer_fraction_min": 0.85,
+                  "crossing_pair_length_max_m": 0.012,
+                  "crossing_total_length_max_m": 0.075,
+                  "crossing_component_diameter_max_m": 0.02,
+                  "crossing_rest_area_fraction_max": 0.002,
+                  "crossing_coplanar_area_max_m2": 1e-06,
+                  "hard_crossing_pair_length_m": 0.05,
+                  "hard_crossing_total_length_m": 0.5,
+                  "hard_crossing_component_diameter_m": 0.1,
+                  "hard_crossing_rest_area_fraction": 0.02,
+                  "hard_crossing_coplanar_area_m2": 5e-05
+                },
+                "outcomes": {
+                  "ongoing": "可以继续。",
+                  "success": "本次控制模式下完成。",
+                  "task_failure": "任务失败。",
+                  "evaluator_invalid": "证据不完整，不评分。",
+                  "safety_stop": "物理异常停止。",
+                  "budget_exhaustion": "未完成。",
+                  "cancelled": "取消。"
+                },
+                "physical_actions": "一个Agent同时控制两台FR3和官方左、右SHARPA，共58个关节。只接受机器人关节目标；不允许直接写布节点、隐藏固定点或工程抓持。允许重抓与整理，不要求固定的双手动作顺序。",
+                "observation_scope": "规则和标称物性公开；完整布节点、控制掩码、层次和物理审计为私有证据。没有布料接触力或张力测量。",
+                "object_properties": [
+                  {
+                    "id": "towel",
+                    "label": "动态展开单件长裤",
+                    "nominal_mass_kg": 0.39,
+                    "basis": "冻结资产的名义厚度1.8毫米、质量390克；材料与求解器参数为仿真先验，未经实物标定。"
+                  }
+                ]
+              },
+              "reset_credit": false,
+              "episode_seed": 0,
+              "randomization": "Frozen finite initial XY placement and render-only fabric texture case; cloth shape, material, target and robot parameters are unchanged.",
+              "qualification_scope": "Robot joint actions with native geometry evidence; grasp forces and material calibration are not measured.",
+              "rule_profile": "laundry_single_garment_folding_task.v4",
+              "tolerance_basis": "User-authorized practical simulation tolerances; engineering priors, not material calibration.",
+              "control_mode": "robot_joint_targets",
+              "robot_configuration_id": "dual_opposed",
+              "material_contract": {
+                "schema": "laundry_asset_material_contract.v1",
+                "material_profile": "trousers_18mm_density_v1",
+                "cloths": [
+                  {
+                    "id": "towel",
+                    "physical_thickness_m": 0.0018,
+                    "mass_kg": 0.39
+                  }
+                ]
+              }
+            }
+          },
+          "qualification": {
+            "status": "prepared_unvalidated",
+            "native_preflight": false,
+            "agent_bench_interface": false,
+            "workspace_ik": false,
+            "workspace_clearance": false,
+            "robot_manipulation": false,
+            "physics_accepted": false,
+            "scope": "Immutable XY/albedo case inputs; validation evidence remains external and episode outcomes are not inherited."
+          }
+        }
+      }
+    }
+  }
+}

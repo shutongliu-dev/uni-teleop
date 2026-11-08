@@ -37,7 +37,6 @@ class CompositeArticulationView:
 
     # DOF-wise state and parameters
     def get_dof_positions(self): return self._cat('get_dof_positions')
-    def get_dof_limits(self): return self._cat('get_dof_limits')
     def get_dof_velocities(self): return self._cat('get_dof_velocities')
     def get_dof_stiffnesses(self): return self._cat('get_dof_stiffnesses')
     def get_dof_dampings(self): return self._cat('get_dof_dampings')

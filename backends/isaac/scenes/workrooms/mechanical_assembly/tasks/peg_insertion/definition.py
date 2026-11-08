@@ -34,7 +34,7 @@ TASK = planned_task(
 TASK = bind_prepared_release(
     TASK,
     path=f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/mechanical_referee_20261018/rules_v1/releases/peg_insertion',
-    manifest_sha256='5c116c6c99ea52734b2f2cea829931975ec81af0f1b59840288f757fb1a88828',
+    manifest_sha256='77fc5ef2a8aafddf56c50de5bde1caf627adcf3479e0e4985d498aa563bfdde3',
     evidence=[{
         'path': f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/mechanical_task_validation_20261018/peg/release_binding02/report.json',
         'sha256': '2a8cad465b0218e29d103c1184983ca69ed98f7e3285e11e2efa63cb34ec13e4'}, {
@@ -42,3 +42,7 @@ TASK = bind_prepared_release(
         'sha256': '04f534600bf3616eab68d5315b9a51f72bd7068adf3a699a2e4437fb33a5e371'}],
     scope='The original supply reset uses the explicit PGS scene covered by supply, centered, guided and outside-socket native probes. Half-step settling failures and the longer observation remain separate evidence, without a transient convergence or robot manipulation claim.',
 )
+
+
+from scenes.workrooms.mechanical_assembly.desktop_catalog import bind_desktop_release
+TASK = bind_desktop_release(TASK)

@@ -134,14 +134,17 @@ def test_release_inventory_rejects_manifest_that_omits_actual_usd_hash(built, tm
         _asset_inventory(scene)
 
 
-def test_registered_task0_uses_canonical_frozen_single_arm_release():
+@pytest.mark.parametrize('robot_profile', ['original', 'l_mount'])
+def test_registered_task0_uses_canonical_frozen_single_arm_release(robot_profile):
     from bench.isaacsim.release import task_inputs, load_evaluator
     from scenes.workrooms.catalog import load_task
-    loaded = load_task('card_room', 'task0')
+    loaded = load_task('card_room', 'task0', robot_profile=robot_profile)
     release = loaded['definition']['source_release']['path']
     _, scene, task, initial = task_inputs(release, 'task0', seed=0)
     assert (scene, task, initial) == (loaded['scene'], loaded['task'], loaded['initial_state'])
     assert loaded['definition']['difficulty'] == 0
     assert loaded['definition']['robot_requirements']['articulations'] == 1
-    assert not loaded['definition']['qualification']['manipulation']
+    # The L-mount revision publishes its own uninherited qualification record.
+    claim = 'manipulation' if robot_profile == 'original' else 'robot_manipulation'
+    assert not loaded['definition']['qualification'][claim]
     assert load_evaluator(release)(task).inspect_conditions()['success'] is False

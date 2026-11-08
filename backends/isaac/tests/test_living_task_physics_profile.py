@@ -7,6 +7,7 @@ import pytest
 
 from bench.isaacsim.release import digest, task_inputs
 from bench.paths import DATA_ROOT, load_json
+from scenes.workrooms.catalog import task_definition
 from scenes.workrooms.living_room import layer_release
 from scenes.workrooms.living_room.composition import AUTHORING_TASK_IDS, build_task_inputs, stand_usda
 
@@ -62,6 +63,13 @@ def test_task4_keeps_complete_v6_assets_rules_reset_and_controls(inputs):
     normalized_task = deepcopy(values['task'])
     assert normalized_task['evaluation']['physics_dt_s'] == .00025
     normalized_task['evaluation']['physics_dt_s'] = .0005
+    # The current release adds the v2 host-termination declaration to the rules;
+    # assets, reset and controls stay those of v6.
+    current = read_json(Path(task_definition('living_room', 'tower_extraction')['source_release']['path']) / 'task.json')
+    assert normalized_task['public_rules'] == current['public_rules']
+    assert normalized_task['evaluation']['reference_configuration'] == current['evaluation']['reference_configuration']
+    normalized_task['public_rules'] = previous_task['public_rules']
+    normalized_task['evaluation']['reference_configuration'] = previous_task['evaluation']['reference_configuration']
     assert normalized_task == previous_task
     assert values['initial_state'] == read_json(PREVIOUS_EXTRACTION / 'initial_state.json')
     previous_scene = read_json(PREVIOUS_EXTRACTION / 'scene.json')

@@ -23,24 +23,32 @@ PROJECT = Path(__file__).resolve().parents[3]
 TASK_ROOT = '/World/StudyTask'
 OBJECT_ROOT = TASK_ROOT + '/Objects'
 DEFAULT_TASK_ROOT = DEFAULT_ASSETS_ROOT / 'task_parts/study'
-# Task1 v4 moves supply/organizer into the reviewed near-table workspace.
+# Task1 v5 preserves the near-table layout and enlarges only the pencil.
 # Other tasks retain the v3 builds from study_task_v7_migration_20261019/source01.
 CANDIDATES = {
+    'reading_stand': {
+        'root': f'{DATA_ROOT}/assets/task_parts/study/reading_stand/v1',
+        'manifest_sha256': '67dc4c8d4be1e1d494df6a2a7b8c0e39fa20ad2bfc06c1d56aca36ec5ba30ca4',
+    },
+    'drawer_retrieval': {
+        'root': f'{DATA_ROOT}/assets/task_parts/study/drawer_retrieval/v1',
+        'manifest_sha256': '9307cdd33367a68f31a462e93aa8a51f1836f658e9c8d313b283ec3e57d0688a',
+    },
     'stationery_sorting': {
-        'root': f'{DATA_ROOT}/assets/task_parts/study/stationery_sorting/v4',
-        'manifest_sha256': '9d181c155877b786ddf09005ee755a91185fcad375e8d789a044cb77b39ec03a',
+        'root': f'{DATA_ROOT}/assets/task_parts/study/stationery_sorting/v5',
+        'manifest_sha256': '640129151dd4030ddc0cf1bdbd793b45e4abfd5097c92492e3f4118e82fd9467',
     },
     'book_stacking': {
         'root': f'{DATA_ROOT}/assets/task_parts/study/book_stacking/v3',
-        'manifest_sha256': '5da60588c37156544d2194c18cbd50433ba667db959d8c61d8598b9fdc40abf4',
+        'manifest_sha256': 'f29fe870a93a45d50ae596361791a763e3fe4004042802a6930ca544955ea539',
     },
     'book_retrieval': {
         'root': f'{DATA_ROOT}/assets/task_parts/study/book_retrieval/v3',
-        'manifest_sha256': '067f123860ad9b60cefdd3943c27935a907e76dc433f97f1e7ae536f29790f75',
+        'manifest_sha256': '78a43562feadc68729f72a8a830c15aeb41fdbedf509487db50a4b1161b31f42',
     },
     'book_shelving': {
         'root': f'{DATA_ROOT}/assets/task_parts/study/book_shelving/v3',
-        'manifest_sha256': '28c310659424504be0fd0a94c2cc317cdf2c308a57cf0704372f9928e195fd15',
+        'manifest_sha256': 'a9a2e7ccb27069b3726085d36e495cee3014eee4145e81127ce7f06d0b031a2a',
     },
 }
 SUPPORTS = {
@@ -51,11 +59,17 @@ SUPPORTS = {
 PHYSICS = {'static_friction': .50, 'dynamic_friction': .40, 'restitution': .02,
            'contact_offset_m': .001, 'rest_offset_m': 0.,
            'scope': 'Uncalibrated engineering material priors, not native task qualification'}
+PENCIL_RADIUS_M = .0075
+PENCIL_CROSS_SECTION_SCALE = PENCIL_RADIUS_M/.0055
 STATIONERY = {
     'pencil': {'category': 'pencil', 'title': '观物 2B 粗六角铅笔',
-        'local_bounds_m': [[-.090, -.0055, -.0055*math.sqrt(3)/2],
-                           [.090, .0055, .0055*math.sqrt(3)/2+.000002]],
-        'mass_kg': .0081, 'mass_basis': '180mm cedar/graphite pencil engineering prior: cedar 5.9g, graphite 1.8g, lacquer 0.4g'},
+        'local_bounds_m': [[-.090, -PENCIL_RADIUS_M, -PENCIL_RADIUS_M*math.sqrt(3)/2],
+                           [.090, PENCIL_RADIUS_M, PENCIL_RADIUS_M*math.sqrt(3)/2+.000002]],
+        'mass_kg': .0081*PENCIL_CROSS_SECTION_SCALE**2,
+        'mass_basis': 'Engineering estimate, not measured: original 180mm pencil prior '
+            '(cedar 5.9g, graphite 1.8g, lacquer 0.4g) scaled by (7.5/5.5)^2 '
+            'for unchanged length and nominal effective material density',
+        'physics_overrides': {'static_friction': .70, 'dynamic_friction': .55}},
     'marker': {'category': 'marker', 'title': '观物 绿色马克笔',
         'local_bounds_m': [[-.0725, -.009, -.009], [.0725, .011, .009]],
         'mass_kg': .023, 'mass_basis': '145mm capped marker engineering prior: PP shell/cap 11g, ink reservoir 10g, nib/clip 2g'},
@@ -215,16 +229,17 @@ def _body(stage,path,pose,mass,bounds):
     return inertia
 
 
-def _physics(stage,root):
+def _physics(stage,root,*,physics=None):
     from pxr import Sdf, Usd, UsdPhysics, UsdShade
+    values={**PHYSICS, **(physics or {})}
     material=UsdShade.Material.Define(stage,str(root.GetPath())+'/PhysicsMaterial');api=UsdPhysics.MaterialAPI.Apply(material.GetPrim())
-    api.CreateStaticFrictionAttr(PHYSICS['static_friction']);api.CreateDynamicFrictionAttr(PHYSICS['dynamic_friction']);api.CreateRestitutionAttr(PHYSICS['restitution'])
+    api.CreateStaticFrictionAttr(values['static_friction']);api.CreateDynamicFrictionAttr(values['dynamic_friction']);api.CreateRestitutionAttr(values['restitution'])
     paths=[]
     for p in Usd.PrimRange(root):
         if p.HasAPI(UsdPhysics.CollisionAPI):
             p.AddAppliedSchema('PhysxCollisionAPI')
-            p.CreateAttribute('physxCollision:contactOffset',Sdf.ValueTypeNames.Float).Set(PHYSICS['contact_offset_m'])
-            p.CreateAttribute('physxCollision:restOffset',Sdf.ValueTypeNames.Float).Set(PHYSICS['rest_offset_m'])
+            p.CreateAttribute('physxCollision:contactOffset',Sdf.ValueTypeNames.Float).Set(values['contact_offset_m'])
+            p.CreateAttribute('physxCollision:restOffset',Sdf.ValueTypeNames.Float).Set(values['rest_offset_m'])
             UsdShade.MaterialBindingAPI.Apply(p).Bind(material,materialPurpose='physics');paths.append(str(p.GetPath()))
     return paths
 
@@ -249,12 +264,12 @@ def _stationery(stage,b,ident,obj,output,assets_root):
     path=OBJECT_ROOT+'/'+ident;spec=STATIONERY[ident]
     inertia=_body(stage,path,obj['initial_pose'],spec['mass_kg'],spec['local_bounds_m']);b.base=path+'/Geometry'
     if ident=='pencil':
-        _hex_mesh(b,path+'/Geometry/LacquerShaft',-.068,.09,.0055,.0055,'lacquer',True)
-        _hex_mesh(b,path+'/Geometry/CedarTip',-.090,-.068,0.,.0055,'cedar',True)
-        _hex_mesh(b,path+'/Geometry/GraphiteTip',-.090,-.0865,0.,.00088,'graphite')
+        _hex_mesh(b,path+'/Geometry/LacquerShaft',-.068,.09,PENCIL_RADIUS_M,PENCIL_RADIUS_M,'lacquer',True)
+        _hex_mesh(b,path+'/Geometry/CedarTip',-.090,-.068,0.,PENCIL_RADIUS_M,'cedar',True)
+        _hex_mesh(b,path+'/Geometry/GraphiteTip',-.090,-.0865,0.,.00088*PENCIL_CROSS_SECTION_SCALE,'graphite')
         mat=_label(b,output,assets_root,'pencil_print','观物  ·  2B  ·  JUMBO',(212,190,112),(184,96,24))
-        z=.0055*math.sqrt(3)/2+.000002
-        _quad(b,path+'/Geometry/Print',[(-.043,-.0027,z),(.067,-.0027,z),(.067,.0027,z),(-.043,.0027,z)],mat)
+        z=PENCIL_RADIUS_M*math.sqrt(3)/2+.000002;half_width=.0027*PENCIL_CROSS_SECTION_SCALE
+        _quad(b,path+'/Geometry/Print',[(-.043,-half_width,z),(.067,-half_width,z),(.067,half_width,z),(-.043,half_width,z)],mat)
     elif ident=='marker':
         b.cylinder('Barrel',(.020,0.,0.),.0085,.105,'ivory',rotation=(0,90,0),collision=True)
         b.cylinder('Cap',(-.0525,0.,0.),.009,.040,'ink',rotation=(0,90,0),collision=True)
@@ -273,11 +288,12 @@ def _stationery(stage,b,ident,obj,output,assets_root):
         b.box('PaperSleeve',(0.,0.,.00001),(.031,.02596,.01594),'paper',bevel=.0002,collision=False)
         mat=_label(b,output,assets_root,'eraser_print','观物  |  ART  |  01',(53,71,61),(221,214,193))
         _quad(b,path+'/Geometry/Print',[(-.0149,-.0118,.008002),(.0149,-.0118,.008002),(.0149,.0118,.008002),(-.0149,.0118,.008002)],mat)
-    colliders=_physics(stage,stage.GetPrimAtPath(path))
+    physics={**PHYSICS, **spec.get('physics_overrides',{})}
+    colliders=_physics(stage,stage.GetPrimAtPath(path),physics=physics)
     b.base=TASK_ROOT+'/Fixtures'
     return {**deepcopy(spec),'path':path,'collider_paths':colliders,'diagonal_inertia_kg_m2':inertia,
             'center_of_mass_m':[0.,0.,0.],'inertia_model':'uniform authored-envelope approximation using explicit engineering total mass',
-            'physics':deepcopy(PHYSICS),'geometry_scope':'One rigid body; only structural geometry collides. Printed decoration is visual only.'}
+            'physics':physics,'geometry_scope':'One rigid body; only structural geometry collides. Printed decoration is visual only.'}
 
 
 def _fixtures(b,task_id,config,output,assets_root):

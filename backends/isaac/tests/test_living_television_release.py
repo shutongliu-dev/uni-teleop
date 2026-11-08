@@ -16,7 +16,7 @@ from scenes.workrooms.living_room.release import prepare_task_release
 
 
 RELEASE = Path(f'{DATA_ROOT}/datasets/fr3_sharpa_bench/isaacsim/releases/living_room/remote_operation/v7')
-MANIFEST_SHA256 = 'e47e15ce25746f76fa83c3b5111715158d905767a7fb935f36408ffb38e6dcc1'
+MANIFEST_SHA256 = '13b29b28b9fcc300126fee5b642938546367e71448afa71276ebe799e37d5349'
 
 
 def frozen_release():

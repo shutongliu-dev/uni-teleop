@@ -62,6 +62,23 @@ def test_complete_tree_isolated_from_edits_and_credentials(project, tmp_path):
         module.freeze(project, target, ("scripts/isaac_python.sh",))
 
 
+def test_default_snapshot_can_start_both_native_experiences(project, tmp_path):
+    repository = SOURCE.parents[2]
+    for name in module.DEFAULT_EXTRAS:
+        destination = project / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes((repository / name).read_bytes())
+    target = tmp_path / "snapshot"
+    module.freeze(project, target)
+    for name in ("fr3_sharpa.headless.kit", "workroom.headless.kit"):
+        relative = Path("bench/apps") / name
+        assert (target / relative).read_bytes() == (repository / relative).read_bytes()
+    assert module.verify(target)["verified"]
+    (target / "bench/apps/workroom.headless.kit").write_text("# changed experience\n")
+    with pytest.raises(ValueError, match="inventory changed"):
+        module.verify(target)
+
+
 def test_detects_added_source_in_snapshot(project, tmp_path):
     target = tmp_path / "snapshot"
     module.freeze(project, target, ("scripts/isaac_python.sh",))

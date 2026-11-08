@@ -13,5 +13,5 @@ TASK = prepared_task(
             'success': 'Bottom to top: robotics, astronomy, botany; front covers face upward, '
                        'spines share a direction, and each layer rests on its immediate lower body.'},
     release_version='v3',
-    manifest_sha256='2733c564dfe592daf69dd0bc8edade6b39d6db1f53c5873046484b95efb9074a',
+    manifest_sha256='842db0ee31458aaacfb7b75fc70e5343b4eb4a3b8a4423cd7e8e2ac77dc66136',
 )

@@ -19,7 +19,7 @@ from bench.simulation.isaacsim_backend.asset_catalog import load_task_asset
 
 RELEASE = Path(f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/'
                'mechanical_task_validation_20261019/shaft_spacer_candidate_v2')
-RELEASE_SHA256 = 'ca7a0b5453a8b234001004404f96b410da9e4fff596586623237bb55a2d7b8a6'
+RELEASE_SHA256 = 'c7ec92935a9927f271140a984a50e23143d83d2a962824591f8066a584f86f81'
 TASK_ID = 'shaft_spacer_assembly'
 PARTS = ('spacer', 'wide_ring', 'top_ring')
 ENTRY_CLEARANCE_M = .0002

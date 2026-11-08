@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_serializer, model_validator
 from bench.sensors.contact_schema import ContactHistoryValue
 from .task_scoring import TerminalTaskScoring, SCORABLE_OUTCOMES
+from .practice import PracticeSelection
 
 Finite = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 Positive = Annotated[Finite, Field(gt=0)]
@@ -294,6 +295,9 @@ class EpisodeSpec(Contract):
     agent_config_sha256: Hash
     task_id: Name
     task_release_sha256: Hash
+    configuration_id: Name | None = None
+    practice: PracticeSelection | None = None
+    practice_case_sha256: Hash | None = None
     evaluator_sha256: Hash
     robot_id: Name
     robot_asset_sha256: Hash
@@ -312,8 +316,20 @@ class EpisodeSpec(Contract):
     system0: PolicyDescriptor | None = None
     split: Literal["development", "held_out"] = "development"
 
+    @model_serializer(mode="wrap")
+    def omit_legacy_configuration(self, serializer):
+        value = serializer(self)
+        if self.configuration_id is None:
+            value.pop("configuration_id", None)
+        if self.practice is None:
+            value.pop('practice', None)
+            value.pop('practice_case_sha256', None)
+        return value
+
     @model_validator(mode="after")
     def policy_track(self):
+        if (self.practice is None) != (self.practice_case_sha256 is None):
+            raise ValueError('Practice selection and its public content hash must be pinned together')
         if (self.track in ('system0', 'free_tool_agent')) != (self.system0 is not None):
             raise ValueError('Policy tracks require a pinned policy; direct track forbids it')
         if self.track == 'free_tool_agent' and (self.system0.policy_id != 'classical_fingertip'
@@ -801,7 +817,10 @@ class ActionDiagnostic(Contract):
     code: Literal['ik_solution_unverified', 'trajectory_limit_guard', 'convergence_timeout',
                   'invalid_robot_state', 'insufficient_duration', 'posture_constraint_violation', 'cancelled',
                   'control_handoff_unverified', 'measured_limit_recovery',
-                  'ik_target_at_reach_boundary', 'tracking_stalled', 'measured_limit_projection']
+                  'ik_target_at_reach_boundary', 'tracking_stalled', 'objective_lost', 'measured_limit_projection']
+    # Composite executors identify the public hand/instance whose residual is reported.
+    # Absent in historical single-hand and older composite receipts.
+    hand: Name | None = None
     joint_name: Name | None = None
     joint_error_rad: Nonnegative | None = None
     wrist_position_error_m: Nonnegative | None = None
@@ -823,7 +842,8 @@ class ActionDiagnostic(Contract):
         if value is None:
             return self  # Old saved payloads remain readable without invented thresholds.
         expected = {'ik_solution_unverified': 'ik_verification', 'ik_target_at_reach_boundary': 'ik_verification',
-                    'convergence_timeout': 'completion', 'tracking_stalled': 'completion'}
+                    'convergence_timeout': 'completion', 'tracking_stalled': 'completion',
+                    'objective_lost': 'completion'}
         if expected.get(self.code) != value.stage:
             raise ValueError('Geometry tolerance stage does not match diagnostic code')
         if ((self.wrist_position_error_m is None) != (value.wrist_position_m is None)

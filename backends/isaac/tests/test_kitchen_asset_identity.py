@@ -7,22 +7,60 @@ import pytest
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 
 from scenes.workrooms.kitchen.assets import TASK_IDS, author_task
-from scripts.validation.kitchen_asset_identity import diagnostic_physics_identity
+from scripts.validation.kitchen_asset_identity import canonical_physics_identity, diagnostic_physics_identity
 
 
-def _pair(tmp_path, task_id='breakfast_serving'):
+def _pair(tmp_path, task_id='breakfast_serving', **kwargs):
     stages, metadata, paths = [], [], []
     for name, presentation in (('canonical', False), ('goal', True)):
         stage = Usd.Stage.CreateInMemory()
         UsdGeom.SetStageUpAxis(stage, 'Z')
         UsdGeom.SetStageMetersPerUnit(stage, 1.)
-        meta = author_task(stage, task_id, presentation=presentation)
+        meta = author_task(stage, task_id, presentation=presentation, **kwargs)
         path = tmp_path/(name+'.usda')
         stage.GetRootLayer().Export(str(path))
         stages.append(stage)
         metadata.append(meta)
         paths.append(path)
     return stages, metadata, paths
+
+
+def test_canonical_probe_requires_exact_asset_and_metadata_without_goal_exemptions(tmp_path):
+    _, metadata, paths = _pair(tmp_path)
+    canonical, goal = metadata
+    result = canonical_physics_identity(paths[0], paths[0], canonical, deepcopy(canonical))
+    assert result['passed'] and result['allowed_changes'] == []
+    changed = deepcopy(canonical)
+    changed['objects'][0]['initial_pose_xyzw'][0] += .001
+    assert not canonical_physics_identity(paths[0], paths[0], canonical, changed)['passed']
+    changed = deepcopy(canonical)
+    changed['objects'][0]['mass_kg'] *= 2
+    assert not canonical_physics_identity(paths[0], paths[0], canonical, changed)['passed']
+    copied = tmp_path/'copied.usda'
+    copied.write_bytes(paths[0].read_bytes())
+    assert not canonical_physics_identity(paths[0], copied, canonical, canonical)['passed']
+    assert not canonical_physics_identity(paths[0], paths[1], canonical, goal)['passed']
+    assert not diagnostic_physics_identity(paths[0], paths[0], canonical, canonical)['passed']
+
+
+@pytest.mark.parametrize('task', ['produce_transfer', 'pot_lid_placement'])
+def test_explicit_source_access_has_only_declared_reset_differences(tmp_path, task):
+    _, metadata, paths = _pair(tmp_path, task, prop_profile='household_v1', source_access_profile='source_access_v1')
+    assert diagnostic_physics_identity(*paths, *metadata)['passed']
+    metadata[1]['objects'][0]['mass_kg'] *= 2
+    assert not diagnostic_physics_identity(*paths, *metadata)['passed']
+
+
+def test_bonded_volume_reset_must_match_material_layer(tmp_path):
+    stages, metadata, paths = _pair(tmp_path, 'surface_wiping', prop_profile='household_v1',
+                                   sponge_physics_profile='bonded_fem_v1')
+    result = diagnostic_physics_identity(*paths, *metadata)
+    assert result['passed'], result
+    spec = metadata[1]['volume_bodies']['foam']
+    spec['initial_pose_xyzw'][0] += .001
+    stages[1].GetPrimAtPath(spec['prim_path']).GetAttribute('xformOp:translate').Set(Gf.Vec3d(*spec['initial_pose_xyzw'][:3]))
+    stages[1].GetRootLayer().Export(str(paths[1]))
+    assert not diagnostic_physics_identity(*paths, *metadata)['passed']
 
 
 @pytest.mark.parametrize('task_id', TASK_IDS)

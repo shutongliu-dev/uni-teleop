@@ -11,6 +11,7 @@ from collections.abc import Mapping
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = REPO_ROOT / 'data' / 'MANIFEST.json'
@@ -88,6 +89,97 @@ def portable(value):
     if isinstance(value, (list, tuple)):
         return type(value)(portable(item) for item in value)
     return value
+
+
+ARCHIVES = ('.tar', '.tar.gz', '.tgz', '.zip', '.7z', '.tar.zst')
+
+
+def undistributed(path) -> bool:
+    """A file that frozen releases pin as provenance but the data package does not ship.
+
+    The package carries rooms, assets and task releases. Development evidence
+    (recordings, reports), frozen source snapshots and upstream source archives
+    that releases still pin stay in the development store; their recorded
+    hashes remain the provenance.
+    """
+    path = Path(path)
+    if not path.is_absolute() or path.exists():
+        return False
+    return path.is_relative_to(Path(DATA_ROOT, 'datasets')) or (
+        path.is_relative_to(Path(DATA_ROOT)) and path.name.endswith(ARCHIVES))
+
+
+_LAYER_ASSET = re.compile(r'@(?!@)([^@\n]+)@')
+
+
+def usd_layer_identity(path) -> str:
+    """SHA256 of a text USD layer with its layer-relative asset paths written as data:// paths.
+
+    The package stores layer-relative asset paths, so copies of one source layer at different
+    depths differ in bytes while naming the same assets. Their layer identity is the same: compare
+    it where a frozen release requires a copied layer to keep its source bytes. Binary layers and
+    paths outside the data root keep their bytes.
+    """
+    import hashlib
+    path = Path(path)
+    data = path.read_bytes()
+    if path.suffix != '.usda':
+        return hashlib.sha256(data).hexdigest()
+    root, directory = data_root(), path.parent
+
+    def anchored(match):
+        asset = match.group(1)
+        if not asset.startswith(('./', '../')):
+            return match.group(0)
+        target = Path(os.path.normpath(directory / asset))
+        return '@' + portable(str(target)) + '@' if target.is_relative_to(root) else match.group(0)
+
+    text = _LAYER_ASSET.sub(anchored, data.decode('utf-8', errors='surrogateescape'))
+    return hashlib.sha256(text.encode('utf-8', errors='surrogateescape')).hexdigest()
+
+
+def relocated_layer_bytes(source, target) -> bytes:
+    """A text USD layer as a copy at `target` writes it: layer-relative asset paths re-anchored there.
+
+    The copy names the same assets and has the source's usd_layer_identity. Binary layers are
+    copied unchanged.
+    """
+    source, target = Path(source), Path(target)
+    data = source.read_bytes()
+    if source.suffix != '.usda':
+        return data
+
+    def anchored(match):
+        asset = match.group(1)
+        if not asset.startswith(('./', '../')):
+            return match.group(0)
+        relative = os.path.relpath(os.path.normpath(source.parent / asset), target.parent)
+        return '@' + (relative if relative.startswith('.') else './' + relative) + '@'
+
+    text = _LAYER_ASSET.sub(anchored, data.decode('utf-8', errors='surrogateescape'))
+    return text.encode('utf-8', errors='surrogateescape')
+
+
+def usd_value_text(value) -> str:
+    """str() of a USD attribute value, with asset paths written as the data:// file they resolve to.
+
+    Layers in the package author asset paths relative to themselves; a flattened or copied stage
+    authors the same assets absolute. Compare authored values in this form. (No pxr import here.)
+    """
+    kind = type(value).__name__
+    if kind == 'AssetPath':
+        return '@' + portable(value.resolvedPath or value.path) + '@'
+    if kind == 'AssetPathArray':
+        return '[' + ', '.join(usd_value_text(item) for item in value) + ']'
+    return str(value)
+
+
+def undistributed_bytecode(path) -> bool:
+    """A CPython bytecode cache (``__pycache__/*.pyc``) that a frozen dependency inventory pins
+    but the data package does not ship. Caches are rebuilt from the pinned sources; no validator
+    uses their bytes, so the recorded hash stays provenance as for other undistributed files."""
+    path = Path(path)
+    return '__pycache__' in path.parts and path.suffix == '.pyc' and undistributed(path)
 
 
 def load_json(path, **options):

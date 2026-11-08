@@ -1,5 +1,6 @@
 """Independent, deduplicated NIST-derived boards in the fixed mechanical room."""
 from copy import deepcopy
+import inspect
 import json
 from pathlib import Path
 
@@ -78,7 +79,12 @@ def bind_episode_task(task, seed, rules):
         raise ValueError("Episode seed must be an unsigned 32-bit integer")
     task = deepcopy(task)
     task["episode_seed"] = seed
-    task["public_rules"] = rules.public_rules(task["id"], seed=seed)
+    profile = task["asset_metadata"].get("usability_profile")
+    # Historical frozen rule modules do not accept the optional profile.
+    # Preserve their original call and bytes for all legacy assets.
+    supports_profile = 'usability_profile' in inspect.signature(rules.public_rules).parameters
+    options = {"usability_profile": profile} if profile is not None and supports_profile else {}
+    task["public_rules"] = rules.public_rules(task["id"], seed=seed, **options)
     task["evaluation"] = rules.evaluation_configuration(
         task["id"], task["asset_metadata"], seed=seed, physics_dt_s=PHYSICS_DT,
         room_support_paths=task["room_support_paths"])

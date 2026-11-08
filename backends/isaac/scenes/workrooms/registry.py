@@ -18,7 +18,7 @@ COLLECTION_SHA256 = 'd46caac50ad083782a23facebb3f3a5ee359a8b85f7d0bd981d394894a9
 BUILD_ROOT = Path(f'{DATA_ROOT}/datasets/scence/development/20261017_observation_details/build01/renders')
 BASE_RELEASE = Path(f'{DATA_ROOT}/datasets/fr3_sharpa_bench/isaacsim/releases/simple_manipulation/'
                     'v12_mount_v2_r1/sharpa_w01_right')
-BASE_MANIFEST_SHA256 = '17c232f7643b0631a66ce186b34d21f7f6c4128ffb471cbb9c4278cec36dc91b'
+BASE_MANIFEST_SHA256 = '34e66fc49ab0d0d00be89bb1040af2646d290e89267c97f94fcbb251dbb99280'
 RUNTIME_PROFILE = 'workroom_engine_v4'
 PHYSICS_OVERRIDES = {'robot_material_binding': 'collider_instance_v1',
                      'robot_base_constraint': 'native_fixed_base_v1',
@@ -36,15 +36,15 @@ PHYSICS_OVERRIDES = {'robot_material_binding': 'collider_instance_v1',
 PINNED = {'mechanical_assembly': ('66d57f099f06e3796124476e5c9cd86b15305e2854e92f92551486b0be316b7b',
                          'ce13b43508e528e76c8626f7d8e891d12ea33cf224be2945a8d79e34c39aea21'),
  'laboratory': ('85e2ddbd33ebe3ce5b43abeee22b073d2d3575072762f750f789a32c88a31a7f',
-                '635e83e5bf37d2cf2c36bba48e68fc1b9179988ca42238f357b6d64e0fee01ff'),
+                '0b06db191ac5aa805077c178f7c7f16b7842accadd34214126df84e8248819ac'),
  'kitchen': ('815c5941090b06475bd2a092e75e2c25c72b8f475b24a2832d15cb0cf97c9f0c',
-             '6026e72f3db52ec8806b9db15b048d78cba2d197ee7ee87cf9c1d0904ae6e038'),
+             '2dbeb180aa08562d2913703c68961d6bb6cf1966b238a1bd4e9f77b11570b2a8'),
  'study': ('b30c810279ae58631a50f3963c86103624984e4197251bac19a009b31fa66a30',
            '11f0eb8f697bd36b122cd56ca0fb0930ff13b87cbd48611acbc5717396c9538d'),
  'card_room': ('fc72e60d901e2199f9fd3867087b42879ee6e175bd224952aba52697a6d90906',
-               'c9b9aed0651a3043e2ee3af07bdbfb0f7052b47bbe13d9ea39faa1a9daf3a0f1'),
+               '87783431f74a749ae563d7fe419d615fd824f1f91a25dd593c9f67b532c7fe5e'),
  'living_room': ('3d98a1f64708f802e2bf9de66583a3e149b75baeb1be6c1563097d1a073b2421',
-                 '9b285e7f435410c08ffb15a1a0cfaaac5a1bc8eb9c7d5baf79706365f3c3d1d1')}
+                 'a621b984de00d2650d91a1e154a6df7a82ec41a1795d4e8abd4990f44340bff7')}
 
 
 def release_pointer():
@@ -171,15 +171,17 @@ def export_scene(family, output, *, diagnostic=True, lighting_profile='nominal')
 
 
 def main(argv=None):
+    from .catalog import CURRENT_FAMILIES
+
     parser = argparse.ArgumentParser(
         description='Discover fixed scenes/tasks, or export the legacy six-room diagnostic collection.')
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('scenes', help='List the fixed scene definitions used by task selection')
     tasks = commands.add_parser('tasks', help='List implemented tasks; planned slots require explicit opt-in')
-    tasks.add_argument('--family', choices=FAMILIES)
+    tasks.add_argument('--family', choices=CURRENT_FAMILIES)
     tasks.add_argument('--include-planned', action='store_true')
     task = commands.add_parser('task', help='Load and verify a fixed scene task release; never execute physics')
-    task.add_argument('--family', choices=FAMILIES, required=True)
+    task.add_argument('--family', choices=CURRENT_FAMILIES, required=True)
     task.add_argument('--task', required=True)
     commands.add_parser('list', help='List the legacy v3 room collection used by observation/drop diagnostics')
     export = commands.add_parser('export', help='Export a legacy collection diagnostic environment (never overwrite)')

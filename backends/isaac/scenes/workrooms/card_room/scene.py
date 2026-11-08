@@ -6,7 +6,7 @@ from bench.simulation.isaacsim_backend.workroom import SCHEMA
 
 ENVIRONMENT_ROOT = Path(f'{DATA_ROOT}/assets/scenes/scence_workrooms/card_room_heritage_20261017_v3')
 ENVIRONMENT_USD_SHA256 = '5b563cff61ff577e4f2253c7ca0b2b7514ccdccca3d051a0576b35116824354f'
-ENVIRONMENT_DESCRIPTION_SHA256 = '44f28f78fa32d0d4ea8f009b7ef1b862a4f5be81ba85d6f0fd8edd8c7cb2f2fc'
+ENVIRONMENT_DESCRIPTION_SHA256 = 'cf2c936307b15f18d887b083a425f94b2f2506cac81cd8387927b1aea489c544'
 
 
 def environment_reference():

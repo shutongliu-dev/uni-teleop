@@ -56,7 +56,10 @@ def test_plan_and_public_rules_do_not_share_mutable_quantities():
 
 
 def test_explicit_nominal_quantities_use_same_real_250ml_inventory():
-    configuration = task_configuration(seed=11, quantities={'initial_water_ml': 250})
+    # Published nominal inputs are frozen reset cases for seeds 0..9 only.
+    with pytest.raises(ValueError, match='seed 0..9'):
+        task_configuration(seed=11, quantities={'initial_water_ml': 250})
+    configuration = task_configuration(seed=7, quantities={'initial_water_ml': 250})
     assert configuration['status'] == 'implemented'
     assert configuration['native_execution_available'] is True
     assert configuration['public_goal']['initial_water_ml'] == 250
@@ -64,7 +67,7 @@ def test_explicit_nominal_quantities_use_same_real_250ml_inventory():
     assert configuration['task']['asset_metadata']['water']['total_mass_kg'] == .25
     assert configuration['task']['asset_metadata']['water']['particle_count'] == 488
     assert configuration['task']['asset_metadata']['water']['particle_spacing_m'] == .008
-    assert configuration['task']['episode_seed'] == 11
+    assert configuration['task']['episode_seed'] == 7
 
 
 def test_even_goal_only_quantity_change_is_unreleased_proposal():

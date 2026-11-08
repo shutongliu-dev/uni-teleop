@@ -16,5 +16,5 @@ TASK = prepared_task(
                        'with the +X spine facing the +X opening; same-category books cannot '
                        'exchange slots.'},
     release_version='v3',
-    manifest_sha256='358624a445ac09a75c4dfa2088bb1bafac80657cdc758db5d0913db56b081bdf',
+    manifest_sha256='04ecff976951a3d4257caf90523b0cd6f39df4a0ceea78bdabf0b87a56586b15',
 )

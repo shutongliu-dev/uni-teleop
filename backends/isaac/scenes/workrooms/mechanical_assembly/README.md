@@ -1,5 +1,12 @@
 # 机械加工／装配室
 
+Task2–10 已补充 seed 0–9 的小幅初始 XY 位移与表面纹理，保留原几何、机构和规则；L1 的已有随机化版本保持不变。Task10 保留原固定同侧双臂安装，由一个 Agent 控制，不提供构型菜单。当前安装、发布和验证结果见[位置与表面纹理随机化](../../../docs/scenes/workroom_seed_randomization.md#placement-texture-20261103)；下文原单臂与桌面发布记录为历史记录，不代表本轮选定安装。
+
+当前共10项。新增 [Task10 双臂协作插接](tasks/cooperative_insertion/README.md)，同一agent通过普通 `/episodes` 同时操作两台原始 FR3 + 右 SHARPA，当前并排安装在工作台同一侧；原Task1–9仍为单臂。十项桌面都加入31组固定工具架、六角匙、螺丝刀、装有零件的分类盒和卡尺，位于远端桌边；中央和近侧操作面留空。固定用品不作为操作物体或裁判支撑。
+
+Task1–9当前选择各自 `desktop_v1` 发布，由此前目录发布派生，只改场景附加层和依赖清单；任务、初态、规则、裁判、物理配置文件逐字节保留。旧版本、旧原生记录以及NIST来源不变。`desktop_catalog.py` 保存新指针及历史资格范围；`desktop_release.prepare_release` 拒绝覆盖已有版本。下面原发布描述保留其物理任务与历史证据含义，当前完整场景版本以任务 `definition.py` 为准。
+
+
 **NIST 去重扩展：** 原 Task1–5 后新增 Task6 接头插接、Task7 带轮／皮带装配、Task8 单线布线、Task9 多线配对与拆除。ATB1–4 各保留不同操作，ATB5 与原紧固任务重复，不另加 Task10。目录、规则、物理近似和原生验证范围见 [NIST 任务说明](NIST_TASKS.md)。下面“五任务”的历史记录继续保留其当时范围；实际发布身份以各任务 `definition.py` 为准。
 
 **2026-10-20 默认任务更新：** L4 `fastener_assembly` 改为 loose_bolt_candidate_v10_pgs（开发存储 `datasets/fr3_sharpa_bench/development/mechanical_scene_delivery_20261020/l4/releases/loose_bolt_candidate_v10_pgs/release_manifest.json`），manifest SHA256 `47e574e81558ab16e7fffcda9846f2ab8c281660b0c85bb9ee507b95c94f262d`，目标是拾取螺栓、对准起牙、工具接合、旋拧和释放。v10 保留 v9 的 `loose_bolt_v5` 供料窝、工具托、reset、资产、规则和阈值，仅显式选择 PGS（0.5 ms）；全局 TGS 默认不变。预接合接触、完整运动审计和初态 HTTP smoke 均为范围受限通过，仍为 `prepared_unvalidated`，没有完整机器人任务成功；旧预插入、v7、v8、v9 发布及证据保留。
@@ -99,3 +106,5 @@ L1/L2/L3/L5 的任务目录现也包含 `assets.py` 和 `task.py`，配合家族
 历史 `tool_motion04` 运动候选在首次实际闭合失败后，仅将食指 MCP 屈曲目标增加 0.02 rad，并把闭合、保持、释放各延长到 1 s；完整关节计划为 16.2 s，诊断另加 0.5 s 静置。保持机械臂／拇指目标、资产与物理参数不变；源网格的目标重叠仅为关节驱动预载，不能当作允许实际穿透。脚本仍须通过原生对向接触、松开、撤回及返回待命检查，且不包含旋拧阶段。
 
 新的静态组合入口 `scripts.assets.prepare_mechanical_preview` 默认 `--threaded-profile sharpa_v3`，可显式使用 `requested_v1` 复核旧版。原展示文件保持原样；每次准备仍须使用新的输出目录。v3 源文件中停用的旧螺丝头保留停用；原生材料张量可能仍包含它，参数审计必须分别记录启用／停用碰撞体和实际绑定，不能删掉不匹配的张量行来通过检查。
+
+本轮桌面层经旧九项实际碰撞形状检查，无初态重叠，最近间隔40毫米；Task5另通过新增桌面版的原生HTTP、四相机和微动回归。Task10 v2通过同一Agent双腕同时微动/返回/保持，五相机完整。完整操作不据此计为通过；具体发布绑定见本轮接入证据（开发存储 `datasets/fr3_sharpa_bench/development/three_room_expansion_20261021/qualification.json`）和原生图册（开发存储 `demo/interface/scenes/three_room_expansion_20261021/index.html`）。

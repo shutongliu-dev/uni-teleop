@@ -18,8 +18,10 @@ from bench.paths import load_json
 from bench.protocol import PolicyRegistry
 from bench.protocol.task_referee import project_task_rules
 from bench.runtime import service
+from bench.runtime.reset_cases import project_reset_case
 from bench.runtime.server import create_app
 from bench.runtime.worker import public_task_projection
+from bench.simulation.isaacsim_backend.l_mount import public_mount
 from bench.simulation.isaacsim_backend.native_task_bundle import load_observer
 from scenes.workrooms.catalog import load_task, task_definition
 from scenes.workrooms.mechanical_assembly.nist_composition import TASK_IDS, TASK_SCHEMA, PHYSICS_DT
@@ -103,29 +105,69 @@ def test_nist_numbers_are_independent_single_agent_tasks_with_explicit_availabil
         else:
             selected.require_runnable()
             assert selected.metadata()['runnable']
-    # These aliases do not create the omitted ATB5 fastening duplicate.
-    with pytest.raises(TaskSetupError, match='not uniquely'):
-        select_task('task10', family='mechanical_assembly')
+    # Task10 was subsequently added as independent bimanual cooperation;
+    # it is still not the omitted ATB5 fastening duplicate.
+    cooperative = select_task('task10', family='mechanical_assembly')
+    assert cooperative.task_id == 'cooperative_insertion'
+    assert cooperative.task_id not in TASK_IDS
 
 
-@pytest.fixture(scope='module', params=TASK_IDS)
+# Both physical robot profiles publish frozen reset cases 0..9 over one NIST
+# task release; nonzero cases check that the episode seed is really bound.
+SEED, OTHER_SEED = 7, 3
+PROFILES = ('original', 'l_mount')
+WRAPPERS = ('workroom_robot_revision_release.v1', 'workroom_randomized_release.v1')
+
+
+def family_release(root):
+    """The unrandomized NIST release under the seed-case and robot-revision wrappers."""
+    manifest = load_json(root/'release_manifest.json')
+    while manifest['schema'] in WRAPPERS:
+        root = Path(manifest['base_release']['path'])
+        manifest = load_json(root/'release_manifest.json')
+    assert manifest['schema'] == 'mechanical_nist_task_release.v1'
+    return root
+
+
+def hook_root(root, manifest):
+    """A robot revision reuses its parent's frozen evaluator files byte-for-byte."""
+    if manifest['schema'] == 'workroom_robot_revision_release.v1':
+        return Path(manifest['base_release']['path'])
+    return root
+
+
+@pytest.fixture(scope='module', params=[(task_id, profile) for task_id in TASK_IDS for profile in PROFILES],
+                ids=lambda value: '-'.join(value))
 def published_nist(request):
-    task_id = request.param
-    definition = task_definition('mechanical_assembly', task_id)
+    task_id, profile = request.param
+    definition = task_definition('mechanical_assembly', task_id, robot_profile=profile)
     if definition['status'] != 'implemented':
         pytest.skip('NIST candidate has no catalog-selected immutable release yet')
     root = Path(definition['source_release']['path'])
     assert (root/'release_manifest.json').is_file(), 'Published release must exist'
     assert digest(root/'release_manifest.json') == definition['source_release']['manifest_sha256']
-    return task_id, root, validate(root), task_inputs(root, task_id, seed=29)
+    return task_id, root, validate(root), task_inputs(root, task_id, seed=SEED), profile
+
+
+@pytest.fixture(scope='module', params=TASK_IDS)
+def nist_task_release(request):
+    """The one NIST task release that both robot profiles' wrappers bind."""
+    roots = set()
+    for profile in PROFILES:
+        definition = task_definition('mechanical_assembly', request.param, robot_profile=profile)
+        if definition['status'] != 'implemented':
+            pytest.skip('NIST candidate has no catalog-selected immutable release yet')
+        roots.add(family_release(Path(definition['source_release']['path'])))
+    root, = roots
+    return root
 
 
 def test_nist_frozen_inputs_bind_rules_observer_assets_and_catalog(published_nist):
-    task_id, root, manifest, (_, scene, task, initial) = published_nist
+    task_id, root, manifest, (_, scene, task, initial), profile = published_nist
     assert manifest['status'] == 'prepared_unvalidated'
     assert manifest['physics_accepted'] is False
     assert manifest['task_policy_success_claimed'] is False
-    assert task['episode_seed'] == 29
+    assert task['episode_seed'] == SEED == task['reset_case']['seed']
     assert scene['objects'] == [] and len(scene['fixtures']) == 1
     assert len(initial['joint_positions_rad']) == 29
     assert set(scene['cameras']) == {'overview', 'task', 'room', 'wrist'}
@@ -139,20 +181,26 @@ def test_nist_frozen_inputs_bind_rules_observer_assets_and_catalog(published_nis
     assert observer.__class__.__module__.startswith('_native_task_observer_')
     assert evaluator.__class__.__module__.startswith('_isaac_frozen_evaluator_')
     assert evaluator.inspect_conditions()['success'] is False
-    assert public_task_projection(task) == project_task_rules(task)
+    # The worker publishes the referee rules plus the selected public reset case.
+    assert public_task_projection(task) == project_reset_case(task, project_task_rules(task))
     assert project_task_rules(task)['create_endpoint'] == 'POST /episodes'
-    _, other_scene, other_task, _ = task_inputs(root, task_id, seed=31)
-    assert other_task['episode_seed'] == 31 and task['episode_seed'] == 29
+    _, other_scene, other_task, _ = task_inputs(root, task_id, seed=OTHER_SEED)
+    assert other_task['episode_seed'] == OTHER_SEED and task['episode_seed'] == SEED
     assert other_scene['native_task_bundle']['observer']['configuration'] == other_task
     load_evaluator(root)(other_task)
-    loaded = load_task('mechanical_assembly', task_id)
+    loaded = load_task('mechanical_assembly', task_id, robot_profile=profile)
     _, default_scene, default_task, default_initial = task_inputs(root, task_id)
     loaded['scene']['native_task_bundle']['observer']['path'] = str(
-        root/loaded['scene']['native_task_bundle']['observer']['path'])
+        hook_root(root, manifest)/loaded['scene']['native_task_bundle']['observer']['path'])
     assert (loaded['scene'], loaded['task'], loaded['initial_state']) == (
         default_scene, default_task, default_initial)
-    with pytest.raises(ValueError, match='exact task and original reset'):
+    with pytest.raises(ValueError, match='frozen ordinary initial cases|exact nominal task'):
         task_inputs(root, task_id, phase='at_goal')
+    with pytest.raises(ValueError, match='frozen seed 0..9'):
+        task_inputs(root, task_id, seed=29)
+    other = 'l_mount' if profile == 'original' else 'original'
+    other_root = Path(task_definition('mechanical_assembly', task_id, robot_profile=other)['source_release']['path'])
+    assert family_release(other_root) == family_release(root)
 
 
 def rewrite_frozen_json(root, name, value, manifest):
@@ -172,8 +220,8 @@ def rewrite_frozen_json(root, name, value, manifest):
     ('clock', 'clocks differ'), ('stand', 'original stand'),
     ('observer', 'referee input'), ('catalog', 'asset catalog'),
 ])
-def test_nist_rehashed_release_still_rejects_semantic_drift(tmp_path, published_nist, mutation, reason):
-    _, original, _, _ = published_nist
+def test_nist_rehashed_release_still_rejects_semantic_drift(tmp_path, nist_task_release, mutation, reason):
+    original = nist_task_release
     root = tmp_path/'release'
     shutil.copytree(original, root)
     manifest = load_json(root/'release_manifest.json')
@@ -196,12 +244,12 @@ def test_nist_rehashed_release_still_rejects_semantic_drift(tmp_path, published_
 
 
 def nist_service(tmp_path, published_nist):
-    task_id, root, _, (_, scene, task, initial) = published_nist
+    task_id, root, _, (_, scene, task, initial), _ = published_nist
     workers = []
     geometry = public_robot_geometry(robot_configuration(scene))
 
     def factory(**kwargs):
-        assert kwargs['task_id'] == task_id and kwargs['seed'] == 29
+        assert kwargs['task_id'] == task_id and kwargs['seed'] == SEED
         worker = FakeWorker(**kwargs, depth=True, acknowledged_targets=True, on_step=publish_targets)
         worker.arm, worker.hand, worker.active = list(geometry.arm.names), list(geometry.hand.names), list(geometry.names)
         worker.raw['joint_positions_rad'] = deepcopy(initial['joint_positions_rad'])
@@ -228,21 +276,36 @@ def nist_service(tmp_path, published_nist):
 ])
 def test_nist_setup_rejected_before_worker_for_changed_robot_or_scene(tmp_path, published_nist, change):
     api, workers = nist_service(tmp_path, published_nist)
-    with pytest.raises(service.ServiceError, match='frozen single-arm'):
-        api.create(request(task_id=published_nist[0], seed=29, **change))
+    with pytest.raises(service.ServiceError, match='requires its frozen robot and original scene'):
+        api.create(request(task_id=published_nist[0], seed=SEED, **change))
     assert workers == [] and not api.sessions
 
 
 def test_nist_public_http_hold_finish_and_private_evidence_isolation(tmp_path, published_nist):
-    task_id, _, _, (_, _, task, initial) = published_nist
+    task_id, root, manifest, (_, scene, task, initial), profile = published_nist
     api, workers = nist_service(tmp_path, published_nist)
     with TestClient(create_app(service=api)) as client:
         listing = client.get('/tasks')
-        assert listing.status_code == 200 and listing.json() == [project_task_rules(task)]
-        created = client.post('/episodes', json=request(task_id=task_id, seed=29).model_dump(mode='json'))
+        assert listing.status_code == 200 and len(listing.json()) == 1
+        discovery = listing.json()[0]
+        # Discovery publishes the frozen seed-0 case of the selected installation.
+        _, _, discovered, _ = task_inputs(root, task_id)
+        expected = project_reset_case(discovered, project_task_rules(discovered))
+        mount = public_mount(scene['robot'])
+        assert (mount is None) == (profile == 'original')
+        if mount is not None:
+            expected['robot_mount'] = mount
+        expected.update(configuration_id=manifest['configuration_id'],
+                        task_release_sha256=digest(root/'release_manifest.json'))
+        assert {key: value for key, value in discovery.items()
+                if key not in {'robot_configurations', 'default_configuration_id',
+                               'scene_description_zh'}} == expected
+        assert set(discovery['robot_configurations']) == {
+            'single_arm', 'dual_same_side', 'dual_opposed'}
+        created = client.post('/episodes', json=request(task_id=task_id, seed=SEED).model_dump(mode='json'))
         assert created.status_code == 201, created.text
         ready = created.json()
-        select_task(task_id, family='mechanical_assembly').verify_release(ready['spec'])
+        select_task(task_id, family='mechanical_assembly', robot_profile=profile).verify_release(ready['spec'])
         session = api.get(ready['episode_id'])
         endpoint = '/episodes/'+ready['episode_id']
         public = post(client, endpoint, 'get_task', {}, 'nist/task')

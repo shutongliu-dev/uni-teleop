@@ -65,7 +65,11 @@ PICO SDK 使用单帧缓冲，接收线程持续更新最新帧。每轮在渲�
 
 `replay/manifest.json` 保存相机与实体清单、时间约定和冻结场景文件哈希；`replay/*.npz` 保存数值状态，`replay/frames.jsonl` 将状态与后续动作对应。终态记录的 action 为 null，不能作为常规动作训练样本。按 40 ms 控制周期，每个 episode 的动作状态按 25 Hz 仿真时间采样；现实时间更新频率仍取决于实际运行速度。该模式不使用 `--record-fps` 丢弃状态采样。
 
-停止会话后关闭输入和视频传输，再自动恢复各帧状态、生成 `replay_images/` 中的原双目、原腕部小窗及左眼合成图（无损 PNG）。不记录操作者后上方/桌面特写相机，不重执行动作，不推进物理。渲染失败保留状态；可使用已配置的 Isaac Python 运行 `-m scripts.teleop.render_recording SESSION --output NEW_DIRECTORY` 重新渲染，输出目录必须不存在。资产和运行环境需保持与采集时一致。
+采集与重渲染独立：点击 **Save episode / Next** 或在桌面窗口按 **F8**，封存当前片段、重置场景并暂停。点 Start 或踩踏板开始下一条；不退出仿真，不运行离线渲染。Reset scene / R 同样封存当前片段。没有动作的空片段不落盘；退出采集只保存状态，不自动重渲染。封存会等待剩余状态写盘，因此有少量磁盘等待，但没有逐帧渲染等待。
+
+每条片段位于 `SESSION/episodes/000000/`、`000001/` 等目录，包含独立的 `scene.json`、`initial_state.json`、`session.json` 和 `replay/`。`SESSION/episodes.json` 列出已封存片段。对一条片段使用已配置的 Isaac Python 运行 `-m scripts.teleop.render_recording SESSION/episodes/000000 --output NEW_DIRECTORY`，生成原双目、原腕部小窗及左眼合成图（无损 PNG）。输出目录必须不存在；省略 `--output` 则写到该片段的 `replay_images/`。旧版单一 `SESSION/replay/` 记录仍可直接传入 SESSION 渲染。
+
+不记录操作者后上方/桌面特写相机，不重执行动作，不推进物理。渲染失败保留状态。资产和运行环境需保持与采集时一致。当前没有自动后台渲染队列；单 GPU 推荐采完后统一渲染，避免与遥操争抢资源。
 
 当前支持单个机器人 articulation、`cpu_rigid_v1`、关闭任务视觉观察器的刚体场景。布料、软体、粒子和已检测的任务关节场景明确拒绝；这份状态是可视化回放记录，不是可续跑物理的 solver checkpoint。相机位姿随每帧保存，保留腕部随动和头部相对运动。PNG 保留原始相机 RGB，不加入遥操控制点标记。
 

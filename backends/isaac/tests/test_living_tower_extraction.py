@@ -4,6 +4,7 @@ import math
 
 import pytest
 
+from bench.paths import DATA_ROOT
 from scenes.workrooms.living_room.tasks.tower_extraction.evaluator import TowerExtractionGame
 from scenes.workrooms.living_room.tasks.tower_extraction.rules import OBSERVATION_SCHEMA, public_rules, starting_side
 from scenes.workrooms.living_room.tasks.tower_extraction.task import task_configuration
@@ -540,9 +541,17 @@ def tray_stream(**kwargs):
 
 
 def test_legacy_no_tray_configuration_hashes_are_unchanged():
+    import importlib
+    from bench.isaacsim.release import load_evaluator
+    # Historical hashes belong to the historical rules, not to the current
+    # v2 host-termination declaration. Load that immutable implementation.
+    root = f'{DATA_ROOT}/datasets/fr3_sharpa_bench/isaacsim/releases/living_room/tower_extraction/v8'
+    module = importlib.import_module(load_evaluator(root).__module__)
+    legacy = importlib.import_module(module.__package__+'.tasks.tower_extraction.task').task_configuration
     # Hashed in portable form, so the values do not depend on where the data package lives.
-    assert task_configuration(GEOMETRY)['configuration_sha256'] == '388c92e05c95d3c54c42fd2891b1fd4e861636652895189e061fc5adc69365da'
-    assert task_configuration({'block_size_m': [.15, .045, .025]})['configuration_sha256'] == '8c22edacf9093a9e753143e8666eb431dfd58fb7b9f9fbb61fc77acfe902485a'
+    assert legacy(GEOMETRY)['configuration_sha256'] == '018e6922de29d1b02f5ba8c42a1fa046dbe347f6d8f5d5088d49111f31b6a7a9'
+    assert legacy({'block_size_m': [.15, .045, .025]})['configuration_sha256'] == 'dc558b8ef4b677b4039db2e0f7d3e308404b3248f6d0813cd99612e8cbd1c213'
+    assert task_configuration(GEOMETRY)['configuration_sha256'] != legacy(GEOMETRY)['configuration_sha256']
 
 
 def test_tall_tower_collection_slots_are_inside_symmetric_physical_trays():

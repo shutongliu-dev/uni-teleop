@@ -20,6 +20,8 @@ from bench.simulation.assets.scene_parts import Asset, write_library
 
 
 ASSET_ROOT = Path(f'{DATA_ROOT}/assets/task_parts/mechanical_assembly/gear_train_assembly/v3_4')
+GRIP_ASSET_ROOT = ASSET_ROOT.with_name('idler_grip_v1')
+IDLER_GRIP = {'hub_radius_m': .032, 'hub_height_m': .032}
 LEGACY_ASSET_ROOT = ASSET_ROOT.with_name('v2')
 STEEL_DENSITY = 7850.
 HANDLE_DENSITY = 1150.
@@ -337,8 +339,12 @@ def _finish(asset):
     return asset
 
 
-def gear_asset(name, *, input_hub=False, teeth=20):
+def gear_asset(name, *, input_hub=False, teeth=20, grip_hub=None):
     g = gear_geometry(teeth)
+    if grip_hub is not None:
+        if name != 'idler_gear' or teeth != 32 or input_hub or grip_hub != IDLER_GRIP:
+            raise ValueError('Only the declared large idler grip revision is supported')
+        g.update(grip_hub)
     asset = _asset(name)
     angles, radii = _root_boundary(g)
     root, factor = _ring_pieces(angles, radii,
@@ -374,6 +380,29 @@ def gear_asset(name, *, input_hub=False, teeth=20):
         tooth_collision='Each radial band is independently checked convex and volume-preserving; final band includes its exact convex tip-arc union. No complete-tooth or complete-gear hull.',
         decomposition_revision='v3: same-module 20/32-tooth profiles, retaining the v2 exact convex tip union; each body mass and inertia reintegrated from its actual solids')
     return _finish(asset)
+
+
+def prepare_grip_asset(output=GRIP_ASSET_ROOT):
+    """Version only the larger idler grip; keep all historical assets intact."""
+    output = Path(output).resolve()
+    if output.exists():
+        raise FileExistsError('Choose a fresh idler grip asset directory: '+str(output))
+    asset = gear_asset('idler_gear', teeth=32, grip_hub=IDLER_GRIP)
+    source = {'schema': 'mechanical_idler_grip_source.v1', 'source_kind': 'original_procedural',
+        'license': 'CC0-1.0', 'generator_path': str(Path(__file__).resolve()),
+        'generator_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        'parent_asset_manifest': str(ASSET_ROOT/'manifest.json'),
+        'parent_asset_manifest_sha256': hashlib.sha256((ASSET_ROOT/'manifest.json').read_bytes()).hexdigest(),
+        'changed_geometry': dict(IDLER_GRIP),
+        'preserved': ['32 teeth', '5 mm module', '18 mm face width', '24 mm through bore',
+                      '38 mm lower entry', 'lower gear and tooth solids', 'material density and friction'],
+        'mass_method': asset.data['inertia_method'],
+        'scope': 'Larger grasping surface only; no robot grasp or new transmission success claim.'}
+    result = write_library(output, [('idler_gear', asset)],
+        generator=__name__+'.prepare_grip_asset', extra={'source': source})
+    (output/'SOURCE.json').write_text(json.dumps(source, indent=2, allow_nan=False)+'\n')
+    (output/'LICENSE.txt').write_text('Original procedural geometry dedicated to the public domain under CC0-1.0.\nhttps://creativecommons.org/publicdomain/zero/1.0/\n')
+    return result
 
 
 def _box(size, position):

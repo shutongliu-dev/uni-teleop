@@ -18,7 +18,7 @@ import time
 
 from bench.protocol.schemas import (ActionDiagnostic, RobotExecutionState, TerminationReason,
     MAX_ROBOT_EXECUTION_STATE_BYTES)
-from bench.sensors.contact_schema import ContactHistoryObservation
+from bench.sensors.contact_schema import MAX_BIMANUAL_CONTACT_HISTORY_BYTES, parse_contact_history
 from typing import get_args
 
 from .actions import ActionValidationError
@@ -193,8 +193,11 @@ def _minimum_primitive_feedback(value):
             # The session has already applied the tactile ablation. Preserve
             # every action's bounded public summary before later tools or
             # bulky trace truncation can replace its full callback result.
-            copied=_json_copy(history,ProgramLimits(max_value_bytes=16384))
-            checked=ContactHistoryObservation.model_validate(copied)
+            # The public union allows up to eight named instances. Its parser
+            # applies each version's own size bound; the outer copy remains
+            # bounded even before parsing an untrusted callback value.
+            copied=_json_copy(history,ProgramLimits(max_value_bytes=4*MAX_BIMANUAL_CONTACT_HISTORY_BYTES))
+            checked=parse_contact_history(copied)
             if checked.action_id != result.get('action_id'):
                 raise ValueError('Contact history belongs to another action')
             result['contact_history']=checked.model_dump(mode='json')

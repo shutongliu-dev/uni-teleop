@@ -24,7 +24,8 @@ from bench.runtime.manipulation_tasks import project_manipulation_task
 from bench.runtime.controllers import default_registry
 from bench.runtime.server import create_app
 from bench.runtime.service import AgentService
-from scenes.runtime import terminal_scoring_contract
+from bench.runtime.worker import public_task_projection
+from bench.simulation.isaacsim_backend.native_task_bundle import load_observer
 from scenes.workrooms.catalog import load_task, task_definition
 from test_agent_service import FakeWorker, PRIVATE_MARKER, publish_targets
 from test_function_runner import ScriptedModel
@@ -36,15 +37,21 @@ MECHANICAL = (
 )
 NIST_MECHANICAL = ('nist_connector_insertion', 'nist_belt_drive_assembly',
                    'nist_cable_routing', 'nist_wire_harness')
-LIVING = ('remote_operation', 'water_pouring', 'tower_building', 'tower_extraction')
-STUDY = ('stationery_sorting', 'book_stacking', 'book_retrieval', 'book_shelving')
+COOPERATIVE = ('cooperative_insertion',)
+LIVING = ('remote_operation', 'water_pouring', 'tower_building', 'tower_extraction', 'storage_box')
+STUDY = ('stationery_sorting', 'book_stacking', 'book_retrieval', 'book_shelving', 'drawer_retrieval', 'reading_stand')
 KITCHEN = ('breakfast_serving', 'produce_transfer', 'utensil_sorting', 'pot_lid_placement',
-           'pantry_stocking', 'table_clearing')
-LABORATORY = ('sample_sorting', 'vial_racking', 'cap_placement', 'solid_weighing', 'pipette_transfer')
+           'pantry_stocking', 'table_clearing', 'surface_wiping')
+LABORATORY = ('sample_sorting', 'vial_racking', 'cap_placement', 'solid_weighing', 'pipette_transfer', 'tube_clamp_transfer')
 BOARD = ('tic_tac_toe_3x3', 'connect_four_5x5', 'hex7x7')
 
 
-@pytest.mark.parametrize('number,canonical', tuple(enumerate(MECHANICAL + NIST_MECHANICAL, 1)))
+def original_installation(family, task_id):
+    """These regressions exercise original task behavior, with no model choice."""
+    return 'single_arm' if task_definition(family, task_id).get('robot_configurations') else 'auto'
+
+
+@pytest.mark.parametrize('number,canonical', tuple(enumerate(MECHANICAL + NIST_MECHANICAL + COOPERATIVE, 1)))
 def test_mechanical_numbers_are_family_scoped_and_preserve_release_status(number, canonical):
     for alias in (f'task{number}', f'L{number}', canonical):
         selected = select_task(alias, family='mechanical_assembly')
@@ -155,7 +162,7 @@ def test_canonical_names_identify_the_family_without_reassigning_numbers(family,
 def test_scene_listing_retains_unavailable_tasks_and_the_tower_opponent():
     mechanical = {row['task_id']: row for row in list_scene_tasks('mechanical_assembly')}
     living = {row['task_id']: row for row in list_scene_tasks('living_room')}
-    assert set(mechanical) == set(MECHANICAL) | set(NIST_MECHANICAL)
+    assert set(mechanical) == set(MECHANICAL) | set(NIST_MECHANICAL) | set(COOPERATIVE)
     assert set(living) == set(LIVING)
     assert all(mechanical[key]['status'] == 'implemented' for key in MECHANICAL)
     for key in NIST_MECHANICAL:
@@ -265,6 +272,20 @@ def reset_score(release, task):
     """The frozen scorer's unscored reset state, as the native worker reports it."""
     evaluator = load_evaluator(release)(task)
     score = evaluator.inspect_conditions()
+    if score is None:
+        # Observation-only scorers (living storage box) score nothing before the
+        # frozen observer's reset baseline; replay the canonical closed reset frame.
+        _, scene, _, _ = task_inputs(release, task['id'])
+        # The native worker configures its observer with this same task.
+        observer = load_observer({**scene['native_task_bundle']['observer'], 'configuration': task})
+        objects = {name: {'position_m': list(observer.c['initial_positions_m'][name]),
+                          'quaternion_wxyz': [1., 0., 0., 0.], 'linear_velocity_m_s': [0., 0., 0.],
+                          'angular_velocity_rad_s': [0., 0., 0.]} for name in observer.c['actors']}
+        observer.on_frame({'time_s': 0., 'native_time_s': 0., 'native_step': 0,
+                           'physics_dt_s': observer.c['physics_dt_s'], 'baseline': True, 'objects': objects,
+                           'contacts': [], 'joints': {}, 'particle_sets': {}})
+        score = evaluator.update({'time_s': 0., 'task_state': observer.on_observe()})
+        assert score['reason'] == 'reset_baseline_not_scored'
     if 'referee' in task.get('public_rules', {}) and 'referee' not in score:
         # Observation-driven scorers (living Task1 v7) publish referee state
         # only after the native observer's reset baseline; replay that
@@ -278,15 +299,20 @@ def reset_score(release, task):
     return score
 
 
-def mechanical_service(tmp_path, task_id, family='mechanical_assembly'):
+def mechanical_service(tmp_path, task_id, family='mechanical_assembly', *, release=None):
     """Use actual frozen task/robot contracts, replacing only the native worker."""
     verified = load_task(family, task_id)
-    release = Path(verified['definition']['source_release']['path'])
+    release = Path(release or verified['definition']['source_release']['path'])
     workers = []
 
     def factory(**kwargs):
-        worker = FakeWorker(**kwargs, depth=True, acknowledged_targets=True, on_step=publish_targets)
         _, scene, task, initial = task_inputs(kwargs['release'], kwargs['task_id'], seed=kwargs['seed'])
+        geometry = public_robot_geometry(robot_configuration(scene))
+        hand_count = (sum(len(model.hand.names) for model in geometry.sides.values())
+                      if hasattr(geometry, 'sides') else len(geometry.hand.names))
+        class SceneWorker(FakeWorker):
+            hand_counts = {**FakeWorker.hand_counts, kwargs['hand_id']: hand_count}
+        worker = SceneWorker(**kwargs, depth=True, acknowledged_targets=True, on_step=publish_targets)
         # The CPU double reports the frozen scorer's unscored state; it does
         # not fabricate mechanical evidence while testing Agent transport.
         worker.score.update(reset_score(kwargs['release'], task))
@@ -297,22 +323,28 @@ def mechanical_service(tmp_path, task_id, family='mechanical_assembly'):
             worker.raw['reduced_dynamics'] = {PRIVATE_MARKER: 'liquid_ledger'}
             worker.score['detail'] = {PRIVATE_MARKER: 'mass_and_volume_readout'}
         worker.initial['score'] = deepcopy(worker.score)
-        if task.get('schema_version') == 'living-room-manipulation-task-v1':
-            worker.initial['task'] = project_manipulation_task(task)
+        # Publish exactly what the native worker binds, including the public
+        # projection of a frozen seed case and the placement/manipulation views.
+        projection = public_task_projection(task)
+        if projection is not None:
+            worker.initial['task'] = projection
+        if hasattr(geometry, 'sides'):
+            worker.arm = [name for model in geometry.sides.values() for name in model.arm.names]
+            worker.hand = [name for model in geometry.sides.values() for name in model.hand.names]
         else:
-            projection = project_task_rules(task, scoring_contract=terminal_scoring_contract(task))
-            if projection is not None:
-                worker.initial['task'] = projection
-        geometry = public_robot_geometry(robot_configuration(scene))
-        worker.arm, worker.hand, worker.active = list(geometry.arm.names), list(geometry.hand.names), list(geometry.names)
+            worker.arm, worker.hand = list(geometry.arm.names), list(geometry.hand.names)
+        worker.active = list(geometry.names)
         worker.raw['joint_positions_rad'] = deepcopy(initial['joint_positions_rad'])
         worker.raw['joint_velocities_rad_s'] = dict.fromkeys(worker.active, 0.)
         worker.raw['robot'] = {'joint_targets_rad': deepcopy(initial['joint_positions_rad'])}
         worker.initial['observation'] = deepcopy(worker.raw)
         worker.initial['metadata'].update(scene_spec=scene, action_spec={
             'joint_names': worker.active, 'arm_joint_names': worker.arm, 'hand_joint_names': worker.hand,
-            'joint_limits_rad': {name: [float(geometry.lower[i]), float(geometry.upper[i])]
-                                 for i, name in enumerate(geometry.names)}})
+            'joint_limits_rad': {joint.name: [float(joint.lower), float(joint.upper)]
+                                 for joint in geometry.joints}})
+        if hasattr(geometry, 'sides'):
+            worker.initial['metadata']['hand_spec'] = {
+                'hand_id': scene['robot']['hand_id'], 'arms': {side: {} for side in geometry.sides}}
         workers.append(worker)
         return worker
 
@@ -322,7 +354,7 @@ def mechanical_service(tmp_path, task_id, family='mechanical_assembly'):
 
 
 @pytest.mark.parametrize('family,alias,task_id', [
-    *(('mechanical_assembly', f'L{number}', task) for number, task in enumerate(MECHANICAL + NIST_MECHANICAL, 1)),
+    *(('mechanical_assembly', f'L{number}', task) for number, task in enumerate(MECHANICAL + NIST_MECHANICAL + COOPERATIVE, 1)),
     *(('living_room', f'task{number}', task) for number, task in enumerate(LIVING[:3], 1)),
     *(('study', f'task{number}', task) for number, task in enumerate(STUDY, 1)),
     *(('kitchen', f'task{number}', task) for number, task in enumerate(KITCHEN, 1)),
@@ -353,6 +385,7 @@ def test_ordinary_frozen_releases_observe_hold_and_stop_through_public_http(tmp_
                 resolve_task(alias, [dict(explicit, task_kind='turn_game')], family=family)
         report = run(RunConfig('http://testserver', alias, tmp_path / 'run',
                               family=family, seed=0, max_decisions=6,
+                              configuration=original_installation(family, task_id),
                               # A disabled client horizon permits the frozen
                               # 240 s referee limit without changing the shared
                               # 150 s finite-request admission ceiling.
@@ -378,11 +411,12 @@ def test_ordinary_frozen_releases_observe_hold_and_stop_through_public_http(tmp_
         if task_id in KITCHEN[4:]:
             assert request['budgets']['sim_time_s'] is None
             assert ready['spec']['budgets']['sim_time_s'] is None
-            assert verified['task']['public_rules']['referee']['thresholds']['max_time_s'] == 240.
+            assert verified['task']['public_rules']['referee']['thresholds']['max_time_s'] == (
+                180. if task_id == 'surface_wiping' else 240.)
         else:
             assert request['budgets']['sim_time_s'] == verified['task']['recommended_budgets']['sim_time_s']
     assert ready['spec']['task_release_sha256'] == verified['definition']['source_release']['manifest_sha256']
-    assert request['robot_id'] == 'sharpa_w01_right'
+    assert request['robot_id'] == verified['scene']['robot']['hand_id']
     assert len(workers) == 1 and workers[0].closed
     assert any(operation == 'step' for operation, _ in workers[0].calls)
     assert not any(operation == 'board_game' for operation, _ in workers[0].calls)
@@ -466,7 +500,8 @@ def test_referee_phase_change_uses_current_get_task_feedback_not_creation_snapsh
     model.generate = generate
     with TestClient(create_app(service=api)) as http:
         report = run(RunConfig('http://testserver', task_id, tmp_path/'run',
-                              family=family, max_decisions=4, max_status_queries=100000),
+                              family=family, configuration=original_installation(family, task_id),
+                              max_decisions=4, max_status_queries=100000),
                      bench=BenchHTTPClient('http://testserver', client=http), models={'single': model})
     assert report['error_type'] is None, report
     assert report['decisions'] == {'single': 3}
@@ -510,13 +545,27 @@ def test_explicit_family_pins_release_before_model_or_motion_but_legacy_id_remai
 
         monkeypatch.setattr(bench, 'create', different_release)
         report = run(RunConfig('http://testserver', task_id, tmp_path / 'run',
-                              family=family, seed=0, max_decisions=2), bench=bench, models={'single': model})
+                              family=family, configuration=original_installation(task_family, task_id),
+                              seed=0, max_decisions=2), bench=bench, models={'single': model})
     assert len(workers) == 1 and workers[0].closed
     assert not any(operation == 'step' for operation, _ in workers[0].calls)
-    if family:
+    if family or original_installation(task_family, task_id) == 'single_arm':
+        # Explicit installation selection pins the public release even for a
+        # bare canonical task ID; old services without options keep legacy use.
         assert model.turns == []
-        assert report['task_setup_error']['code']
+        assert report['task_setup_error']['code'] == 'release_mismatch'
         assert report['run_status'] == 'configuration_error'
+        assert report['task_success'] is None and report['task_outcome'] == 'unknown'
+        assert not (tmp_path / 'run/episode_ready.json').exists()
+    elif (tmp_path / 'run/episode_case_discovery.json').is_file():
+        # Every kitchen task now publishes frozen seed cases, and discovery
+        # binds the selected case to its release, so even an unpinned bare ID
+        # rejects a created episode on another release before the model moves.
+        # Seedless historical releases keep service-selected use (see
+        # test_function_discovery_contracts).
+        assert model.turns == []
+        assert report['task_setup_error'] is None and report['error_type'] == 'ValueError'
+        assert report['ready_validated'] is False and report['result_valid_for_scoring'] is False
         assert report['task_success'] is None and report['task_outcome'] == 'unknown'
         assert not (tmp_path / 'run/episode_ready.json').exists()
     else:
@@ -552,7 +601,7 @@ def test_runner_rejects_different_release_result_for_catalog_episode(
             return response
         monkeypatch.setattr(http, 'request', drifting_result)
         report = run(RunConfig('http://testserver', alias, tmp_path/'run',
-                              family=family, max_decisions=2),
+                              family=family, configuration=original_installation(family, task_id), max_decisions=2),
                      bench=BenchHTTPClient('http://testserver', client=http), models={'single': model})
     assert report['result'] is None and report['task_success'] is None
     assert report['finalization_error']['error_category'] == 'invalid_response'
@@ -580,7 +629,7 @@ def test_runner_rejects_changed_creation_rules_before_model(tmp_path, monkeypatc
             return ready
         monkeypatch.setattr(bench, 'create', different_rules)
         report = run(RunConfig('http://testserver', alias, tmp_path/'run',
-                              family=family, max_decisions=2),
+                              family=family, configuration=original_installation(family, task_id), max_decisions=2),
                      bench=bench, models={'single': model})
     assert model.turns == [] and report['run_error'] is not None
     assert not (tmp_path/'run/episode_ready.json').exists()

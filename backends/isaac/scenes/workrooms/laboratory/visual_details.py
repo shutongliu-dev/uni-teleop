@@ -221,6 +221,8 @@ def _sample_sorting(a):
 
 
 def _vial_racking(a):
+    source_plate_y, source_plate_z = a.meta['task_parameters'].get(
+        'source_rack', {}).get('number_plate_local_yz_m', [-.065, .00415])
     for record in a.meta["objects"]:
         name = record["id"]
         a.bind(a.path(name)+"/Shape_000", "frosted_polymer")
@@ -240,7 +242,7 @@ def _vial_racking(a):
         # Keep the whole number plate ahead of the post at y=[-.033,-.021].
         a.text("rack", "SocketNumber_"+str(index), str(index), (x, -.043, .00615), (.018, .014), facing="top")
         a.text("supply_cradle", "LaneNumber_"+str(index), "V"+str(index).zfill(2),
-               (x, -.065, .00415), (.035, .012), facing="top")
+               (x, source_plate_y, source_plate_z), (.035, .012), facing="top")
     a.text("rack", "Identification", "OPEN VIAL RACK", (0., -.05515, .003), (.20, .0045))
 
 
@@ -274,6 +276,14 @@ def _solid_weighing(a):
             a.bind(path, "teal" if name == "scoop_rest" else "brushed_steel")
     a.bind(a.path("balance_platform")+"/Collision/base", "ink")
     a.bind(a.path("balance_platform")+"/Collision/pan", "steel")
+    for prim in a.stage.GetPrimAtPath(a.path("balance_platform")+"/Collision").GetChildren():
+        name = prim.GetName()
+        if name == "housing" or name.startswith("console_support_"):
+            a.bind(str(prim.GetPath()), "white_polymer")
+        elif name == "display_frame":
+            a.bind(str(prim.GetPath()), "ink")
+        elif name.startswith("foot_"):
+            a.bind(str(prim.GetPath()), "rubber")
     a.text("source_tray", "GranuleLabel", ["MODEL GRANULES", "24 X 0.5 g"],
            (0., -.05515, .014), (.118, .018))
     a.text("weighing_cup", "BoatLabel", ["BOAT", a.mass_text("weighing_cup", "TARE ")],
@@ -281,13 +291,34 @@ def _solid_weighing(a):
     a.text("weighing_cup", "BoatLabelRear", ["BOAT", a.mass_text("weighing_cup", "TARE ")], (0., .03265, .020),
            (.060, .021), facing="rear")
     a.boxes("weighing_cup", "RolledRim", [
-        ((.075, .0012, .0004), (0., side*.0317, .03505)) for side in (-1, 1)], "white_polymer")
+        ((.075, .0012, .0004), (0., side*.0317, .03505)) for side in (-1, 1)] + [
+        ((.0012, .063, .0004), (side*.0367, 0., .03505)) for side in (-1, 1)], "white_polymer")
+    # Shallow exterior fold lines follow the physical walls; the open volume
+    # and the bottom support surface retain their original geometry.
+    a.boxes("weighing_cup", "MouldedWallFolds", [
+        ((.0006, .00018, .025), (x, side*.03256, .019))
+        for x in (-.026, .026) for side in (-1, 1)], "frosted_polymer")
+    a.boxes("weighing_cup", "LowerWallSeam", [
+        ((.070, .00015, .00045), (0., side*.03257, .005)) for side in (-1, 1)], "frosted_polymer")
     a.text("scoop", "HandleStamp", a.mass_text("scoop"), (-.085, 0., .01315),
            (.038, .009), facing="top", background=False)
     a.boxes("scoop", "HandleGrip", [((.001, .013, .00025), (-.133+i*.004, 0., .01310))
                                       for i in range(7)], "rubber")
-    a.text("scoop_rest", "RestTag", "SCOOP", (.050, -.023, .00615), (.050, .011), facing="top")
-    # The -Y top strip and vertical face are reserved for the live mass display.
+    a.boxes("scoop", "HandleNeckFerrule", [((.010, .0141, .00025), (-.035, 0., .01310))], "steel")
+    a.boxes("scoop", "BowlRolledSides", [((.053, .0005, .0003), (-.0025, side*.0215, .01705))
+                                            for side in (-1, 1)], "steel")
+    for index, x in enumerate((-.039, -.031)):
+        a.mesh("scoop", "HandleRivet_"+str(index), cylinder(.0011, .00015, (x, 0., .01330)), "ink")
+    a.text("scoop_rest", "RestTag", "SCOOP", (.015, -.028, .00615), (.027, .005), facing="top")
+    # Casing seam, separate pan carrier and fasteners read as an instrument;
+    # no cosmetic strip crosses the pan or turns into a phantom support.
+    a.boxes("balance_platform", "HousingSeam", [
+        ((.00018, .140, .00045), (side*.11005, -.0015, .012)) for side in (-1, 1)] + [
+        ((.215, .00018, .00045), (0., .07105, .012))], "ink")
+    a.boxes("balance_platform", "PanCarrierEdge", [
+        ((.100, .00015, .00065), (0., side*.04506, .0234)) for side in (-1, 1)] + [
+        ((.00015, .090, .00065), (side*.05006, 0., .0234)) for side in (-1, 1)], "brushed_steel")
+    # The forward inclined console and secondary vertical face are live.
     a.text("balance_platform", "ScaleRearTag", ["LAB", "NOMINAL"], (0., .06265, .0115),
            (.080, .018), facing="rear")
     for index, x in enumerate((-.058, .058)):
@@ -296,26 +327,68 @@ def _solid_weighing(a):
 
 
 def _pipette_transfer(a):
+    # Printed worktop appearance gives clear glass/liquid a neutral background.
+    # It is neither a target zone nor a support object: all native contacts and
+    # reset heights still use the original room worktops beneath these quads.
+    area_root = a.root+"/ObservationAreas"
+    area = UsdGeom.Xform.Define(a.stage, area_root)
+    area.GetPrim().CreateAttribute("laboratory:visualOnly", Sdf.ValueTypeNames.Bool).Set(True)
+    material = UsdShade.Material.Define(a.stage, a.root+"/VisualMaterials/observation_area")
+    shader = UsdShade.Shader.Define(a.stage, str(material.GetPath())+"/Surface")
+    shader.CreateIdAttr("UsdPreviewSurface")
+    shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(.86, .88, .86))
+    shader.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(.82)
+    material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
+    areas = []
+    for name, cx, cy, sx, sy in (("SourceWorkArea", .725, .53, .39, .17),
+                                ("ReceiverWorkArea", .72, 2.08, .58, .17)):
+        path = area_root+"/"+name
+        mesh = UsdGeom.Mesh.Define(a.stage, path)
+        mesh.CreatePointsAttr([Gf.Vec3f(cx+x*sx/2, cy+y*sy/2, .90005)
+                              for x, y in ((-1,-1), (1,-1), (1,1), (-1,1))])
+        mesh.CreateFaceVertexCountsAttr([4]); mesh.CreateFaceVertexIndicesAttr([0,1,2,3])
+        mesh.CreateSubdivisionSchemeAttr("none"); mesh.CreateDoubleSidedAttr(False)
+        UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(material)
+        a.paths.append(path)
+        areas.append({"prim_path": path, "center_xy_m": [cx, cy], "size_xy_m": [sx, sy]})
+    a.observation_areas = {"schema": "laboratory_printed_observation_areas.v1", "areas": areas,
+        "surface_world_z_m": .90005, "visual_offset_above_table_m": .00005,
+        "collision": False, "support": False, "goal_region": False, "emissive": False,
+        "scope": "Noncollision tabletop print appearance only; original worktop contacts, reset heights and scoring remain unchanged."}
     containers = a.meta["task_parameters"]["hydraulics"]["containers"]
     for name, container in containers.items():
         source = name == "source"
         radius, height = (.036, .080) if source else (.025, .060)
-        # Continuous outer lip/base highlights never bridge the open vessel.
-        a.band(name, "RimHighlight", radius-.0007, radius+.00012, height-.0006, .0012, "white_polymer")
-        a.band(name, "FootRing", radius-.0005, radius+.00012, .0025, .0010, "white_polymer")
-        identity = ["SOURCE" if source else name[-1].upper(), a.mass_text(name, "DRY ")]
-        a.text(name, "VesselIdentity", identity, (0., 0., height-.011),
-               (.040 if source else .030, .016), radius=radius+.00016)
-        volume_marks = (20, 40, 60, 80, 100, 120, 160, 200) if source else (5, 10, 15, 20, 30, 40, 50)
-        for ml in volume_marks:
-            z = container["floor_z_m"]+ml*1.e-6/(math.pi*container["radius_m"]**2)
-            # The zero follows the interior floor and spacing follows actual bore area.
-            a.panel(name, "VolumeTick_"+str(ml), (0., 0., z), (.010, .00045), "blue",
-                    facing="rear", radius=radius+.00017)
-            a.text(name, "VolumeNumber_"+str(ml), str(ml), (0., 0., z+.00155), (.010, .0025),
-                   facing="rear", radius=radius+.00019, finish="blue", background=False)
-        a.text(name, "VolumeUnit", "mL", (0., 0., height-.004), (.014, .005),
-               facing="rear", radius=radius+.00019, finish="blue", background=False)
+        # Narrow highlights stay outside the open bore. No opaque label covers
+        # the lower water column, including the receivers' shallow 10 mL load.
+        a.band(name, "RimHighlight", radius-.00035, radius+.00010, height-.00035, .0007, "white_polymer")
+        a.band(name, "FootRing", radius-.00035, radius+.00010, .0015, .0007, "white_polymer")
+        volume_marks = (5, 10, 20, 40, 60, 80, 100, 120, 160) if source else (8, 10, 12, 20, 30, 40, 50)
+        for facing in ("front", "rear"):
+            a.text(name, "VesselIdentity_"+facing, "SOURCE" if source else name[-1].upper(),
+                   (0., 0., height-.013), (.031 if source else .011, .006),
+                   facing=facing, radius=radius+.00016, finish="blue", background=False)
+            for ml in volume_marks:
+                z = container["floor_z_m"]+ml*1.e-6/(math.pi*container["radius_m"]**2)
+                # The zero follows the interior floor and spacing follows the
+                # actual bore area. The wide 10 mL mark is a static graduation.
+                major = not source and ml == 10
+                a.panel(name, f"VolumeTick_{facing}_{ml}", (0., 0., z),
+                        (.014 if major else .009, .00045 if major else .0003), "blue",
+                        facing=facing, radius=radius+.00017)
+                a.text(name, f"VolumeNumber_{facing}_{ml}", str(ml), (0., 0., z+.0019),
+                       (.009, .0032), facing=facing, radius=radius+.00019,
+                       finish="blue", background=False)
+                # Low-volume levels are only 1.4–3.1 mm apart. Stagger their
+                # etched columns around the true cylindrical wall so readable
+                # numerals do not overlap or obscure the central water window.
+                columns = {5: -35., 10: 0., 20: 35.} if source else {8: -35., 10: 0., 12: 35.}
+                if ml in columns and columns[ml]:
+                    for label in (f"VolumeTick_{facing}_{ml}", f"VolumeNumber_{facing}_{ml}Ink"):
+                        prim = a.stage.GetPrimAtPath(a.path(name)+"/VisualDetails/"+label)
+                        UsdGeom.Xformable(prim).AddRotateZOp().Set(columns[ml])
+            a.text(name, "VolumeUnit_"+facing, "mL", (0., 0., height-.005), (.012, .004),
+                   facing=facing, radius=radius+.00019, finish="blue", background=False)
         # Earlier unnumbered marks were not tied to volume; retain their disabled
         # collider definitions but suppress their appearance in the new asset.
         for index in range(1, 4):
@@ -324,19 +397,25 @@ def _pipette_transfer(a):
     for ml in (0, 5, 10, 15, 20):
         z = .028+ml*1.e-6/area
         for facing in ("front", "rear"):
-            a.panel("pipette", f"StrokeTick_{ml}_{facing}", (0., 0., z), (.010, .0005), "blue",
+            a.panel("pipette", f"StrokeTick_{ml}_{facing}", (0., 0., z), (.013, .00065), "blue",
                     facing=facing, radius=.01416)
-            a.text("pipette", f"StrokeValue_{ml}_{facing}", str(ml), (0., 0., z+.0024), (.011, .0032),
+            a.text("pipette", f"StrokeValue_{ml}_{facing}", str(ml), (0., 0., z+.003), (.012, .004),
                    facing=facing, radius=.01419, finish="blue", background=False)
-    a.text("pipette", "ToolName", "mL", (0., 0., .082), (.011, .004), radius=.01419,
-           finish="blue", background=False)
-    a.text("pipette", "DryMass", a.mass_text("pipette"), (.015, 0., .08915),
-           (.016, .007), facing="top")
-    a.text("plunger", "ThumbPadLabel", ["PUSH", a.mass_text("plunger")], (0., 0., .08515),
-           (.019, .013), facing="top")
+    for facing in ("front", "rear"):
+        a.text("pipette", "ToolName_"+facing, "mL", (0., 0., .082), (.011, .004), facing=facing,
+               radius=.01419, finish="blue", background=False)
+    # Blue finger supports identify the barrel; the contrasting pull ring belongs
+    # to the independent piston. These texture ribs add no hidden contact.
+    a.boxes("pipette", "FingerSupportGrip", [
+        ((.001, .017, .00025), (side*(.010+i*.004), 0., .08912))
+        for side in (-1, 1) for i in range(4)], "rubber")
+    a.text("plunger", "PullRingLabel", "PULL", (0., -.0026, .1107), (.009, .0018),
+           background=False, finish="ink")
+    a.text("plunger", "PushPadLabel", "PUSH", (0., -.0085, .08516), (.013, .0038),
+           facing="top", background=False, finish="ink")
     a.band("plunger", "SealLipTop", .0113, .01178, .0011, .0005, "rubber")
     a.band("plunger", "SealLipBottom", .0113, .01178, -.0011, .0005, "rubber")
-    a.text("pipette_cradle", "CradleLabel", "PISTON TOOL", (.83, .48185, .903), (.076, .0045))
+    a.text("pipette_cradle", "CradleLabel", "TOOL REST", (.83, .48185, .903), (.076, .0045))
 
 
 def add_task_visual_details(stage, metadata):
@@ -345,4 +424,7 @@ def add_task_visual_details(stage, metadata):
     {"sample_sorting": _sample_sorting, "vial_racking": _vial_racking,
      "cap_placement": _cap_placement, "solid_weighing": _solid_weighing,
      "pipette_transfer": _pipette_transfer}[metadata["task_id"]](author)
-    return author.finish()
+    result = author.finish()
+    if metadata["task_id"] == "pipette_transfer":
+        result["visual_detail"]["observation_areas"] = author.observation_areas
+    return result

@@ -15,7 +15,7 @@ from bench.paths import DATA_ROOT, load_json
 
 SHARPA_ROOT = Path(f'{DATA_ROOT}/assets/task_parts/threaded_sharpa/v3')
 EVIDENCE_ROOT = Path(f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/threaded_asset_native_20261016')
-SOURCE_SHA256 = '0c7762d73479438c7609c551dd26458cdbd5ba68ba103f1dd3f92a6b7113532f'
+SOURCE_SHA256 = 'b95ce695a5d988e24ff895b8e774e70f879ac71d2415d23dad5db6470664f302'
 ASSET_IDS = {'screwdriver': 'mechanical_screwdriver_sharpa_v3',
              'bolt': 'mechanical_bolt_sharpa_v3', 'fixture': 'mechanical_threaded_fixture_sharpa_v3'}
 BINDINGS = {

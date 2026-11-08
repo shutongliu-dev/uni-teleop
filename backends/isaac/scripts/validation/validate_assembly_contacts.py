@@ -475,14 +475,17 @@ def _validate_privileged_input_contract(inputs):
     if release_hash != expected_hash:
         mismatches['release_manifest_sha256'] = {'expected': expected_hash, 'actual': release_hash}
     expected_release_names = {
-        'mechanical_l1_native_probe_input.v1': 'parts_sorting',
-        'mechanical_l2_native_probe_input.v1': 'peg_insertion',
         'mechanical_l3_native_probe_input.v1': 'shaft_spacer_candidate_v2',
         'mechanical_l4_loose_native_probe_input.v1': 'loose_bolt_candidate_v10_pgs',
-        'mechanical_l5_gear_native_probe_input.v1': 'large_idler_v3_4_compact_pgs_release',
     }
-    if is_l5:
-        from scripts.validation.validate_mechanical_gear import _check_release
+    if is_l1 or is_l2 or is_l5:
+        # These builders pin their task definition's current catalog release.
+        if is_l1:
+            from scripts.validation.validate_mechanical_sorting import _check_release
+        elif is_l2:
+            from scripts.validation.validate_mechanical_peg import _check_release
+        else:
+            from scripts.validation.validate_mechanical_gear import _check_release
         try:
             _check_release(release)
         except ValueError as error:

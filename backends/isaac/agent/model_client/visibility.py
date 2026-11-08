@@ -14,7 +14,7 @@ from .actions import public_observation
 from .bench_http import BenchHTTPError
 from bench.protocol.schemas import (ActionDiagnostic, Contract, Name, Nonnegative,
                                  RobotExecutionState, TerminationReason)
-from bench.sensors.contact_schema import ContactHistoryObservation
+from bench.sensors.contact_schema import ContactHistoryValue
 
 
 def observation_view(observation, *, visual_input='rgbd', tactile_input='on'):
@@ -66,7 +66,7 @@ class _PublicPrimitiveFeedback(Contract):
     diagnostic: ActionDiagnostic | None = None
     termination_reason: TerminationReason | None = None
     robot_execution_state: RobotExecutionState | None = None
-    contact_history: ContactHistoryObservation | None = None
+    contact_history: ContactHistoryValue | None = None
 
 
 def feedback_view(feedback, *, tactile_input='on'):

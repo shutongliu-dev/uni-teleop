@@ -23,7 +23,6 @@ from scenes.workrooms.mechanical_assembly.tasks.parts_sorting import definition
 SCHEMA = 'mechanical_l1_privileged_validation_plan.v1'
 NATIVE_INPUT_SCHEMA = 'mechanical_l1_native_probe_input.v1'
 TASK_ID = 'parts_sorting'
-RELEASE_NAME = 'parts_sorting'
 REQUIRED_NATIVE_OBSERVATIONS = (
     'fixed_room_and_task_release_load',
     'robot_reset_joint_positions',
@@ -43,11 +42,17 @@ def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def _release_reference():
+    # The task's current catalog release (now its desktop-supply release), not
+    # a directory-name convention of the earlier release layout.
+    reference = definition.TASK['source_release']
+    return Path(reference['path']).resolve(), reference['manifest_sha256']
+
+
 def _check_release(release=None):
-    expected_path = Path(definition.TASK['source_release']['path']).resolve()
-    expected_hash = definition.TASK['source_release']['manifest_sha256']
+    expected_path, expected_hash = _release_reference()
     release = expected_path if release is None else Path(release).resolve()
-    if release.name != RELEASE_NAME:
+    if release != expected_path:
         raise ValueError('L1 privileged input is pinned to the parts_sorting release')
     manifest = release/'release_manifest.json'
     if not manifest.is_file():
@@ -206,8 +211,8 @@ def _validate_privileged_input_contract(inputs):
     actual_hash = digest(manifest) if manifest.is_file() else None
     if actual_hash != inputs.get('release_manifest_sha256'):
         mismatches['release_manifest_sha256'] = {'expected': inputs.get('release_manifest_sha256'), 'actual': actual_hash}
-    if release.name != RELEASE_NAME:
-        mismatches['release_name'] = release.name
+    if release.resolve() != _release_reference()[0]:
+        mismatches['release'] = str(release)
     for raw_path, expected in (inputs.get('source_sha256') or {}).items():
         actual = digest(raw_path) if Path(raw_path).is_file() else None
         if actual != expected:

@@ -12,6 +12,7 @@ import sys
 from bench.paths import DATA_ROOT
 
 BEGIN, END = '<!-- task-status:begin -->', '<!-- task-status:end -->'
+PROFILES = ('original', 'l_mount')
 ROUTES = {'single_agent': '/episodes', 'board_game': '/board-games',
           'two_player_adversarial': '/turn-games'}
 
@@ -19,18 +20,20 @@ ROUTES = {'single_agent': '/episodes', 'board_game': '/board-games',
 def table():
     from agent.model_client.scene_tasks import FAMILIES, list_scene_tasks
     from scenes.workrooms.catalog import task_definition
-    lines = ['| 场景 | 编号 | task_id | 名称 | 状态 | 会话 | 任务发布（相对 data/） |',
-             '|---|---|---|---|---|---|---|']
+    lines = ['| 场景 | 编号 | task_id | 名称 | 状态 | 会话 | 原版构型发布（相对 data/） | L 型构型发布（相对 data/） |',
+             '|---|---|---|---|---|---|---|---|']
     for family in FAMILIES:
         for row in list_scene_tasks(family):
             definition = task_definition(family, row['task_id'])
             number = row['task_number']
             label = ('—' if number is None else
                      f'L{number}' if family == 'mechanical_assembly' else f'task{number}')
-            release = definition['source_release']
-            published = '—' if release is None else f"`{Path(release['path']).relative_to(DATA_ROOT)}`"
+            published = []
+            for profile in PROFILES:  # the default installation's release for each robot profile
+                release = task_definition(family, row['task_id'], robot_profile=profile)['source_release']
+                published.append('—' if release is None else f"`{Path(release['path']).relative_to(DATA_ROOT)}`")
             lines.append(f"| `{family}` | {label} | `{row['task_id']}` | {definition['title']} | "
-                         f"{row['status']} | `{ROUTES[row['session_kind']]}` | {published} |")
+                         f"{row['status']} | `{ROUTES[row['session_kind']]}` | {' | '.join(published)} |")
     return '\n'.join(lines)
 
 

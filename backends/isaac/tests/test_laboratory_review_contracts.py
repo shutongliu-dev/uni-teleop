@@ -1,6 +1,7 @@
 """Independent CPU referee probes. Synthetic evidence is not native task success."""
 from copy import deepcopy
 import importlib
+import itertools
 import math
 import pytest
 from pxr import Usd
@@ -9,8 +10,8 @@ from scenes.workrooms.laboratory.evaluation import NativeTaskObserver, SequenceE
 from scenes.workrooms.laboratory.native_evidence import fixed
 
 
-def setup(task_id):
-    meta=importlib.import_module(f'scenes.workrooms.laboratory.tasks.{task_id}.assets').author_task(Usd.Stage.CreateInMemory())
+def setup(task_id, *, presentation=False):
+    meta=importlib.import_module(f'scenes.workrooms.laboratory.tasks.{task_id}.assets').author_task(Usd.Stage.CreateInMemory(),presentation=presentation)
     task={'schema_version':'laboratory-manipulation-task-v1','id':task_id,'episode_seed':0,
         'evaluation':rules.evaluation_configuration(task_id,meta,room_support_paths={'table':['/World/Geometry/worktop/Collider']}),
         'public_rules':rules.public_rules(task_id),'asset_metadata':meta}
@@ -54,6 +55,79 @@ def test_positive_sort_and_permuted_rack_goals_are_achievable_in_referee():
         for _ in range(700):result=step(f,o,m,pairs)
         assert result['released_stable_s']>=.3
         assert result['phase']=='settling'
+
+
+def rack_evaluator(task,observer):
+    evaluator=SequenceEvaluator(task)
+    baseline=evaluator.update({'time_s':0.,'task_state':observer.on_observe()})
+    assert baseline['status']=='ongoing' and not baseline['success']
+    return evaluator
+
+
+def rack_step(frame,observer,meta,pairs,evaluator):
+    result=step(frame,observer,meta,pairs)
+    if frame['native_step']%40==0:
+        score=evaluator.update({'time_s':frame['time_s'],'task_state':result})
+        assert score['status']!='unknown',score
+    return result
+
+
+@pytest.mark.parametrize('lift_and_return',[False,True])
+def test_source_rack_support_never_counts_as_target_insertion(lift_and_return):
+    task,m,f,o=setup('vial_racking');e=rack_evaluator(task,o)
+    names=list(f['objects'])
+    assert len(m['task_parameters']['source_holes'])==3
+    if lift_and_return:
+        for name in names:f['objects'][name]['position_m'][2]+=.03
+        rack_step(f,o,m,[],e)
+        for name in names:f['objects'][name]['position_m'][2]-=.03
+    for _ in range(720):result=rack_step(f,o,m,[(name,'supply_cradle') for name in names],e)
+    assert bool(o.moved)==lift_and_return
+    assert not any(result['detail']['inserted'].values())
+    assert result['released_stable_s']==0. and not e.last_result['success']
+
+
+@pytest.mark.parametrize('permutation',list(itertools.permutations(range(3))))
+def test_rack_transfer_accepts_every_distinct_target_hole_assignment(permutation):
+    task,m,f,o=setup('vial_racking');e=rack_evaluator(task,o)
+    names=list(f['objects'])
+    for name,index in zip(names,permutation):
+        f['objects'][name]=fixed(m['task_parameters']['holes'][index]['goal_pose_xyzw'])
+    pairs=[(name,'rack') for name in names]
+    for _ in range(600):result=rack_step(f,o,m,pairs,e)
+    assert not e.last_result['success']  # The 20 ms quiet window precedes the 300 ms release dwell.
+    for _ in range(120):result=rack_step(f,o,m,pairs,e)
+    assert all(result['detail']['inserted'].values())
+    assert result['released_stable_s']>=.3 and e.last_result['success']
+
+
+@pytest.mark.parametrize('invalid',['missing_target_contact','duplicate_hole','unchanged_goal_reset'])
+def test_rack_goal_requires_real_target_support_distinct_holes_and_movement(invalid):
+    task,m,f,o=setup('vial_racking',presentation=invalid=='unchanged_goal_reset');e=rack_evaluator(task,o)
+    names=list(f['objects'])
+    if invalid!='unchanged_goal_reset':
+        for name,index in zip(names,[0,0,2] if invalid=='duplicate_hole' else [0,1,2]):
+            f['objects'][name]=fixed(m['task_parameters']['holes'][index]['goal_pose_xyzw'])
+    pairs=[] if invalid=='missing_target_contact' else [(name,'rack') for name in names]
+    for _ in range(720):result=rack_step(f,o,m,pairs,e)
+    assert not all(result['detail']['inserted'].values())
+    assert result['released_stable_s']==0. and not e.last_result['success']
+
+
+@pytest.mark.parametrize('side',['left','right'])
+def test_rack_transfer_requires_release_from_either_robot_hand(side):
+    task,m,f,o=setup('vial_racking');e=rack_evaluator(task,o)
+    names=list(f['objects'])
+    for name,goal in zip(names,m['task_parameters']['holes']):
+        f['objects'][name]=fixed(goal['goal_pose_xyzw'])
+    # The contact is identified from the original robot namespace, not a score flag.
+    m['fixtures']['diagnostic_hand']='/World/Robot/'+side+'_hand/palm/Collider'
+    pairs=[(name,'rack') for name in names]
+    for _ in range(720):result=rack_step(f,o,m,pairs+[(names[0],'diagnostic_hand')],e)
+    assert all(result['detail']['inserted'].values())
+    assert result['released_stable_s']==0. and not e.last_result['success']
+    for _ in range(720):result=rack_step(f,o,m,pairs,e)
+    assert result['released_stable_s']>=.3 and e.last_result['success']
 
 
 def test_cap_open_park_three_start_reclose_and_home_is_achievable():

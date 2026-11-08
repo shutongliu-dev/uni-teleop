@@ -11,7 +11,7 @@ from bench.paths import DATA_ROOT, load_json
 SCHEMA = 'study_task_release.v1'
 VERSION = 'isaacsim-study-release-v1'
 TASK_SCHEMA = 'study-task-v1'
-TASK_IDS = ('stationery_sorting', 'book_stacking', 'book_retrieval', 'book_shelving')
+TASK_IDS = ('stationery_sorting', 'book_stacking', 'book_retrieval', 'book_shelving', 'drawer_retrieval', 'reading_stand')
 DATASETS = Path(f'{DATA_ROOT}/datasets')
 
 
@@ -67,7 +67,8 @@ def initial_state(scene, task):
         raise ValueError('Study reset requires every finite active robot joint')
     model.checked_joints(joints, enforce_limits=True)
     evaluation = task['evaluation']
-    from .composition import SUPPORT_PATHS
+    from .composition import support_paths
+    SUPPORT_PATHS = support_paths(ident)
     configuration = evaluation['configuration']
     if (evaluation.get('support_paths') != SUPPORT_PATHS
             or set(configuration['objects']) != set(evaluation['body_paths'])
@@ -107,8 +108,20 @@ def validate_authored_reset(scene, task):
     stage = Usd.Stage.CreateInMemory()
     UsdPhysics.Scene.Define(stage, '/World/PhysicsScene')
     native = mount_task_layers(stage, scene['task_layers'], physics_scene_path='/World/PhysicsScene')
-    if any(row['joints'] for row in native['layers']):
-        raise ValueError('Study props cannot contain authored joints or world anchors')
+    actual_joints = [joint for row in native['layers'] for joint in row['joints']]
+    expected_joints = task['evaluation'].get('joint_paths', [])
+    if [j['path'] for j in actual_joints] != expected_joints:
+        raise ValueError('Study authored joints differ from the frozen task mapping')
+    if task['id'] == 'drawer_retrieval':
+        from .drawer_rules import JOINT_PATH
+        if expected_joints != [JOINT_PATH] or actual_joints[0]['body0'] is not None or actual_joints[0]['body1'] != '/World/StudyTask/Objects/drawer':
+            raise ValueError('Drawer requires its declared world-anchored native slide')
+    if task['id'] == 'reading_stand':
+        from .reading_stand_rules import JOINT_PATHS
+        if expected_joints != JOINT_PATHS or [j['type'] for j in actual_joints] != ['revolute', 'prismatic']:
+            raise ValueError('Reading stand requires the declared hinge and support-pin slide')
+        if any(j['body0'] is not None for j in actual_joints):
+            raise ValueError('Reading stand joints require declared fixed base anchors')
     for name, row in native['objects'].items():
         expected = task['evaluation']['configuration']['objects'][name]['initial_pose']
         actual = row['initial_state']
@@ -118,11 +131,17 @@ def validate_authored_reset(scene, task):
             raise ValueError('Study evaluator reset differs from authored native body pose')
 
 
-def _freeze_evaluator(destination):
+def _freeze_evaluator(destination, task_id):
     source = Path(__file__).parent
     destination.mkdir()
-    for original, frozen in (('evaluation.py', 'sequence_evaluator.py'),
-                             ('rules.py', 'rules.py'), ('native_observer.py', 'native_observer.py')):
+    sources = [('evaluation.py', 'sequence_evaluator.py'), ('rules.py', 'rules.py'), ('native_observer.py', 'native_observer.py')]
+    if task_id == 'drawer_retrieval':
+        sources = [('drawer_evaluation.py', 'sequence_evaluator.py'), ('evaluation.py', 'evaluation.py'),
+            ('drawer_rules.py', 'drawer_rules.py'), ('rules.py', 'rules.py'), ('native_observer.py', 'native_observer.py')]
+    if task_id == 'reading_stand':
+        sources = [('reading_stand_evaluation.py', 'sequence_evaluator.py'), ('evaluation.py', 'evaluation.py'),
+            ('reading_stand_rules.py', 'reading_stand_rules.py'), ('rules.py', 'rules.py'), ('native_observer.py', 'native_observer.py')]
+    for original, frozen in sources:
         shutil.copy2(source / original, destination / frozen)
 
 
@@ -201,7 +220,7 @@ def prepare_task_release(task_id, output, *, seed=0, inputs=None):
         dump(output / 'physics_profile.json', {'backend': 'Isaac Sim native PhysX GPU',
             'isaacsim_options': deepcopy(scene['isaacsim']), 'material_calibrated': False,
             'native_task_success_claimed': False})
-        _freeze_evaluator(output / 'evaluator')
+        _freeze_evaluator(output / 'evaluator', task_id)
         source = Path(__file__).parent
         dump(output / 'source_provenance.json', {'sources_sha256':
             {str(p): digest(p) for p in sorted(source.rglob('*.py'))},

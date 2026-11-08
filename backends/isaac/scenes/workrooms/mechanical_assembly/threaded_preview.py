@@ -13,7 +13,7 @@ from bench.paths import DATA_ROOT, load_json
 DEFAULT_PROFILE = 'sharpa_v3'
 PROFILES = ('sharpa_v3', 'requested_v1')
 V3_CATALOG_ROOT = Path(f'{DATA_ROOT}/assets/task_parts/mechanical_workshop/threaded_v2')
-V3_CATALOG_SHA256 = 'faf25a316190e3369ad57a50d06243fbc52123c988166bae14cbf17f3062d876'
+V3_CATALOG_SHA256 = '8181109a37e5afcf17b20dd27b3e5bb1386150d1ac1431e022f4b6dacb32d950'
 
 
 def _digest(path):

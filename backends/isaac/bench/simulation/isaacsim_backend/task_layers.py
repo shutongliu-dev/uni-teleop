@@ -60,10 +60,11 @@ def mount_task_layers(stage, declarations, *, physics_scene_path, occupied_objec
     if declarations and not stage.GetPrimAtPath(physics_scene_path).IsA(UsdPhysics.Scene):
         raise ValueError('Task layers require the existing bench-owned PhysicsScene')
     records, objects, static_paths, used_ids, roots = [], {}, [], set(), []
+    volume_names = set()
     for raw in declarations:
         spec = deepcopy(raw)
         allowed = {'id', 'usd_path', 'sha256', 'source_prim_path', 'target_prim_path',
-                   'dependencies_sha256', 'rigid_bodies', 'particle_sets'}
+                   'dependencies_sha256', 'rigid_bodies', 'particle_sets', 'volume_bodies'}
         if not isinstance(spec, dict) or set(spec) - allowed:
             raise ValueError('Unknown task layer declaration fields')
         layer_id = _name(spec['id'])
@@ -132,6 +133,8 @@ def mount_task_layers(stage, declarations, *, physics_scene_path, occupied_objec
             if str(path) in body_paths:
                 raise ValueError('One native body cannot have multiple observation aliases')
             body_paths[str(path)] = name
+        if set(body_paths.values()) & volume_names:
+            raise ValueError('Rigid identifiers overlap another task volume')
         actual_bodies, joints, colliders, systems = {}, [], [], []
         for prim in Usd.PrimRange(root):
             path = str(prim.GetPath())
@@ -145,18 +148,39 @@ def mount_task_layers(stage, declarations, *, physics_scene_path, occupied_objec
             if prim.HasAPI(UsdPhysics.CollisionAPI) and UsdPhysics.CollisionAPI(prim).GetCollisionEnabledAttr().Get() is not False:
                 colliders.append(path)
             if prim.IsA(UsdPhysics.Joint):
-                if not prim.IsA(UsdPhysics.PrismaticJoint):
-                    raise ValueError('Task joint readback currently supports prismatic joints only: ' + path)
-                joint = UsdPhysics.PrismaticJoint(prim)
-                record = {'path': path, 'type': 'prismatic', 'axis': str(joint.GetAxisAttr().Get())}
+                if prim.IsA(UsdPhysics.PrismaticJoint):
+                    joint = UsdPhysics.PrismaticJoint(prim)
+                    record = {'path': path, 'type': 'prismatic', 'axis': str(joint.GetAxisAttr().Get())}
+                elif prim.IsA(UsdPhysics.RevoluteJoint):
+                    from .revolute_readback import passive_revolute_metadata
+                    joint = UsdPhysics.RevoluteJoint(prim)
+                    record = {'path': path, 'type': 'revolute', **passive_revolute_metadata(prim)}
+                elif prim.GetTypeName() == 'PhysicsJoint':
+                    from .native_task_bundle import passive_elastic_drives
+                    joint = UsdPhysics.Joint(prim)
+                    record = {'path': path, 'type': 'elastic_d6',
+                              'elastic_drives': passive_elastic_drives(prim)}
+                else:
+                    raise ValueError('Unsupported task joint readback: ' + path)
                 for n in (0, 1):
                     targets = getattr(joint, f'GetBody{n}Rel')().GetTargets()
                     if len(targets) > 1 or (targets and str(targets[0]) not in body_paths):
                         raise ValueError('Task joint body must be a declared body or world')
+                    if record['type'] == 'elastic_d6' and len(targets) != 1:
+                        raise ValueError('Elastic links require two dynamic bodies')
                     record[f'body{n}'] = str(targets[0]) if targets else None
                     record[f'local_pos{n}'] = list(getattr(joint, f'GetLocalPos{n}Attr')().Get())
                     quat = getattr(joint, f'GetLocalRot{n}Attr')().Get()
                     record[f'local_rot{n}_xyzw'] = [*quat.GetImaginary(), quat.GetReal()]
+                if record['type'] == 'revolute':
+                    if record['body0'] == record['body1']:
+                        raise ValueError('Passive revolute requires distinct bodies or one world anchor')
+                    for n in (0, 1):
+                        position = np.asarray(record[f'local_pos{n}'], dtype=float)
+                        rotation = np.asarray(record[f'local_rot{n}_xyzw'], dtype=float)
+                        if (not np.isfinite(position).all() or not np.isfinite(rotation).all()
+                                or not np.isclose(np.linalg.norm(rotation), 1., rtol=0., atol=1.e-6)):
+                            raise ValueError('Passive revolute requires finite anchors and unit local rotations')
                 joints.append(record)
             if prim.GetTypeName() == 'PhysxParticleSystem':
                 # Relationship targets outside a referenced subtree are not
@@ -171,7 +195,14 @@ def mount_task_layers(stage, declarations, *, physics_scene_path, occupied_objec
                 raise ValueError('Task body has no enabled collision shape: ' + path)
             objects[body_paths[path]] = {'path': path, 'collision_paths': owned,
                 'initial_state': _world_pose(stage, prim), 'task_layer_id': layer_id}
-        static = [p for p in colliders if not any(Sdf.Path(p).HasPrefix(Sdf.Path(b)) for b in actual_bodies)]
+        from .native_volume_bodies import validate_volume_bodies
+        volumes = validate_volume_bodies(stage, root, spec.get('volume_bodies'),
+                                        {name: path for path, name in body_paths.items()})
+        if set(volumes) & (set(objects) | set(occupied_objects) | volume_names):
+            raise ValueError('Volume identifiers overlap another task object')
+        volume_names.update(volumes)
+        dynamic_roots = set(actual_bodies) | {row['prim_path'] for row in volumes.values()}
+        static = [p for p in colliders if not any(Sdf.Path(p).HasPrefix(Sdf.Path(b)) for b in dynamic_roots)]
         static_paths.extend(static)
         particles = spec.get('particle_sets', {})
         if not isinstance(particles, dict):
@@ -199,6 +230,6 @@ def mount_task_layers(stage, declarations, *, physics_scene_path, occupied_objec
         records.append({'id': layer_id, 'usd_path': str(file), 'sha256': spec['sha256'],
             'source_prim_path': str(source), 'target_prim_path': str(target),
             'dependencies_sha256': dependencies, 'rigid_bodies': declared,
-            'joints': joints, 'particle_sets': particles, 'static_collision_paths': static,
+            'joints': joints, 'particle_sets': particles, 'volume_bodies': volumes, 'static_collision_paths': static,
             'physics_scene_path': str(physics_scene_path), 'physical_parameters_modified': False})
     return {'layers': records, 'objects': objects, 'static_collision_paths': static_paths}

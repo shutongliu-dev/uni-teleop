@@ -4,7 +4,7 @@ import io
 import xml.etree.ElementTree as ET
 
 from bench.geometry import quaternion_matrix, transform
-from bench.control.embodiment import load_embodiment
+from bench.control.embodiment import load_embodiment, urdf_subtree
 from bench.control.hand_posture import HandPosturePrior
 from bench.control.kinematics import URDFKinematics
 from bench.simulation.isaacsim_backend.instance_asset import namespaced_tree
@@ -36,7 +36,8 @@ def load_instance(assets_root, namespace, configuration):
     source = load_embodiment(assets_root, configuration['hand_id'], configuration['assembly_version'])
     name = lambda original: instance_name(namespace, original)
     arm_path, hand_path = source.asset_paths
-    arm = URDFKinematics(io.BytesIO(ET.tostring(namespaced_tree(ET.parse(arm_path).getroot(), namespace))))
+    arm_tree = urdf_subtree(arm_path, source.arm.root, stop_links=(source.arm_tip,))
+    arm = URDFKinematics(io.BytesIO(ET.tostring(namespaced_tree(arm_tree, namespace))))
     hand = URDFKinematics(io.BytesIO(ET.tostring(namespaced_tree(ET.parse(hand_path).getroot(), namespace))))
     pose = transform(configuration['base_position_m'], quaternion_matrix(configuration['base_quaternion_wxyz']))
     mount = {**source.expected_mount, 'parent': name(source.expected_mount['parent']),

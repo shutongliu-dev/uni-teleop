@@ -7,6 +7,8 @@ def parser():
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument('--family', default='kitchen')
     result.add_argument('--task', default='breakfast_serving')
+    result.add_argument('--robot-profile', choices=('original', 'l_mount'), default='original', help='Pinned data-v6 robot assembly')
+    result.add_argument('--robot-configuration', choices=('single_arm', 'dual_same_side', 'dual_opposed'), help='Select a published installation before the episode')
     result.add_argument('--sandbox', action='store_true', help='Use a table-edge robot and two objects for diagnostics; no benchmark task or score')
     result.add_argument('--workbench-only', action='store_true',
                         help='Load the versioned task workbench without unrelated room scenery')
@@ -43,8 +45,10 @@ def parser():
     result.add_argument('--camera', default='overview', help='Main stereo camera (default: fixed overview)')
     result.add_argument('--operator-view', choices=('scene', 'rear'), default='scene',
                         help='Isaac headset view; rear adds separate stereo cameras without changing episode cameras')
-    result.add_argument('--operator-inset', choices=('none', 'table'), default='none',
-                        help='Headset-only tabletop close-up; requires --operator-view rear')
+    result.add_argument('--operator-hide-arm', action=argparse.BooleanOptionalAction, default=False,
+                        help='Isaac rear headset main view: hide arm visuals only; retain hand, physics and recordings')
+    result.add_argument('--operator-inset', choices=('none', 'table', 'table-wrist', 'wrist'), default='none',
+                        help='Headset detail panels; requires --operator-view rear')
     result.add_argument('--side-view', action='store_true', help='Fixed side overview for comparing leader and simulated arm posture')
     result.add_argument('--inset-camera', default='wrist', help='Mono picture-in-picture camera; use none to disable')
     result.add_argument('--rear-camera', action='store_true', help='Additional fixed desktop view from behind the arm toward the workbench')
@@ -56,7 +60,8 @@ def parser():
     result.add_argument('--no-video', action='store_true')
     result.add_argument('--seed', type=int, default=0)
     result.add_argument('--profile', action='store_true', help='Record render, mapping and native-step wall times in session evidence')
-    result.add_argument('--deferred-recording', action='store_true', help='Isaac: archive rigid states each control step and render original cameras after stopping')
+    result.add_argument('--no-recording', action='store_true', help='Isaac: practice without state/action/image recordings; keep configuration and diagnostic logs')
+    result.add_argument('--deferred-recording', action='store_true', help='Isaac: archive rigid states per episode; render original cameras with the separate render_recording command')
     result.add_argument('--preview-scale', type=float, default=1., help='Isaac rear headset resolution scale; recording resolution remains unchanged')
     result.add_argument('--review-dir', type=Path, help='Existing human review campaign; record rigid states, contacts and sampled images')
     result.add_argument('--record-fps', type=float, default=15., help='Review image sampling target in wall-clock Hz (default: 15)')

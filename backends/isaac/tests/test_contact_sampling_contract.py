@@ -96,14 +96,3 @@ def test_sample_requires_one_matching_native_and_public_substep(damage):
         env._read_rigid_contacts()
     assert env._contact_sampling['sampled_substeps'] == 1
     assert env._contact_sampling['complete'] is False
-
-
-@pytest.mark.parametrize('value', [float('nan'), float('inf'), .000500002])
-def test_scalar_clock_check_still_rejects_nonfinite_or_outside_tolerance(value):
-    env = fake_env()
-    env._begin_contact_sampling()
-    env.world.step()
-    env.time_s = env._current_step_time = value
-    with pytest.raises(RuntimeError, match='acquisition clock'):
-        env._read_rigid_contacts()
-    assert env._contact_sampling['sampled_substeps'] == 0

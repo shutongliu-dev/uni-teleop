@@ -12,7 +12,8 @@ import itertools
 import json
 import math
 
-from .rules import BUTTON_IDS, LEGACY_RULES_VERSION, RULES_VERSION, button_sequence, public_rules, thresholds
+from .rules import BUTTON_IDS, LEGACY_RULES_VERSION, MANUAL_TV_RULES_VERSION, RULES_VERSION, button_sequence, public_rules, thresholds
+from .rules import geometry_configuration
 
 VERSION = 'living_remote_operation_evaluator_v3'
 STATE_SCHEMA = 'living_remote_native_state.v3'
@@ -84,9 +85,13 @@ def configuration(task):
     if legacy:
         if c['button_sequence'] != button_sequence(seed):
             raise ValueError('Button sequence differs from episode')
-    elif c['schema'] != 'living_remote_evaluation.v3' or number(c['required_on_s'], 'required on time') != 10.:
+    elif c['schema'] not in ('living_remote_evaluation.v3', 'living_remote_evaluation.v4') or number(c['required_on_s'], 'required on time') != 10.:
         raise ValueError('Television/configuration schema differs from episode')
-    if task.get('public_rules') != public_rules(seed, version=LEGACY_RULES_VERSION if legacy else RULES_VERSION):
+    automatic = c['schema'] == 'living_remote_evaluation.v4'
+    if automatic and (c.get('automatic_power_off') is not True or c.get('initial_remote_face_up') is not True):
+        raise ValueError('Countdown requires face-up reset and automatic power-off')
+    version = LEGACY_RULES_VERSION if legacy else RULES_VERSION if automatic else MANUAL_TV_RULES_VERSION
+    if task.get('public_rules') != public_rules(seed, version=version):
         raise ValueError('Public rules differ from frozen rules')
     if not legacy:
         rules_digest = hashlib.sha256(json.dumps(task['public_rules'], sort_keys=True,
@@ -125,9 +130,7 @@ def configuration(task):
     if c['finger_link_prefixes'] != ['right_thumb_', 'right_index_', 'right_middle_', 'right_ring_', 'right_pinky_']:
         raise ValueError('Finger contact must use the frozen SHARPA namespaces')
     g = c['geometry']
-    expected = {'remote_local_bounds_m': [[-.0275, -.080, -.0104], [.0275, .080, .0135]],
-        'holder_opening_xy_m': [.067, .172], 'holder_liner_z_m': .007,
-        'table_top_z_m': .78, 'workspace_bounds_m': [[.05, -.7, .72], [1.25, .7, 1.95]]}
+    expected = geometry_configuration(task.get('asset_metadata'))
     if g != expected:
         raise ValueError('Geometry differs from the bound asset candidate')
     digest = hashlib.sha256(json.dumps(c, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
@@ -137,7 +140,7 @@ def configuration(task):
 class TelevisionState:
     """One shared native-event state machine for observation, rendering and scoring."""
 
-    def __init__(self, required_on_s, required_return_s):
+    def __init__(self, required_on_s, required_return_s, *, automatic=False):
         self.required_on_s = required_on_s
         self.required_return_s = required_return_s
         self.power_on = False
@@ -145,8 +148,15 @@ class TelevisionState:
         self.qualified_off_since = None
         self.pending = None
         self.completed_cycles = 0
+        self.automatic = automatic
+
+    def advance(self, time_s):
+        if self.automatic and self.power_on and time_s+EPS >= self.on_since+self.required_on_s:
+            self.qualified_off_since = self.on_since+self.required_on_s
+            self.power_on, self.on_since = False, None
 
     def event(self, event):
+        self.advance(event['time_s'])
         if event['button'] != 'power':
             return
         if event['kind'] == 'pressed':
@@ -169,14 +179,24 @@ class TelevisionState:
             self.power_on, self.on_since, self.qualified_off_since = True, t, None
 
     def state(self, time_s, released_stable_s=0.):
+        self.advance(time_s)
         duration = max(0., time_s-self.on_since) if self.power_on else 0.
         returned = (self.qualified_off_since is not None
                     and min(released_stable_s, time_s-self.qualified_off_since)+EPS >= self.required_return_s)
         phase = ('completed' if returned else 'await_return' if self.qualified_off_since is not None else 'await_power_off'
                  if self.power_on and duration+EPS >= self.required_on_s else
                  'holding_power_on' if self.power_on else 'await_power_on')
-        return {'power_on': self.power_on, 'continuous_on_s': duration,
-                'required_on_s': self.required_on_s, 'phase': phase}
+        result = {'power_on': self.power_on, 'continuous_on_s': duration,
+                  'required_on_s': self.required_on_s, 'phase': phase}
+        if self.automatic:
+            remaining = max(0., self.required_on_s-duration) if self.power_on else 0.
+            digit = min(10, math.ceil(max(0., remaining-EPS)))
+            patterns = ('abcdef', 'bc', 'abdeg', 'abcdg', 'bcfg', 'acdfg', 'acdefg', 'abc', 'abcdefg', 'abcdfg')
+            result.update(countdown_remaining_s=remaining, countdown_seconds=digit,
+                automatic_power_off=True, countdown_completed=self.qualified_off_since is not None,
+                countdown_segments={f'{place}_{segment}': bool(self.power_on and segment in patterns[value])
+                    for place, value in (('tens', digit//10), ('ones', digit%10)) for segment in 'abcdefg'})
+        return result
 
 
 class NativeTaskObserver:
@@ -185,7 +205,8 @@ class NativeTaskObserver:
     def __init__(self, task_spec):
         self.c, self.digest = configuration(task_spec)
         self.legacy = self.c['schema'] == 'living_remote_evaluation.v2'
-        self.state_schema = LEGACY_STATE_SCHEMA if self.legacy else STATE_SCHEMA
+        self.automatic = self.c['schema'] == 'living_remote_evaluation.v4'
+        self.state_schema = LEGACY_STATE_SCHEMA if self.legacy else 'living_remote_native_state.v4' if self.automatic else STATE_SCHEMA
         self.reset()
 
     def reset(self):
@@ -197,7 +218,7 @@ class NativeTaskObserver:
         self.current = None
         self.held_s = self.stable_s = 0.
         self.support_witness = self.stable_anchor = None
-        self.television = None if self.legacy else TelevisionState(self.c['required_on_s'], self.c['stable_s'])
+        self.television = None if self.legacy else TelevisionState(self.c['required_on_s'], self.c['stable_s'], automatic=self.automatic)
 
     def _hand(self, path, finger=False):
         return (path.startswith(self.c['robot_actor_prefix']) and
@@ -301,9 +322,10 @@ class NativeTaskObserver:
         hand, finger, external, nonholder_external, holder_contact, holder_hand, keys, touching = self._contacts(frame)
         corners = self._corners(remote)
         up = rotation(remote['quaternion_wxyz'])[2][2] > .5
-        if first and (rotation(remote['quaternion_wxyz'])[2][2] > -.5 or
+        wrong_initial_face = not up if self.automatic else rotation(remote['quaternion_wxyz'])[2][2] > -.5
+        if first and (wrong_initial_face or
                       any(q[n] < c['release_position_m'] for n in BUTTON_IDS)):
-            raise ValueError('Reset must be face down with released buttons')
+            raise ValueError('Reset must match the published face orientation with released buttons')
         airborne = min(p[2] for p in corners) > c['geometry']['table_top_z_m']+c['minimum_handheld_clearance_m']
         held = hand and not external and up and airborne
         self.held_s = self.held_s+c['physics_dt_s'] if held and not first else 0.
@@ -349,9 +371,13 @@ class NativeTaskObserver:
                 support_source = 'prior_native_contact_and_unchanged_unforced_pose'
         if not inside or not bottom_ok or finger or holder_hand or nonholder_external:
             self.support_witness = None
+        if self.television is not None:
+            self.television.advance(t)
         stable = (not first and inside and bottom_ok and oriented and supported and stationary and not finger and not holder_hand and not nonholder_external
                   and all(q[n] >= c['release_position_m'] and not touching[n] for n in BUTTON_IDS)
                   and (self.legacy or self.television.qualified_off_since is not None))
+        if stable and self.automatic:
+            stable = t-self.television.qualified_off_since+EPS >= c['physics_dt_s']
         if stable:
             if self.stable_anchor is None:
                 self.stable_anchor = deepcopy(objects)
@@ -392,7 +418,8 @@ class SequenceEvaluator:
     def __init__(self, task_spec):
         self.c, self.digest = configuration(task_spec)
         self.legacy = self.c['schema'] == 'living_remote_evaluation.v2'
-        self.state_schema = LEGACY_STATE_SCHEMA if self.legacy else STATE_SCHEMA
+        self.automatic = self.c['schema'] == 'living_remote_evaluation.v4'
+        self.state_schema = LEGACY_STATE_SCHEMA if self.legacy else 'living_remote_native_state.v4' if self.automatic else STATE_SCHEMA
         self.reset()
 
     def reset(self):
@@ -403,11 +430,11 @@ class SequenceEvaluator:
         self.invalid = self.failure = self.last_result = None
         self.stable_s = 0.
         self.success = False
-        self.television = None if self.legacy else TelevisionState(self.c['required_on_s'], self.c['stable_s'])
+        self.television = None if self.legacy else TelevisionState(self.c['required_on_s'], self.c['stable_s'], automatic=self.automatic)
         self.button_pending = {name: False for name in BUTTON_IDS}
 
     def _result(self, reason):
-        self.last_result = {'evaluator': LEGACY_VERSION if self.legacy else VERSION, 'task_id': 'remote_operation',
+        self.last_result = {'evaluator': LEGACY_VERSION if self.legacy else 'living_remote_operation_evaluator_v4' if self.automatic else VERSION, 'task_id': 'remote_operation',
             'success': bool(self.success and not self.invalid and not self.failure),
             'progress': 0. if self.invalid else (self.progress+min(1., self.stable_s/self.c['stable_s']))/3,
             'completed_button_cycles': self.progress, 'required_button_cycles': 2,
@@ -421,7 +448,7 @@ class SequenceEvaluator:
                      'budget_exhausted' if reason == 'incomplete_budget' else tv['phase'])
             self.last_result.update(
                 television=tv, completed_button_cycles=self.television.completed_cycles,
-                required_button_cycles=2,
+                required_button_cycles=1 if self.automatic else 2,
                 referee={'schema': 'physical_task_referee_state.v1', 'state': state_name,
                     'phase': phase, 'reason_codes': [phase], 'terminal': state_name != 'ongoing',
                     'recoverable': state_name == 'ongoing'},
@@ -435,6 +462,8 @@ class SequenceEvaluator:
         return deepcopy(self.last_result)
 
     def update(self, obs):
+        if self.automatic and self.success and not self.invalid and not self.failure:
+            return deepcopy(self.last_result)
         if self.invalid:
             return self._result('invalid_observation:'+self.invalid)
         if self.failure:
@@ -500,6 +529,7 @@ class SequenceEvaluator:
                 raise ValueError('Invalid native stable duration')
             self.stable_s = stable if self.legacy and self.progress == 2 else 0.
             if self.television is not None:
+                self.television.advance(t)
                 off_since = self.television.qualified_off_since
                 if stable > 0 and (off_since is None or stable > t-off_since+EPS):
                     raise ValueError('Native holder stability must follow qualified television power-off')

@@ -18,4 +18,6 @@ if [[ -z "$isaac_launcher" ]]; then
     exit 3
 fi
 export ISAAC_BENCH_PYTHONPATH="$isaac_project_root${ISAAC_BENCH_PYTHONPATH:+:$ISAAC_BENCH_PYTHONPATH}"
+# Frozen evaluator/observer packages must remain identical after native imports.
+export PYTHONDONTWRITEBYTECODE=1
 exec "$isaac_launcher" "$@"

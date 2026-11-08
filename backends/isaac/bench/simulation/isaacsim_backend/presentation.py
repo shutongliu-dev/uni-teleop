@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 
@@ -89,6 +90,32 @@ def presentation_stage(stage):
     return scratch
 
 
+def _anchored_assets(layer, directory):
+    """dexbench: anchor the copied layer's ./ and ../ asset paths at the source layer's directory.
+
+    Package layers author asset paths relative to themselves; opinions copied into another layer
+    must keep naming the same files (and the pinned dependency set lists them resolved).
+    """
+    from pxr import Sdf
+
+    def anchored(value):
+        path = value.path
+        if not path.startswith(('./', '../')):
+            return value
+        return Sdf.AssetPath(os.path.normpath(os.path.join(directory, path)))
+
+    def visit(spec_path):
+        spec = layer.GetObjectAtPath(spec_path)
+        if not isinstance(spec, Sdf.AttributeSpec) or not spec.HasDefaultValue():
+            return
+        if spec.typeName == Sdf.ValueTypeNames.Asset and spec.default:
+            spec.default = anchored(spec.default)
+        elif spec.typeName == Sdf.ValueTypeNames.AssetArray and spec.default:
+            spec.default = Sdf.AssetPathArray([anchored(item) for item in spec.default])
+
+    layer.Traverse(Sdf.Path.absoluteRootPath, visit)
+
+
 def apply_presentation(stage, root_path, spec):
     from pxr import Sdf, Usd, UsdShade
     files = presentation_dependencies(spec)
@@ -108,6 +135,7 @@ def apply_presentation(stage, root_path, spec):
     remapped = Sdf.Layer.CreateAnonymous('remapped_presentation.usda')
     Sdf.CreatePrimInLayer(remapped, str(Sdf.Path(root_path).GetParentPath()))
     Sdf.CopySpec(source, source_path, remapped, root_path)
+    _anchored_assets(remapped, os.path.dirname(descriptor['usd_path']))
     overlay = Usd.Stage.Open(remapped)
     authored = list(Usd.PrimRange(overlay.GetPrimAtPath(root_path), Usd.PrimAllPrimsPredicate))
     before = physical_fingerprint(stage, root_path)

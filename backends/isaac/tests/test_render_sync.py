@@ -101,6 +101,22 @@ def test_optional_apertures_preserve_legacy_defaults():
     assert result['room']['vertical_aperture_mm'] == 24.
 
 
+def test_dual_task_can_keep_receiver_view_and_both_wrist_cameras():
+    views = {name: dict(LEGACY_CAMERAS['task'])
+             for name in ('overview', 'task', 'room', 'receivers')}
+    views.update({f'wrist_{side}': {'kind': 'link', 'mount_link': f'{side}/fr3_link8'}
+                  for side in ('left', 'right')})
+    result = resolve_cameras({'cameras': views})
+    assert list(result) == list(views)
+    assert result['wrist_left']['mount_link'] == 'left/fr3_link8'
+    assert result['wrist_right']['mount_link'] == 'right/fr3_link8'
+    previous = {name: value for name, value in views.items() if name != 'receivers'}
+    assert resolve_cameras({'cameras': previous}) == {
+        name: value for name, value in result.items() if name != 'receivers'}
+    with pytest.raises(ValueError, match='At most 6 cameras'):
+        resolve_cameras({'cameras': {**views, 'extra': dict(LEGACY_CAMERAS['task'])}})
+
+
 @pytest.mark.parametrize('kind', ['world', 'link'])
 @pytest.mark.parametrize('clipping', [[0., 1.], [-.1, 1.], [1., 1.], [2., 1.],
                                      [.01, float('inf')], [float('nan'), 1.], [.01]])
@@ -164,76 +180,6 @@ def test_legacy_rgb_also_rejects_untimed_physical_pose_changes():
     env = FR3DexterousIsaacEnv.__new__(FR3DexterousIsaacEnv)
     states = iter([{'body_q': np.zeros((1, 7))}, {'body_q': np.ones((1, 7))}])
     env.capture_state = lambda: next(states)
-    env._render_frames = lambda *args, **kwargs: {'rgb': np.zeros((1, 1, 3))}
+    env._render_frames = lambda *args, **kwargs: {'overview': {'rgb': np.zeros((1, 1, 3))}}
     with pytest.raises(RuntimeError, match='changed physical state'):
         env.render('overview', 1, 1)
-
-
-@pytest.mark.parametrize('physics_device, repeated_updates', [('cuda:0', 2), ('cpu', 1)])
-def test_camera_batch_shares_updates_and_reads_only_after_all_products_are_ready(monkeypatch, physics_device, repeated_updates):
-    import sys
-    from types import ModuleType, SimpleNamespace
-    from bench.simulation.isaacsim_backend import render_sync
-    for name in ('carb', 'omni', 'omni.replicator', 'omni.replicator.core'):
-        monkeypatch.setitem(sys.modules, name, ModuleType(name))
-    sys.modules['carb'].settings = SimpleNamespace(get_settings=lambda: {})
-    monkeypatch.setattr(render_sync, 'verify_settings', lambda settings: {})
-    monkeypatch.setattr(render_sync, 'camera_calibration', lambda *args, **kwargs: {})
-    events, products = [], []
-    updates = 0
-
-    def create(path, resolution):
-        events.append(('create', path))
-        products.append(path)
-        return path
-
-    class Annotator:
-        def __init__(self, name):
-            self.name = name
-
-        def attach(self, product):
-            self.product = product[0]
-
-        def get_data(self):
-            events.append(('read', self.product))
-            return np.full((2, 2, 4), updates, dtype=np.uint8) if self.name == 'rgb' else {}
-
-    rep = sys.modules['omni.replicator.core']
-    rep.create = SimpleNamespace(render_product=create)
-    rep.AnnotatorRegistry = SimpleNamespace(get_annotator=Annotator)
-    env = FR3DexterousIsaacEnv.__new__(FR3DexterousIsaacEnv)
-    env.physics_device = physics_device
-    env.cameras = {name: {'kind': 'world', 'resolution': (2, 2)} for name in ('left', 'right')}
-    env.render_width = env.render_height = 2
-    env._render_products, env._cameras_authored = {}, True
-    env.stage = SimpleNamespace(GetPrimAtPath=lambda path: True)
-    env.time_s = .4
-    env.capture_state = lambda: {'time_s': np.array(.4), 'joint_q': np.zeros(29)}
-
-    def render():
-        nonlocal updates
-        assert len(products) == 2  # Both eyes exist before any rendering.
-        events.append(('render', updates))
-        updates += 1
-
-    env.world = SimpleNamespace(current_time_step_index=800, current_time=.4, render=render)
-    for expected in (8, 8 + repeated_updates):
-        frames = env.render_many(('left', 'right'))
-        assert updates == expected  # One warm-up sequence for the entire batch.
-        assert list(frames) == ['left', 'right']
-        for rgb in frames.values():
-            np.testing.assert_array_equal(rgb, np.full((2, 2, 3), expected, dtype=np.uint8))
-        assert all(event[0] == 'read' for event in events[-4:])
-    env.world.render = lambda: setattr(env.world, 'current_time_step_index', 801)
-    with pytest.raises(RuntimeError, match='advanced native PhysX'):
-        env.render_many(('left', 'right'))
-
-
-@pytest.mark.parametrize('changed', ['joint_q', 'object_q', 'native_physics_step_index'])
-def test_camera_batch_rejects_physical_changes(changed):
-    env = FR3DexterousIsaacEnv.__new__(FR3DexterousIsaacEnv)
-    states = iter([{changed: np.zeros(1)}, {changed: np.ones(1)}])
-    env.capture_state = lambda: next(states)
-    env._render_frames = lambda *args, **kwargs: {}
-    with pytest.raises(RuntimeError, match='changed physical state'):
-        env.render_many(('left', 'right'))

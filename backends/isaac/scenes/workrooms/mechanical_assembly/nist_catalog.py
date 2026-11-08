@@ -11,11 +11,11 @@ RELEASE_ROOT = f"{DATA_ROOT}/datasets/fr3_sharpa_bench/isaacsim/releases/mechani
 
 def task_definition(task_id, *, manifest_sha256=None, asset_version="v1",
                     release_version="v1", evidence=(), native_preflight=False,
-                    object_interactions=False):
+                    object_interactions=False, usability_profile=None):
     index = TASK_IDS.index(task_id)
     number = index+6
     implemented = manifest_sha256 is not None
-    rules = public_rules(task_id)
+    rules = public_rules(task_id, usability_profile=usability_profile)
     result = {
         "schema": "workroom_task_definition.v1", "family": "mechanical_assembly",
         "task_id": task_id, "task_number": number, "difficulty": number,

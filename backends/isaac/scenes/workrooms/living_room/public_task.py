@@ -41,11 +41,13 @@ def project_manipulation_task(task):
     if not isinstance(task, Mapping) or task.get('schema_version') != 'living-room-manipulation-task-v1':
         raise ValueError('Unsupported static manipulation task schema')
     identity = task.get('id')
-    if identity not in ('remote_operation', 'water_pouring'):
+    if identity not in ('remote_operation', 'water_pouring', 'storage_box'):
         raise ValueError('Unknown living-room manipulation task')
     referee = project_task_rules(task)
     if referee is not None:
         return referee
+    if identity == 'storage_box':
+        raise ValueError('Storage box requires its validated frozen referee contract')
     remote = identity == 'remote_operation'
     schema = {key: str for key in ('schema', 'status', 'instruction_zh', 'budget_exhaustion',
               'evidence_fault', 'qualification', 'evidence_scope', 'overfill')}

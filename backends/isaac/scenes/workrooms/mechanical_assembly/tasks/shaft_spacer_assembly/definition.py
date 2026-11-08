@@ -38,9 +38,13 @@ TASK = planned_task(
 TASK = bind_prepared_release(
     TASK,
     path=f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/mechanical_task_validation_20261019/shaft_spacer_candidate_v2',
-    manifest_sha256='ca7a0b5453a8b234001004404f96b410da9e4fff596586623237bb55a2d7b8a6',
+    manifest_sha256='c7ec92935a9927f271140a984a50e23143d83d2a962824591f8066a584f86f81',
     evidence=[{
         'path': f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/mechanical_task_validation_20261018/peg_shaft_delivery02/binding_report.json',
         'sha256': '04f534600bf3616eab68d5315b9a51f72bd7068adf3a699a2e4437fb33a5e371'}],
     scope='The updated task-owned layout and zero-model privileged contract are frozen with the source-preserving dense SDF rings and explicit PGS profile. Native robot manipulation remains unqualified.',
 )
+
+
+from scenes.workrooms.mechanical_assembly.desktop_catalog import bind_desktop_release
+TASK = bind_desktop_release(TASK)

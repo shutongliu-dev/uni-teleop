@@ -1,0 +1,889 @@
+{
+  "stationery_sorting": {
+    "family": "study",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/study/stationery_sorting/v5",
+      "manifest_sha256": "29b22f2ceb94f0c114a75ab51a7b37bcfdd4ba39b3538ea9db73be390515ac4f"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/study/stationery_sorting/v5",
+        "manifest_sha256": "29b22f2ceb94f0c114a75ab51a7b37bcfdd4ba39b3538ea9db73be390515ac4f"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261025/study_pencil_grip01/study/stationery_sorting/dual_same_side/v1",
+        "manifest_sha256": "71d9481fcec6aa809b54168a86cff5f07035806199df9d020412d69dce20395c"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261025/study_pencil_grip01/study/stationery_sorting/dual_opposed/v1",
+        "manifest_sha256": "dbee8b58560078f8a184d5f22e9852585a40b3ac38dba84c7e78457b7e298e59"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/stationery_sorting/single_arm",
+        "manifest_sha256": "9dedfa756890427404339653f681483d5c950c25cead7f49641081503ad1e1e7"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/stationery_sorting/dual_same_side",
+        "manifest_sha256": "c53c84d07d3eb265afa6b00ac9af1ad8584fdfd0af63c65098e87aefcad59849"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/stationery_sorting/dual_opposed",
+        "manifest_sha256": "339ca6fdbb5368660eba6c7ed228ec19f2f88d2ba26be198fed7c8c0f3181a75"
+      }
+    }
+  },
+  "book_stacking": {
+    "family": "study",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/study/book_stacking/v3",
+      "manifest_sha256": "842db0ee31458aaacfb7b75fc70e5343b4eb4a3b8a4423cd7e8e2ac77dc66136"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/study/book_stacking/v3",
+        "manifest_sha256": "842db0ee31458aaacfb7b75fc70e5343b4eb4a3b8a4423cd7e8e2ac77dc66136"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261023/batch01/study/book_stacking/dual_same_side/v1",
+        "manifest_sha256": "ce40716bf6e36086239d22442c9e3fdc5c5d8208bc8af9ae3bd4301484b301d1"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261023/batch01/study/book_stacking/dual_opposed/v1",
+        "manifest_sha256": "c0391c9e86bba49ba55e0e364753472f5ef65a1c7dbce435803c3ffe18bbcbea"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/book_stacking/single_arm",
+        "manifest_sha256": "8e33a0032f19b240400b72d2238026d6c75ca4a4e59f5d27bcb47c6218e4ce8c"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/book_stacking/dual_same_side",
+        "manifest_sha256": "8fafb0f7b794cebaaffd316b9b9c005bc5ba7a2d730e1608f2f7305e52c5fb00"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/book_stacking/dual_opposed",
+        "manifest_sha256": "5d7369692c43ca990a6adbfae7aef6bf79854880836515e0acf6455e290edc98"
+      }
+    }
+  },
+  "book_shelving": {
+    "family": "study",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/study/book_shelving/v3",
+      "manifest_sha256": "04ecff976951a3d4257caf90523b0cd6f39df4a0ceea78bdabf0b87a56586b15"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/study/book_shelving/v3",
+        "manifest_sha256": "04ecff976951a3d4257caf90523b0cd6f39df4a0ceea78bdabf0b87a56586b15"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261023/batch01/study/book_shelving/dual_same_side/v1",
+        "manifest_sha256": "ecd2044614d2bb88dbfbacc4b4553493373d0597113b37667fddada56c81f7b1"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261023/batch01/study/book_shelving/dual_opposed/v1",
+        "manifest_sha256": "092571bbac57cb7b8427ca3674dd7333ded4bc349a02acd70b39e1a5489ac129"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/book_shelving/single_arm",
+        "manifest_sha256": "2179361a46a113029ec38f9072b1b7e1230cf51945fcf1c0bc68c601b4b2ed20"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/book_shelving/dual_same_side",
+        "manifest_sha256": "ff2eb053865cfbd93d9160129dbcdf4fc75b802a5e7493b47059038dd020d6fd"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/book_shelving/dual_opposed",
+        "manifest_sha256": "315486aeda0368f9e0830a7bf2dd622a3f2d9eca688254c0ae4151d97ab5030d"
+      }
+    }
+  },
+  "produce_transfer": {
+    "family": "kitchen",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen/produce_transfer/household_access_v2",
+      "manifest_sha256": "98e0815595e337ec55ed9db9f1712fe8a40824308a6826de6a68d6f45feeaa13"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen/produce_transfer/household_access_v2",
+        "manifest_sha256": "98e0815595e337ec55ed9db9f1712fe8a40824308a6826de6a68d6f45feeaa13"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/tip05/releases/produce_transfer/single_arm",
+        "manifest_sha256": "1d04c360bdd9d16ab68dc3d308eb5b08e40264e723f77f9e96684c7cfe4f6054"
+      }
+    }
+  },
+  "utensil_sorting": {
+    "family": "kitchen",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen/utensil_sorting/household_grip_v1",
+      "manifest_sha256": "e9c8cdd88d0841d269058428706792d4472816809c84e7e6d0528b4935ff3b5b"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen/utensil_sorting/household_grip_v1",
+        "manifest_sha256": "e9c8cdd88d0841d269058428706792d4472816809c84e7e6d0528b4935ff3b5b"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/utensil_sorting/single_arm",
+        "manifest_sha256": "f288a11a0fd3430ce53fa389bb8d9d106db8457f5a966b2e89995f3863bc655d"
+      }
+    }
+  },
+  "pantry_stocking": {
+    "family": "kitchen",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen/pantry_stocking/household_v2",
+      "manifest_sha256": "4485e32c4e1a5ea0904f11584778050016b479d0c8df77424d85999cb1252f75"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen/pantry_stocking/household_v2",
+        "manifest_sha256": "4485e32c4e1a5ea0904f11584778050016b479d0c8df77424d85999cb1252f75"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/access02/releases/pantry_stocking/single_arm",
+        "manifest_sha256": "332e1ce9ec2a596198d591e9d5180b82f7683980a2238da6dbc4411feb1dee4f"
+      }
+    }
+  },
+  "table_clearing": {
+    "family": "kitchen",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen/table_clearing/household_grip_v1",
+      "manifest_sha256": "775753dd9eea631aa5051b843ce2ec56054288dd7d0896339b9196cdf10dcdff"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen/table_clearing/household_grip_v1",
+        "manifest_sha256": "775753dd9eea631aa5051b843ce2ec56054288dd7d0896339b9196cdf10dcdff"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/access03/releases/table_clearing/single_arm",
+        "manifest_sha256": "6de7736d4fc8e92d841cf3150087c1b25187c9bc53fb0c5eb65b8f10cafc6da4"
+      }
+    }
+  },
+  "sample_sorting": {
+    "family": "laboratory",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laboratory/sample_sorting/budget_v1",
+      "manifest_sha256": "e808bd77c1c58f7d8da374c3fbe1a636ec63ca54ad98f3e84a1fb57c8e2982c1"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laboratory/sample_sorting/budget_v1",
+        "manifest_sha256": "e808bd77c1c58f7d8da374c3fbe1a636ec63ca54ad98f3e84a1fb57c8e2982c1"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261026/laboratory_budget_v1/sample_sorting/dual_same_side/v1",
+        "manifest_sha256": "2815d6f3f2c2581272f447718d79dc78c5be389cdcb0cef2ec103cfe4ed1e60d"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261026/laboratory_budget_v1/sample_sorting/dual_opposed/v1",
+        "manifest_sha256": "13ab30ff7c4a3e60a6cabb042743fa16a1dc6277f5a57df30ecd7e43ffd7877d"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/sample_sorting/single_arm",
+        "manifest_sha256": "bd1058f209b308d6788f88a2530894999f52aa07fc882280c67cd1c44e871ece"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/sample_sorting/dual_same_side",
+        "manifest_sha256": "084e172f68005916e9ce189650ca62677b7dd2f83f644e411260c79f35eb06da"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/sample_sorting/dual_opposed",
+        "manifest_sha256": "7e6557e258dd0db200984c5a69bb812e1bfd1deb4ee3b2efc52c979c253496e6"
+      }
+    }
+  },
+  "vial_racking": {
+    "family": "laboratory",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laboratory/vial_racking/budget_v1",
+      "manifest_sha256": "54c2b9fb037ea120880019d280e50472fd90f8730c07442bc2e0cce50fa963e4"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laboratory/vial_racking/budget_v1",
+        "manifest_sha256": "54c2b9fb037ea120880019d280e50472fd90f8730c07442bc2e0cce50fa963e4"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261026/laboratory_budget_v1/vial_racking/dual_same_side/v1",
+        "manifest_sha256": "f7467c570f64fc9d0d3cfbd0c57fbaaa4c28351d5ffcf2a4631c6285fece6e43"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261026/laboratory_budget_v1/vial_racking/dual_opposed/v1",
+        "manifest_sha256": "684868591390ef9d4096e6ec5597895ae08c0b0edd3322c7dd3d05f2fa220b01"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/vial_racking/single_arm",
+        "manifest_sha256": "d82c7f8185b6c56bef928087d935fdcc7cbf95b4ea9480e071c1570a9fcea78d"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/vial_racking/dual_same_side",
+        "manifest_sha256": "1ef6bc18022bf46ba279caf514d9841aab63e81e79e99df56ad2d77bbd3e8253"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/vial_racking/dual_opposed",
+        "manifest_sha256": "11699ad67e38a28a8450597023f8713395ccbf485229fe45fa544ffab7778096"
+      }
+    }
+  },
+  "parts_sorting": {
+    "family": "mechanical_assembly",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_assembly/parts_sorting/desktop_v1",
+      "manifest_sha256": "8dbdadd5d0a092f42ac37d9ec6eba55cd48ba726e867bdb3df92db95a784a08f"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_assembly/parts_sorting/desktop_v1",
+        "manifest_sha256": "8dbdadd5d0a092f42ac37d9ec6eba55cd48ba726e867bdb3df92db95a784a08f"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261023/batch01/mechanical_assembly/parts_sorting/dual_same_side/v1",
+        "manifest_sha256": "b39c2647319f6943dae43819f7e1b919298fbf5a2aa215f15d8e04dd60cc5ee4"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261023/batch01/mechanical_assembly/parts_sorting/dual_opposed/v1",
+        "manifest_sha256": "843aca6fb2becaabc3fee0e97a86b4843c6b84d87f2bf2b78035c790d6786b78"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/parts_sorting/single_arm",
+        "manifest_sha256": "2a803393818573de0d595210f114328c64095fc763c2a99abc61c607ee583873"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/parts_sorting/dual_same_side",
+        "manifest_sha256": "654d93ef7bcd1d930df5566b9d4ceb689a4d12c9d66ad2bd179ccf2bef4746f0"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/workroom_initial_randomization_v1/publication01/releases/parts_sorting/dual_opposed",
+        "manifest_sha256": "2abe7a22d5876f45326840f15ac9cdd3d6c4f4e6cb7249601b1abcd5db424608"
+      }
+    }
+  },
+  "book_retrieval": {
+    "family": "study",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/study/book_retrieval/v3",
+      "manifest_sha256": "ed0a9dc880c2e9633f61276116ed03fe1e24a1cb9655fd97a455addd5f7158e1"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/study/book_retrieval/v3",
+        "manifest_sha256": "ed0a9dc880c2e9633f61276116ed03fe1e24a1cb9655fd97a455addd5f7158e1"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261023/batch01/study/book_retrieval/dual_same_side/v1",
+        "manifest_sha256": "5fe3f8a4c545a02c109fe50e2d476032d1deebe2485aeb7ef01e9ae03433dfbf"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261023/batch01/study/book_retrieval/dual_opposed/v1",
+        "manifest_sha256": "7a2b60fd79233e7880486dcd649a16cfdac5f5d82782e4fbd20b5c486364d999"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_study/releases/book_retrieval/single_arm",
+        "manifest_sha256": "5ded022347671141cb68fea6dc82060a9175d841b118b0d77a558ade9d6dc3b5"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_study/releases/book_retrieval/dual_same_side",
+        "manifest_sha256": "bc7b2525a91e732146e4f307d017da73d7e34b3424f89eb13edfa1aa3b7b67b1"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_study/releases/book_retrieval/dual_opposed",
+        "manifest_sha256": "03659cde67fdc24c14d319fdf8e6d2d7514a488953fa4610e806014046e0ec56"
+      }
+    }
+  },
+  "drawer_retrieval": {
+    "family": "study",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/study/drawer_retrieval/v4",
+      "manifest_sha256": "08e4a953d8f31f49619d0b8a10086a287c8a3b7a1b9b04d147bbd7d0ad4913f0"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/study/drawer_retrieval/v4",
+        "manifest_sha256": "08e4a953d8f31f49619d0b8a10086a287c8a3b7a1b9b04d147bbd7d0ad4913f0"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261023/batch01/study/drawer_retrieval/dual_same_side/v1",
+        "manifest_sha256": "ea716a84466b56413768ab442b299f9baf3fb3c378407380d7e93b2f039f9dd9"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261023/batch01/study/drawer_retrieval/dual_opposed/v1",
+        "manifest_sha256": "b8d974b1aa897a49aa044f90f7ebad06f0e11454a9f6c5bedbc2be72e96a226c"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_study/releases/drawer_retrieval/single_arm",
+        "manifest_sha256": "cffe0a689de7f60efd0ace8b5c8dd98ccd13224837bb94f79671f4989260621a"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_study/releases/drawer_retrieval/dual_same_side",
+        "manifest_sha256": "64607a95aa867eee83b1b6db8cc376c500cd0e314941509c18430f6dbf07dd96"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_study/releases/drawer_retrieval/dual_opposed",
+        "manifest_sha256": "69240089024251a948582465a9cb5fa2c8f5598a303882156ac7fd2d5d95a1e8"
+      }
+    }
+  },
+  "reading_stand": {
+    "family": "study",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/study/reading_stand/v1",
+      "manifest_sha256": "7179879f41144ecff96e54a75d5f15e7f3c0bce68b91c29fa2e47e351d4a4cd8"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/study/reading_stand/v1",
+        "manifest_sha256": "7179879f41144ecff96e54a75d5f15e7f3c0bce68b91c29fa2e47e351d4a4cd8"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261025/interaction_expansion01/study/reading_stand/dual_same_side/v1",
+        "manifest_sha256": "5c6f1bea0358e5fd0eb77477541d8e5a3c0bb30abd0fd4fb9d4848154523848a"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261025/interaction_expansion01/study/reading_stand/dual_opposed/v1",
+        "manifest_sha256": "f9cc0f1c9853f63970c6c9c0a10e28566723b5b3c006c9775a029b5e326a33de"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_study/releases/reading_stand/single_arm",
+        "manifest_sha256": "4ccda1d1a24b5134e0269ce3fc09850d747b466f2455910d445c32abeb6cef9e"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_study/releases/reading_stand/dual_same_side",
+        "manifest_sha256": "c400234a93ffa92f32e9c13df97935e620f842d49bebf1515256996837b87b0d"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_study/releases/reading_stand/dual_opposed",
+        "manifest_sha256": "aa4cd801efb7ecceb338687e75f0f29cba0d172a0f8b3650c9df92f13985d573"
+      }
+    }
+  },
+  "peg_insertion": {
+    "family": "mechanical_assembly",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_assembly/peg_insertion/desktop_v1",
+      "manifest_sha256": "589cbd190d1e15bad940d1553cdae025f79d57148cfe587ad89e7b686a1f3a3f"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_assembly/peg_insertion/desktop_v1",
+        "manifest_sha256": "589cbd190d1e15bad940d1553cdae025f79d57148cfe587ad89e7b686a1f3a3f"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261023/batch01/mechanical_assembly/peg_insertion/dual_same_side/v1",
+        "manifest_sha256": "d07198c2477cd1f4eb7eff3362a9b71c2b0123e42409e9566bf94f16c070195f"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261023/batch01/mechanical_assembly/peg_insertion/dual_opposed/v1",
+        "manifest_sha256": "067b365c7a0ed066cde18477ef077806452766b57b84d7f9208c436756bd2bb6"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_rigid/releases/peg_insertion/single_arm",
+        "manifest_sha256": "0d250840efb1edbec7a4d398d06b65bc7f493d5ab791700350fb9c0cf975afd0"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_rigid/releases/peg_insertion/dual_same_side",
+        "manifest_sha256": "c0e6fcb326c0c0b09137dc8746e463eb84c13c9ef34db1f68739cdbc4e19e6db"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_rigid/releases/peg_insertion/dual_opposed",
+        "manifest_sha256": "c2c3795d2a91db2d02f8814e5187ec2b56681ae247ebd45038b8ee085f1c6c14"
+      }
+    }
+  },
+  "shaft_spacer_assembly": {
+    "family": "mechanical_assembly",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_assembly/shaft_spacer_assembly/desktop_v1",
+      "manifest_sha256": "4bda201af19b2701394c1e503455ab62de54584ab75d7829d1999cdc5a8c2532"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_assembly/shaft_spacer_assembly/desktop_v1",
+        "manifest_sha256": "4bda201af19b2701394c1e503455ab62de54584ab75d7829d1999cdc5a8c2532"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261023/batch01/mechanical_assembly/shaft_spacer_assembly/dual_same_side/v1",
+        "manifest_sha256": "c1f5aa6e6940c2ddeb67541759643f24216b1ffd0e3ec603048f9c465e0ecc43"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261023/batch01/mechanical_assembly/shaft_spacer_assembly/dual_opposed/v1",
+        "manifest_sha256": "958f0dae478d605ae9c77d570d4db006141b409853d0f51e1be25040959e036a"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_rigid/releases/shaft_spacer_assembly/single_arm",
+        "manifest_sha256": "7616ef36f6e3f56e5ddf46101152ef088d0024be91ce9df10041f25370bc759f"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_rigid/releases/shaft_spacer_assembly/dual_same_side",
+        "manifest_sha256": "d09b4d4a81baa6743af10611fdb101b1b308c5e4cd69873ce9e09811ae136634"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_rigid/releases/shaft_spacer_assembly/dual_opposed",
+        "manifest_sha256": "e49aefad5025a5f3f2e8a4aa01de8de646a3489c5caa181a64c931379ddedefa"
+      }
+    }
+  },
+  "fastener_assembly": {
+    "family": "mechanical_assembly",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_assembly/fastener_assembly/runtime_inputs_v1",
+      "manifest_sha256": "498d5946278144e17df8af60ba93d65771fab176335f86af68e89d5b52888f42"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_assembly/fastener_assembly/runtime_inputs_v1",
+        "manifest_sha256": "498d5946278144e17df8af60ba93d65771fab176335f86af68e89d5b52888f42"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_assembly/fastener_assembly/dual_same_side_runtime_inputs_v1",
+        "manifest_sha256": "a672ce594525bc15f2577276d74ff858d2656e93aa7b7b0944effd0c02a38a55"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_assembly/fastener_assembly/dual_opposed_runtime_inputs_v1",
+        "manifest_sha256": "9a8c88511a898d27c9d6245f1ba056f8442abc58bec52e85298b68ec7277521e"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_rigid/releases/fastener_assembly/single_arm",
+        "manifest_sha256": "8a8703271862e4c16368920bea2b86b24918f9cb1d32954eebeb2b90b94ec043"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_rigid/releases/fastener_assembly/dual_same_side",
+        "manifest_sha256": "36284c967e8ec15e59053052d8be199cb7d378d6efaee00344d3a66fa3690560"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_rigid/releases/fastener_assembly/dual_opposed",
+        "manifest_sha256": "0e92e6516aba3fc41302db324f713b24185ced4ac0723037b2e3a4d9a350c375"
+      }
+    }
+  },
+  "gear_train_assembly": {
+    "family": "mechanical_assembly",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_assembly/gear_train_assembly/wrench_reach_v1",
+      "manifest_sha256": "1768eea9144936eae13f408bead4fb881939f6299589b87e50d4f5870e2c35a7"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_assembly/gear_train_assembly/wrench_reach_v1",
+        "manifest_sha256": "1768eea9144936eae13f408bead4fb881939f6299589b87e50d4f5870e2c35a7"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261107/gear_wrench01/mechanical_assembly/gear_train_assembly/dual_same_side/v1",
+        "manifest_sha256": "853ec4e3b878eaa33e990a52401b417997ce5b2a64752f561d20dd6a0897cf1a"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261107/gear_wrench01/mechanical_assembly/gear_train_assembly/dual_opposed/v1",
+        "manifest_sha256": "7cc132b608abd452981c0e13caff973b1fbc143580d5f5e33bf4447b346a7c9d"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/development/parameterized_seeds_20261105/author_admission_reauthoring_gearbase01_gear_train_assembly/releases/gear_train_assembly/single_arm",
+        "manifest_sha256": "eb8a208ecbb5ba70a9f0e95de0eab532e9c79aa18ec72623302645304b1ee526"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/development/parameterized_seeds_20261105/author_admission_reauthoring_gearbase01_gear_train_assembly/releases/gear_train_assembly/dual_same_side",
+        "manifest_sha256": "aa1b07a7d07f9ebb0eb4173cb2bbec090336b3ff92c46dbd40c90445d7db7ff8"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/development/parameterized_seeds_20261105/author_admission_reauthoring_gearbase01_gear_train_assembly/releases/gear_train_assembly/dual_opposed",
+        "manifest_sha256": "fc31f4ba494ffd63ec9670ae580dbf71dca9a39e43846d7ba1015f7769a7a43c"
+      }
+    }
+  },
+  "nist_belt_drive_assembly": {
+    "family": "mechanical_assembly",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/nist_usability_20261107b/batch01/nist_belt_drive_assembly/desktop_v1",
+      "manifest_sha256": "ec43adbeec31682e74923e0c5220e00c33bfaae8a7411abadea8359ab34b0fde"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/nist_usability_20261107b/batch01/nist_belt_drive_assembly/desktop_v1",
+        "manifest_sha256": "ec43adbeec31682e74923e0c5220e00c33bfaae8a7411abadea8359ab34b0fde"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/nist_usability_20261107b/dual_batch01/mechanical_assembly/nist_belt_drive_assembly/dual_same_side/v1",
+        "manifest_sha256": "eb4a9f2ce2f920b6be8aff622f54884b55f27cea17bfde0a160b7f7e8cb3a3e2"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/nist_usability_20261107b/dual_batch01/mechanical_assembly/nist_belt_drive_assembly/dual_opposed/v1",
+        "manifest_sha256": "264988b622e9c480250be511c53bcf88f1fb55f8e47c251f31b17b5ba5b4ca5a"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/development/parameterized_seeds_20261105/author_admission_reauthoring12_nist_belt_drive_assembly/releases/nist_belt_drive_assembly/single_arm",
+        "manifest_sha256": "f3de274fc2151a30677f478e3239b2379abee034874655c7ddfec128f2e49cff"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/development/parameterized_seeds_20261105/author_admission_reauthoring12_nist_belt_drive_assembly/releases/nist_belt_drive_assembly/dual_same_side",
+        "manifest_sha256": "3232f64d5572c3a47d32d4fd3c48ae6d137574bd79c09b483dd323d1281be681"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/development/parameterized_seeds_20261105/author_admission_reauthoring12_nist_belt_drive_assembly/releases/nist_belt_drive_assembly/dual_opposed",
+        "manifest_sha256": "36f391e2dcc332fc5506dc2e6d0bfba7f638a1446e3d66a81f38373014b8b245"
+      }
+    }
+  },
+  "nist_cable_routing": {
+    "family": "mechanical_assembly",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/nist_usability_20261023/batch02/nist_cable_routing/desktop_v1",
+      "manifest_sha256": "4106fa53fbadf5d096c11522ada8dc85e6588588305b2141cd3590eddfc404c7"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/nist_usability_20261023/batch02/nist_cable_routing/desktop_v1",
+        "manifest_sha256": "4106fa53fbadf5d096c11522ada8dc85e6588588305b2141cd3590eddfc404c7"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/nist_usability_20261023/dual_batch02/mechanical_assembly/nist_cable_routing/dual_same_side/v1",
+        "manifest_sha256": "a8a20cb58ab58fc4d790551b6a543ee5e46da61155124ac757a5e68b237fd481"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/nist_usability_20261023/dual_batch02/mechanical_assembly/nist_cable_routing/dual_opposed/v1",
+        "manifest_sha256": "51657ab88cdf803cbddb9b19751cee26c18a1a682e65607a825b998071d6ed6e"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_chains/releases/nist_cable_routing/single_arm",
+        "manifest_sha256": "928d750c12df274fa98922fab32d7d846e189a81fb5e7a664778f202cfa24b5a"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_chains/releases/nist_cable_routing/dual_same_side",
+        "manifest_sha256": "82fe5a0e5f3ee83c69910bc0e6abacb0b4599ddec4452ddd55642c10088730c7"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_chains/releases/nist_cable_routing/dual_opposed",
+        "manifest_sha256": "e43677523a81c48a1d06d961d3ab931dd07f6c126bebf349d90b550cdd75cbab"
+      }
+    }
+  },
+  "nist_wire_harness": {
+    "family": "mechanical_assembly",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/nist_usability_20261023/batch03/nist_wire_harness/desktop_v1",
+      "manifest_sha256": "d17ab5072ad1d49245cb715a6bf4a3f1233787483912aaa0ead8d4b06e6f3ba3"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/nist_usability_20261023/batch03/nist_wire_harness/desktop_v1",
+        "manifest_sha256": "d17ab5072ad1d49245cb715a6bf4a3f1233787483912aaa0ead8d4b06e6f3ba3"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/nist_usability_20261023/dual_batch03/mechanical_assembly/nist_wire_harness/dual_same_side/v1",
+        "manifest_sha256": "67652c54ce0c4b01c0cfdad95e02a8374f6f1a142d5205461378667e948cb2c4"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/nist_usability_20261023/dual_batch03/mechanical_assembly/nist_wire_harness/dual_opposed/v1",
+        "manifest_sha256": "3d96120c63f4e59475d97874b527db624ca062db074e6b7c5469fe02ccca7d54"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_chains/releases/nist_wire_harness/single_arm",
+        "manifest_sha256": "733cbf559ab39eab0f9977cf0a2d74591e9001fbf6a58c790ff7fa23bf099d4e"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_chains/releases/nist_wire_harness/dual_same_side",
+        "manifest_sha256": "2cce5a0834abc1e8f8b87218a61f3b9b90652f33d6e25aba43a7485d98cea1bb"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_chains/releases/nist_wire_harness/dual_opposed",
+        "manifest_sha256": "3fe7a6cc8a0c855dc3ca0c656758a94d65aa9af52c35f82c4384bbb19aeb64f1"
+      }
+    }
+  },
+  "nist_connector_insertion": {
+    "family": "mechanical_assembly",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/nist_usability_20261023/batch01/nist_connector_insertion/desktop_v1",
+      "manifest_sha256": "76886985c22a43daeac20cbebcab525efc3c340ab1668e8f9867270c3840ba6f"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/nist_usability_20261023/batch01/nist_connector_insertion/desktop_v1",
+        "manifest_sha256": "76886985c22a43daeac20cbebcab525efc3c340ab1668e8f9867270c3840ba6f"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/nist_usability_20261023/dual_batch01/mechanical_assembly/nist_connector_insertion/dual_same_side/v1",
+        "manifest_sha256": "7ad125dcde37691ea8d28d6f85f8964657c735e3794813aff26dfb36ffcde850"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/nist_usability_20261023/dual_batch01/mechanical_assembly/nist_connector_insertion/dual_opposed/v1",
+        "manifest_sha256": "96db1bcc42a4af49019a0db72c7d373523dadde797a7f5698230b97c33a30f3c"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_insertion/releases/nist_connector_insertion/single_arm",
+        "manifest_sha256": "0325fd58a5736fb6c04a4d3c17a3e1f00f97171e7e15c8d60a2fb1d7e351779d"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_insertion/releases/nist_connector_insertion/dual_same_side",
+        "manifest_sha256": "a361b8ad03d594c33fae0aaa2a0ec3a7f1ba3556b5bb0076b85a7279d19577a2"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_insertion/releases/nist_connector_insertion/dual_opposed",
+        "manifest_sha256": "243f9c03a7412165ed3f38f21a5c2eb783df69e2a84248ffc3d48f5382865d9f"
+      }
+    }
+  },
+  "cooperative_insertion": {
+    "family": "mechanical_assembly",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_assembly/cooperative_insertion/v6",
+      "manifest_sha256": "d4df70390f901cfe1b61e3426f683d54efce06fa75315928707fabed249455b7"
+    },
+    "parents": {
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_assembly/cooperative_insertion/v6",
+        "manifest_sha256": "d4df70390f901cfe1b61e3426f683d54efce06fa75315928707fabed249455b7"
+      }
+    },
+    "releases": {
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/mechanical_study_initial_randomization_v1/publication01_insertion/releases/cooperative_insertion/dual_same_side",
+        "manifest_sha256": "6b7ed12de22edc6c34b5128b61ba1d2474f73abcb8997c0a3aa886637165b899"
+      }
+    }
+  },
+  "breakfast_serving": {
+    "family": "kitchen",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen/breakfast_serving/household_v2",
+      "manifest_sha256": "8752aee85a0c47add1a11a871e39867e0f6ed2301b4fa99eeed874104b3440b8"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen/breakfast_serving/household_v2",
+        "manifest_sha256": "8752aee85a0c47add1a11a871e39867e0f6ed2301b4fa99eeed874104b3440b8"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen_laboratory_initial_randomization_v1/releases/breakfast_serving/single_arm",
+        "manifest_sha256": "ff9d7701f883180a4d7b8fb301554777507e3e8a0ad297dc8477245d5185470b"
+      }
+    }
+  },
+  "pot_lid_placement": {
+    "family": "kitchen",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen/pot_lid_placement/household_access_v3",
+      "manifest_sha256": "8e62383cd8dcc52aee6d68480d8dbeeb3138103cc29092090401a9624dcbb3be"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen/pot_lid_placement/household_access_v3",
+        "manifest_sha256": "8e62383cd8dcc52aee6d68480d8dbeeb3138103cc29092090401a9624dcbb3be"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen_laboratory_initial_randomization_v1/releases/pot_lid_placement/single_arm",
+        "manifest_sha256": "62d02b58f0699d81597f3ad690e059cb5b1df586e6ef8726d085badbfbaae8d9"
+      }
+    }
+  },
+  "surface_wiping": {
+    "family": "kitchen",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen/surface_wiping/elastic_cell_lattice_v2",
+      "manifest_sha256": "50a6505fd44d71bceb7a37d85ac2f1f642396dfb89cfd9980baf20a0370b1aff"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen/surface_wiping/elastic_cell_lattice_v2",
+        "manifest_sha256": "50a6505fd44d71bceb7a37d85ac2f1f642396dfb89cfd9980baf20a0370b1aff"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen_laboratory_initial_randomization_v1/releases/surface_wiping/single_arm",
+        "manifest_sha256": "b00d918b246e5b496c36d50f60f1e5255427ce568f1502a27629dc5a46851531"
+      }
+    }
+  },
+  "cap_placement": {
+    "family": "laboratory",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laboratory/cap_placement/budget_v1",
+      "manifest_sha256": "e39534d6de813b520ad59d6d8eee01749fa3c695ba637fb1341554c70f0d57d0"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laboratory/cap_placement/budget_v1",
+        "manifest_sha256": "e39534d6de813b520ad59d6d8eee01749fa3c695ba637fb1341554c70f0d57d0"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261026/laboratory_budget_v1/cap_placement/dual_same_side/v1",
+        "manifest_sha256": "2bf9ee48afd6773fe715a88a6530bc247d9c3232b754eff33cb38888ca8fbcc3"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261026/laboratory_budget_v1/cap_placement/dual_opposed/v1",
+        "manifest_sha256": "e890fd66aa191501fe81647b694a97976e9cfbb6cfad3d64cbaef784b9671616"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen_laboratory_initial_randomization_v1/releases/cap_placement/single_arm",
+        "manifest_sha256": "e8184ef99b6dd10688cafbaede8cbfd2322d9f50bd9836bd8bcf63e51586f071"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen_laboratory_initial_randomization_v1/releases/cap_placement/dual_same_side",
+        "manifest_sha256": "252d43b4ae9315acf8c6a88d793be9e36d35a9b8ad0812e3c614fd33555b74e6"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen_laboratory_initial_randomization_v1/releases/cap_placement/dual_opposed",
+        "manifest_sha256": "2004f1959f7b46331bf141bfca92e4bcf016e4578f0678471bcaf84dd6d97536"
+      }
+    }
+  },
+  "solid_weighing": {
+    "family": "laboratory",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laboratory/solid_weighing/budget_v1",
+      "manifest_sha256": "4f65c9bbeb5db831c6a174d0ed958dadfeac702928ae5c12e8dd5a5d96e27eae"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laboratory/solid_weighing/budget_v1",
+        "manifest_sha256": "4f65c9bbeb5db831c6a174d0ed958dadfeac702928ae5c12e8dd5a5d96e27eae"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261026/laboratory_budget_v1/solid_weighing/dual_same_side/v1",
+        "manifest_sha256": "f702fde005df2def32131a547f74b0b3c5916b9ab23750cf3131986a347b8f57"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261026/laboratory_budget_v1/solid_weighing/dual_opposed/v1",
+        "manifest_sha256": "2a11cbeca201179a64235d34066a1524aa71ac6981ae74b35734f535840d59ce"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen_laboratory_initial_randomization_v1/releases/solid_weighing/single_arm",
+        "manifest_sha256": "730909d4364a2d0831dd2fa16dd51eceb49877261f7753c6579c0f7c4e73590c"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen_laboratory_initial_randomization_v1/releases/solid_weighing/dual_same_side",
+        "manifest_sha256": "4ba1415be7d5e6be90e4306809a8274261a1674a26b15efc8d0815308fe30e27"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen_laboratory_initial_randomization_v1/releases/solid_weighing/dual_opposed",
+        "manifest_sha256": "f4888b7ba77c7e7cf56e21499086d307c7ee1f4212f9feb2727aaf9801e7caf0"
+      }
+    }
+  },
+  "pipette_transfer": {
+    "family": "laboratory",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laboratory/pipette_transfer/budget_v1",
+      "manifest_sha256": "fbdb937c8a1b6a7771e266644e571eac2492c9c8bd3135ffbdc0b8c5dd614091"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laboratory/pipette_transfer/budget_v1",
+        "manifest_sha256": "fbdb937c8a1b6a7771e266644e571eac2492c9c8bd3135ffbdc0b8c5dd614091"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261026/laboratory_budget_v1/pipette_transfer/dual_same_side/v1",
+        "manifest_sha256": "52c1b07880a780014d2eb03609c222a708526a3a4fada5a79b18e4c827068b7f"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261026/laboratory_budget_v1/pipette_transfer/dual_opposed/v1",
+        "manifest_sha256": "8670f1c650b2282a360bc01bbe0e1fc11fbbb7dd35784e11836c03bbb63e2eb5"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen_laboratory_initial_randomization_v1/releases/pipette_transfer/single_arm",
+        "manifest_sha256": "f04cae3441903c11d9f90ceba04f2e9b44e0688be8b4a2fa578cb1988e7b8f3a"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen_laboratory_initial_randomization_v1/releases/pipette_transfer/dual_same_side",
+        "manifest_sha256": "ce056ea71ede42f9891f74fc6cf6a08dd9ff13dbe20d27a396f167f22c56de34"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen_laboratory_initial_randomization_v1/releases/pipette_transfer/dual_opposed",
+        "manifest_sha256": "54c5d5d5cfa5c709d6604f5898cec1e9e48709b9e9c4be7fe24ba33228d12bf8"
+      }
+    }
+  },
+  "tube_clamp_transfer": {
+    "family": "laboratory",
+    "parent_default_release": {
+      "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laboratory/tube_clamp_transfer/budget_v1",
+      "manifest_sha256": "8f5fbf3adbea2c48db1e47e8cfd8078159160f630b164faa187ceead77f83293"
+    },
+    "parents": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/laboratory/tube_clamp_transfer/budget_v1",
+        "manifest_sha256": "8f5fbf3adbea2c48db1e47e8cfd8078159160f630b164faa187ceead77f83293"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261026/laboratory_budget_v1/tube_clamp_transfer/dual_same_side/v1",
+        "manifest_sha256": "dd71e9af88aebafcd3a8bf7b8876c0ed9f45adc114cf2c26a54ea9d73c26df53"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/robot_configurations_20261026/laboratory_budget_v1/tube_clamp_transfer/dual_opposed/v1",
+        "manifest_sha256": "71b5397aa471cb58218bf303783f16e87e9d5379f5e546b0ece3d4478c9491b7"
+      }
+    },
+    "releases": {
+      "single_arm": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen_laboratory_initial_randomization_v1/releases/tube_clamp_transfer/single_arm",
+        "manifest_sha256": "a77d5449ef5656369dc8917dde5ec08d37d0b3a7aad48236b128fed52dbdbd38"
+      },
+      "dual_same_side": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen_laboratory_initial_randomization_v1/releases/tube_clamp_transfer/dual_same_side",
+        "manifest_sha256": "0d11bdf1968c9fc55249052f9382ce03fe9f89e9fe29c73c93f0c4b421f933d7"
+      },
+      "dual_opposed": {
+        "path": "data://datasets/fr3_sharpa_bench/isaacsim/releases/kitchen_laboratory_initial_randomization_v1/releases/tube_clamp_transfer/dual_opposed",
+        "manifest_sha256": "fbf589011823caf90b05649bb4756d12e2c1df9ce10597fda8ed31f242168f91"
+      }
+    }
+  }
+}

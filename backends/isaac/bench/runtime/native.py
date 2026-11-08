@@ -1,6 +1,7 @@
 """One isolated Isaac application per episode; Kit stays on its main thread."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import csv
@@ -57,8 +58,16 @@ class NativeWorker:
     # Trusted operator subclasses may add read-only engineering instrumentation.
     # This is never selected by an episode request or a public action.
     worker_module = 'bench.runtime.worker'
+    # Startup precedes the episode clock. Workers validate the release before
+    # binding (gear: 34k pinned files, ~4 min alone) unless they re-prove the
+    # server's handoff; exits and fatal GPU errors still fail immediately, so
+    # this only bounds a silently stalled startup.
+    STARTUP_TIMEOUT_S = 1800
+    # EpisodeSession passes release_validation only to factories declaring this.
+    accepts_release_validation = True
 
-    def __init__(self, *, output, task_id, hand_id, seed, release, device='cuda:0', scene_variant='original_v1', startup_timeout_s=240):
+    def __init__(self, *, output, task_id, hand_id, seed, release, device='cuda:0', scene_variant='original_v1', startup_timeout_s=STARTUP_TIMEOUT_S, practice=None,
+                 release_validation=None):
         self.output = Path(output)
         self.output.mkdir(parents=True, exist_ok=False)
         self.temporary = Path(tempfile.mkdtemp(prefix='dex_rpc_'))
@@ -74,6 +83,16 @@ class NativeWorker:
         self._fatal_exception = None
         config = dict(output=str(self.output),task_id=task_id,hand_id=hand_id,seed=seed,
                       release=str(release),device=device,scene_variant=scene_variant)
+        if practice is not None:
+            from bench.protocol.practice import PracticeSelection
+            config['practice'] = PracticeSelection.model_validate(practice).model_dump()
+        if release_validation is not None:
+            # Private evidence pinned by the config; the worker re-proves every
+            # recorded identity before reuse and otherwise validates itself.
+            handoff = self.output/'release_validation_handoff.json'
+            data = json.dumps(release_validation, separators=(',', ':')).encode()
+            handoff.write_bytes(data)
+            config['release_validation_handoff'] = {'path': str(handoff), 'sha256': hashlib.sha256(data).hexdigest()}
         path = self.output/'worker_config.json'
         path.write_text(json.dumps(config,indent=2)+'\n')
         self.log = (self.output/'worker.log').open('w')

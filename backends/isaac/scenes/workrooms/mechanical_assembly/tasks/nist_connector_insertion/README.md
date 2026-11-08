@@ -13,6 +13,8 @@
 
 柔性件使用被动关节连接的短段刚体近似，具有真实重力和碰撞；不宣称材料弯曲精度。连接器只评估几何插接与支撑，不宣称电气导通或卡扣锁紧。手物交互交由数采，本轮只承担场景和物物可行性。
 
+当前使用 `usability_v1`：USB／BNC 公母成对放大 1.6 倍，质量和惯量按原声明密度重算；实际配合、承托与释放稳定已通过原生物物检查。 三种构型可在开局选择；完整抓取、布线／拆除仍由数采验证。
+
 各版本的实际原生证据和限制见 [NIST 任务说明](../../NIST_TASKS.md)。
 
 来源：[NIST Assembly Performance Metrics and Test Methods](https://www.nist.gov/el/intelligent-systems-division-73500/robotic-grasping-and-manipulation-assembly/assembly)。原文件、版本、单位和哈希随资产 provenance 保留；具体变换和近似以资产 metadata 为准。

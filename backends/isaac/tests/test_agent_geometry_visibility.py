@@ -64,6 +64,25 @@ def geometry(frozen_inputs, native_robot_metadata):
     return result
 
 
+def native_step(worker):
+    """Publish acknowledged targets and a complete, contact-free rigid receipt.
+
+    The recorded metadata declares a native app, so the service requires the
+    native rigid-contact sampling receipt for every 20 ms control window.
+    """
+    publish_targets(worker)
+    end = worker.raw['sim_time_s']
+    start = round(end-.02, 10)
+    worker.raw['contacts'] = {
+        'source': 'PhysX stage-bound rigid contact tensor; normal impulses', 'errors': [],
+        'sampling': {'protocol': 'native_rigid_contact_sampling_v1', 'complete': True,
+            'physics_dt_s': .0005, 'start_sim_time_s': start, 'end_sim_time_s': end,
+            'native_start_time_s': start, 'native_end_time_s': end,
+            'native_start_step_index': round(start/.0005), 'native_end_step_index': round(end/.0005),
+            'sampled_substeps': 40},
+        'rigid': []}
+
+
 @pytest.fixture
 def geometry_service(tmp_path, monkeypatch, frozen_inputs, native_robot_metadata, geometry):
     manifest, inputs = frozen_inputs
@@ -77,7 +96,7 @@ def geometry_service(tmp_path, monkeypatch, frozen_inputs, native_robot_metadata
         workers = []
 
         def factory(**kwargs):
-            worker = FakeWorker(**kwargs, on_step=publish_native_window if native else publish_targets)
+            worker = FakeWorker(**kwargs, on_step=native_step if native else publish_targets)
             if robot_id == 'sharpa_w01_right' or metadata is not None:
                 worker.initial['metadata'].update(deepcopy(metadata or native_robot_metadata))
                 action_spec = worker.initial['metadata']['action_spec']

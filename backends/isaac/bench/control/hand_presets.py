@@ -23,6 +23,7 @@ from bench.protocol.hand_presets import (
 )
 
 VERSION = 'sharpa_w01_preposes_v1'
+L_MOUNT_PRESET_VERSION = 'sharpa_l_mount_preposes_v1'
 UPSTREAM_REPOSITORY = 'https://github.com/sharpa-robotics/sharpa-urdf-usd-xml'
 UPSTREAM_COMMIT = '0d19cac602f46456b819e4b6a2c09a74982c9a3e'
 PINCH_EVIDENCE_SHA256 = '6a2e49900fe1905d478e4c57a1029f66c6806ea6227975b512e87cad85da2094'
@@ -35,6 +36,14 @@ URDF_SHA256 = {
 KINEMATICS_SHA256 = {
     'left': 'f811c41b9746054f7615f1a956b0e489aee86f8c99c5f8ce92488f20ec660800',
     'right': 'ed6eb049f6f132d9501d08511f3665da1cccf40b9021f1fd0a290cf48212e29b',
+}
+L_MOUNT_URDF_SHA256 = {
+    'right': 'daf0bf7aa00deb0dc8a2f5f3e6baa93d388105ddc47c6d86782465b0d8c3c385',
+    'left': '703e80a27f7a50ef912fbc16445a827240c8678eacac33a70963cd22143a2b1d',
+}
+L_MOUNT_KINEMATICS_SHA256 = {
+    'right': 'c6e88274658704bc9a4e95b91fa0f993ec58c643823c339512c52ad4cc71814f',
+    'left': '3e947f866a047955b43332c4a6994a6aecf2c1fe5a74aa82f98bcf6a1b4dbb7b',
 }
 PINCH_ANCHOR_SHA256 = {
     'left': 'da2be8f716dfd84f4008680fa0dec1cb69e50c661ff08ba64a270bf3574d0fb3',
@@ -86,6 +95,13 @@ def _kinematics_signature(hand):
         for j in hand.joints]})
 
 
+def _source_profile(model):
+    from bench.simulation.isaacsim_backend.l_mount import SUPPORTED_VERSIONS as L_MOUNT_VERSIONS
+    if getattr(model.embodiment, 'assembly_version', None) in L_MOUNT_VERSIONS:
+        return L_MOUNT_PRESET_VERSION, L_MOUNT_URDF_SHA256, L_MOUNT_KINEMATICS_SHA256
+    return VERSION, URDF_SHA256, KINEMATICS_SHA256
+
+
 def _side_model(geometry, side):
     if side not in ('left', 'right'):
         raise ValueError('Hand preset side must be left or right')
@@ -95,6 +111,7 @@ def _side_model(geometry, side):
             or embodiment.side != side or model.frame_id != side + '_hand_flange'):
         raise ValueError('Requested SHARPA side is not present in this robot geometry')
     hand = model.hand
+    _, urdf_pins, kinematic_pins = _source_profile(model)
     by_name = {joint.name: joint for joint in hand.joints}
     try:
         actual_urdf_sha256 = hashlib.sha256(Path(model.hand_path).read_bytes()).hexdigest()
@@ -107,8 +124,8 @@ def _side_model(geometry, side):
             or any(joint is not by_name.get(joint.name) for joint in hand.active)
             or model.fingertip_links != expected_tips
             or model.tip_offsets
-            or actual_urdf_sha256 != URDF_SHA256[side]
-            or _kinematics_signature(hand) != KINEMATICS_SHA256[side]):
+            or actual_urdf_sha256 != urdf_pins[side]
+            or _kinematics_signature(hand) != kinematic_pins[side]):
         raise ValueError('Hand preset requires its pinned side-specific SHARPA URDF and axes')
     if model.hand_posture_prior != HandPosturePrior(side=side):
         raise ValueError('Hand preset requires the pinned SHARPA DIP/PIP coupling')
@@ -136,6 +153,7 @@ def generate_hand_preset(geometry, request: HandPresetRequest | dict) -> HandPre
     """
     request = HandPresetRequest.model_validate(request.model_dump() if isinstance(request, HandPresetRequest) else request)
     model = _side_model(geometry, request.side)
+    version, urdf_pins, kinematic_pins = _source_profile(model)
     opened = dict.fromkeys(model.hand.names, 0.)
     anchor = dict(PINCH_ANCHORS[request.side]) if request.preset == 'pinch_prepose' else opened
     # Bounds and DIP-PIP inequalities are linear. Checking both endpoints proves
@@ -161,14 +179,14 @@ def generate_hand_preset(geometry, request: HandPresetRequest | dict) -> HandPre
     project = Path(__file__).resolve().parents[2]
     files = ('bench/control/hand_presets.py', 'bench/protocol/hand_presets.py',
              'bench/control/kinematics.py', 'bench/control/hand_posture.py', 'bench/geometry.py')
-    return HandPresetResult(preset=request.preset, side=request.side, amount=request.amount,
+    return HandPresetResult(library_version=version, preset=request.preset, side=request.side, amount=request.amount,
         frame_id=model.frame_id, hand_posture_rad=q, fingertip_poses=tips,
         thumb_index_distance_m=float(np.linalg.norm(points[0] - points[1])),
         source=HandPresetSource(upstream_repository=UPSTREAM_REPOSITORY, upstream_commit=UPSTREAM_COMMIT,
-            hand_urdf_sha256=URDF_SHA256[request.side], hand_kinematics_sha256=KINEMATICS_SHA256[request.side],
+            hand_urdf_sha256=urdf_pins[request.side], hand_kinematics_sha256=kinematic_pins[request.side],
             anchor_sha256=_digest(anchor),
             anchor_origin=PINCH_EVIDENCE_ID if request.preset == 'pinch_prepose' else 'upstream_urdf_zero_configuration',
-            anchor_evidence_sha256=PINCH_EVIDENCE_SHA256 if request.preset == 'pinch_prepose' else URDF_SHA256[request.side],
+            anchor_evidence_sha256=PINCH_EVIDENCE_SHA256 if request.preset == 'pinch_prepose' else urdf_pins[request.side],
             implementation_sha256={name: hashlib.sha256((project/name).read_bytes()).hexdigest() for name in files}),
         validation=HandPresetValidation())
 
@@ -176,6 +194,7 @@ def generate_hand_preset(geometry, request: HandPresetRequest | dict) -> HandPre
 def hand_preset_catalog(geometry) -> HandPresetCatalog:
     """Discover the verified subset for this robot; no object-specific presets."""
     sides, unavailable = [], {}
+    versions = set()
     for side in ('left', 'right'):
         try:
             _side_model(geometry, side)
@@ -183,7 +202,11 @@ def hand_preset_catalog(geometry) -> HandPresetCatalog:
             unavailable[side] = 'No matching pinned SHARPA side, geometry or coupling'
         else:
             sides.append(side)
-    return HandPresetCatalog.model_validate({'protocol': 'bench_hand_preset_catalog_v1', 'library_version': VERSION,
+            model = geometry.sides[side] if hasattr(geometry, 'sides') else geometry
+            versions.add(_source_profile(model)[0])
+    if len(versions) > 1:
+        raise ValueError('Mixed hand preset source versions are not supported')
+    return HandPresetCatalog.model_validate({'protocol': 'bench_hand_preset_catalog_v1', 'library_version': next(iter(versions), VERSION),
         'available': bool(sides), 'sides': sides,
         'reason': None if sides else 'No matching pinned SHARPA hand geometry is available',
         'presets': [

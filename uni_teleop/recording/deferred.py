@@ -43,3 +43,48 @@ class StateArchive:
                 job.result()
         finally:
             self.index.close()
+
+
+class EpisodeArchives:
+    """Seal independent, lazily created episodes; rendering belongs to another process."""
+    def __init__(self, output, manifest, settings):
+        self.output = Path(output)
+        self.manifest = manifest
+        self.settings = settings
+        self.active = None
+        self.directory = None
+        self.count = 0
+        self.episodes = []
+
+    def append(self, arrays, metadata):
+        terminal = metadata.get('action') is None
+        if self.active is None:
+            if terminal:
+                return  # Do not create empty episodes while paused or on repeated resets.
+            import shutil
+            self.directory = self.output/'episodes'/f'{metadata["episode"]:06d}'
+            self.directory.mkdir(parents=True, exist_ok=False)
+            for name in ('scene.json', 'initial_state.json'):
+                shutil.copy2(self.output/name, self.directory/name)
+            self.active = StateArchive(self.directory, self.manifest)
+            self._receipt('recording')
+        self.active.append(arrays, metadata)
+        self.count += 1
+        if terminal:
+            self.close()
+
+    def _receipt(self, status):
+        report = {'settings': self.settings, 'deferred_recording': {
+            'status': status, 'frames': self.active.count,
+            'schema': self.manifest['schema'], 'cameras': self.manifest['cameras']}}
+        (self.directory/'session.json').write_text(json.dumps(report, indent=2))
+
+    def close(self):
+        if self.active is None:
+            return
+        self.active.close()
+        self._receipt('saved')
+        self.episodes.append({'path': str(self.directory.relative_to(self.output)),
+                              'frames': self.active.count})
+        (self.output/'episodes.json').write_text(json.dumps(self.episodes, indent=2))
+        self.active = None

@@ -143,6 +143,19 @@ def interface_catalog(policy_descriptors=()):
     }
 
 
+def card_game_interface_catalog(catalog):
+    """New operation/event contract over the existing authenticated transport."""
+    from bench.protocol.card_games import PROTOCOL
+    result = board_game_interface_catalog(catalog)
+    result['shared_contract'].update(
+        game_protocol=PROTOCOL,
+        game_schema_endpoint='GET /board-games/schema?protocol=' + PROTOCOL,
+        events_endpoint='GET /board-games/{episode_id}/players/{player_id}/events',
+        operation_epoch='turn_index counts verified operations, including each reveal; current_player is explicit and need not alternate.',
+        shared_events='Both authenticated players receive the same consecutive public event history. Paging never advances physics and remains available after termination.')
+    return result
+
+
 def turn_game_interface_catalog(catalog):
     """Advertise the generic player HTTP API, without claiming client support."""
     result = board_game_interface_catalog(catalog)

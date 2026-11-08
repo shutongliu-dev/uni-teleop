@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 from .robot_registry import get_hand_spec
-from .robot_asset import DEFAULT_ASSETS, digest, write_once
+from .robot_asset import DEFAULT_ASSETS, digest, urdf_mesh_path, write_once
 from bench.paths import load_json
 
 
@@ -53,7 +53,7 @@ def assemble_hand_urdf(hand_id, assets_root=DEFAULT_ASSETS, output=None, assembl
                 path = path.resolve()
                 if not path.is_file():
                     raise FileNotFoundError(path)
-                mesh.set('filename', str(path))
+                mesh.set('filename', urdf_mesh_path(path, output))
                 meshes[str(path)] = digest(path)
             if item.tag == 'joint' and item.get('name') in spec['mimic_joints']:
                 ET.SubElement(item, 'mimic', **{k: str(v) for k,v in spec['mimic_joints'][item.get('name')].items()})

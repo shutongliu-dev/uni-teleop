@@ -5,17 +5,23 @@
 ```text
 data/
 ├── MANIFEST.json      当前代码要求的数据版本：每个文件的路径、SHA256 和大小
-├── assets/            房间、机器人、物体、材质、天空、字体、任务物体
-└── datasets/          任务发布（初态、规则、裁判、清单）与测试用到的少量数据
+├── assets/            房间、机器人装配、物体、材质、天空、字体、任务物体
+└── datasets/          冻结的任务发布（每个可选机器人配置一个）及其直接读取的少量输入
 ```
+
+数据包只放运行任务必需的资产和本仓库测试读取的小型夹具，不放开发过程的证据：原生录像和状态数组、`.jsonl` 流、日志、演示视频都留在开发存储。冻结发布里仍记着这些证据的哈希；本地没有对应文件时，`bench.paths.undistributed` 把它们当作已记录的来源，不要求存在。数据包本身的完整性由 `scripts.data.package check` 逐文件校验。
 
 ## 获取与校验
 
 ```bash
-gh release download data-v3 --repo VVVVME50/dexbench --dir /tmp/dexbench-data   # 或在网页上下载全部分卷
-cat /tmp/dexbench-data/dexbench-data-v3.tar.zst.part-* | zstd -d | tar -x -C data
+gh release download data-v6 --repo VVVVME50/dexbench --dir /tmp/dexbench-data   # 或在网页上下载全部分卷
+cat /tmp/dexbench-data/dexbench-data-v6.tar.zst.part-* | zstd -d --long=31 | tar -x -C data
 .venv/bin/python -m scripts.data.package check     # 逐文件对照 MANIFEST.json 校验
 ```
+
+压缩用了 zstd 长距离匹配（`--long=31`），解压时必须同样加 `--long=31`（约需 2 GB 内存）。数据包里内容完全相同的文件是同一个文件的硬链接，解压后仍然是；`scripts.data.package refresh` 改写文件时会先断开硬链接，手工编辑时也请用会新建文件的方式（例如先 `cp` 到别处改好再 `mv` 回来），不要原地写，否则会同时改到其他副本。
+
+数据包包含两套机器人构型（原版和 L 型）的全部发布，以及多机器人任务（例如客厅抽积木对抗）事先准备好的机器人实例；运行时不往 `data/` 写任何东西。
 
 数据版本跟着代码走：拉取到新提交后如果 `check` 报告不一致，说明 `MANIFEST.json` 变了，需要下载对应的新数据包。
 

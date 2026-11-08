@@ -108,23 +108,3 @@ def test_metadata_describes_source_arithmetic_without_changing_solver():
     assert not metadata['solver_parameters_changed']
     json.dumps(metadata, allow_nan=False)
     json.dumps(summarize_normal_impulses([1.], [[0, 0, 1.]]), allow_nan=False)
-
-
-def test_batch_contact_groups_match_scalar_reductions_exactly():
-    from bench.simulation.isaacsim_backend.contact_precision import summarize_contact_groups
-    rng=np.random.default_rng(42)
-    counts=np.array([1,4,35,3,4,1,35])
-    starts=np.cumsum(np.r_[0,counts[:-1]])
-    f=rng.normal(size=counts.sum()).astype(np.float32)
-    n=rng.normal(size=(counts.sum(),3));n/=np.linalg.norm(n,axis=1)[:,None];n=n.astype(np.float32)
-    f[::7]=0.;n[::7]=0.
-    batch=summarize_contact_groups(f,n,starts,counts)
-    assert batch==[summarize_normal_impulses(f[s:s+c],n[s:s+c]) for s,c in zip(starts,counts)]
-
-
-@pytest.mark.parametrize('f,n', [([1.],[[0,0,2.]]),([float('nan')],[[0,0,1.]]),([1e308],[[0,0,1.]])])
-def test_batch_rejects_invalid_or_overflowing_contacts(f,n):
-    from bench.simulation.isaacsim_backend.contact_precision import summarize_contact_groups
-    # Duplicate points make the finite individual impulse overflow on reduction.
-    with pytest.raises(ValueError):
-        summarize_contact_groups(f*2,n*2,[0],[2])

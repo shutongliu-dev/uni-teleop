@@ -10,8 +10,9 @@ from scripts.validation.validate_assembly_contacts import _validate_privileged_i
 def test_l5_native_input_binds_v34_and_zero_model_contract():
     value = validator.build_native_input()
     assert value['schema'] == 'mechanical_l5_gear_native_probe_input.v1'
-    assert value['release'].endswith('/practical_rules_v4/release')
-    assert value['release_manifest_sha256'] == '62bd44368d8d42a36885d29272d7ef0dae2582acf84da2f8faee6d6fe37c96f5'
+    # The current candidate is the wrench-reach release over the enlarged idler grip; teeth and rules are unchanged.
+    assert value['release'].endswith('/gear_train_assembly/wrench_reach_v1')
+    assert value['release_manifest_sha256'] == '1768eea9144936eae13f408bead4fb881939f6299589b87e50d4f5870e2c35a7'
     assert value['model_calls'] == 0
     assert value['ordinary_agent_validation'] is False
     assert value['task_success_claimed'] is False

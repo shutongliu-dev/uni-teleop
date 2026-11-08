@@ -10,7 +10,7 @@ import math
 
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
-ASSET_VERSION = 'living_remote_physical_v1'
+ASSET_VERSION = 'living_remote_countdown_v2'
 TABLE_TOP_M = .78
 REMOTE_SHELL_SIZE_M = (.055, .160, .020)  # width, length, shell thickness
 BUTTON_SIZE_M = (.022, .024, .004)
@@ -133,11 +133,11 @@ def _stroke(stage, path, points, material, width=.00065):
     return curve
 
 
-def author_task(stage, root_path='/World/LivingTask', *, presentation=False):
+def author_task(stage, root_path='/World/LivingTask', *, presentation=False, face_up=True):
     """Author a metre/Z-up candidate under a new path; return JSON metadata.
 
-    presentation changes only the initial remote pose to show its face. Both
-    variants retain actual rigid-body/joint definitions. Neither is a native
+    The current reset shows the physical buttons. Explicit face_up=False keeps
+    the historical inspection pose available. Both retain actual rigid-body/joint definitions. Neither is a native
     validated reset, manipulation success or an immutable task release.
     """
     root_path = str(root_path)
@@ -146,8 +146,9 @@ def author_task(stage, root_path='/World/LivingTask', *, presentation=False):
         raise ValueError('root_path must be an absolute non-root prim path')
     if stage.GetPrimAtPath(path):
         raise ValueError('Refusing to overwrite existing task prim: '+root_path)
-    if type(presentation) is not bool:
-        raise ValueError('presentation must be boolean')
+    if type(presentation) is not bool or type(face_up) is not bool:
+        raise ValueError('presentation and face_up must be boolean')
+    face_up = face_up or presentation
     if stage.HasAuthoredMetadata('metersPerUnit') and UsdGeom.GetStageMetersPerUnit(stage) != 1.:
         raise ValueError('Remote author requires a metre stage')
     if stage.HasAuthoredMetadata('upAxis') and UsdGeom.GetStageUpAxis(stage) != 'Z':
@@ -161,8 +162,8 @@ def author_task(stage, root_path='/World/LivingTask', *, presentation=False):
     looks = root_path+'/Looks'
     mats = {name: _material(stage, looks+'/'+name, color, rough, metal) for name, color, rough, metal in (
         ('Graphite', (.043, .049, .056), .34, .03), ('Face', (.075, .084, .092), .30, .02),
-        ('Rubber', (.022, .026, .029), .72, 0.), ('Power', (.56, .095, .07), .39, 0.),
-        ('Confirm', (.065, .26, .31), .37, 0.), ('Ink', (.87, .90, .88), .45, 0.),
+        ('Rubber', (.022, .026, .029), .72, 0.), ('Power', (.78, .08, .035), .39, 0.),
+        ('Confirm', (.045, .42, .52), .37, 0.), ('Ink', (.95, .97, .95), .45, 0.),
         ('Steel', (.31, .34, .36), .26, .78), ('Holder', (.55, .40, .25), .42, 0.),
         ('Lens', (.17, .48, .36), .15, .08))}
     physics = UsdPhysics.MaterialAPI.Apply(mats['Graphite'].GetPrim())
@@ -171,9 +172,9 @@ def author_task(stage, root_path='/World/LivingTask', *, presentation=False):
     rubber.CreateStaticFrictionAttr(.75); rubber.CreateDynamicFrictionAttr(.55); rubber.CreateRestitutionAttr(.02)
     rig_path = root_path+'/Remote'
     rig = UsdGeom.Xform.Define(stage, rig_path)
-    remote_position = (.49, -.12, TABLE_TOP_M+(.0105 if presentation else .01365))
+    remote_position = (.49, -.12, TABLE_TOP_M+(.01055 if face_up else .01365))
     rig.AddTranslateOp().Set(Gf.Vec3d(*remote_position))
-    rig.AddRotateXYZOp().Set(Gf.Vec3f(0., 0. if presentation else 180., -12.))
+    rig.AddRotateXYZOp().Set(Gf.Vec3f(0., 0. if face_up else 180., -12.))
     body_path = rig_path+'/Body'
     body = _body(stage, body_path, .108, REMOTE_SHELL_SIZE_M)
     UsdShade.MaterialBindingAPI.Apply(body.GetPrim()).Bind(mats['Graphite'], materialPurpose='physics')
@@ -257,8 +258,9 @@ def author_task(stage, root_path='/World/LivingTask', *, presentation=False):
         'remote': {'assembly_path': rig_path, 'body_path': body_path, 'button_paths': button_paths,
             'shell_size_xyz_m': list(REMOTE_SHELL_SIZE_M), 'envelope_xyz_m': [.055, .160, .0239],
             'body_mass_kg': .108, 'button_mass_kg': .004, 'total_mass_kg': .116,
-            'position_m': list(remote_position), 'face_up': presentation,
-            'reset_support': 'Two raised end guards keep face-down buttons clear of the table',
+            'position_m': list(remote_position), 'face_up': face_up,
+            'reset_support': ('Back shell feet support the face-up body; both real buttons remain visible and released.'
+                              if face_up else 'Two raised end guards keep face-down buttons clear of the table'),
             'grasp_scope': '55 mm grip width and unobstructed lower body; SHARPA reach/grasp must be validated natively'},
         'buttons': {name: {'body_path': button_paths[name], 'joint_path': joint_paths[name],
             'axis': 'local Z', 'limits_m': [-BUTTON_TRAVEL_M, 0.], 'rest_coordinate_m': 0.,
@@ -280,4 +282,27 @@ def author_task(stage, root_path='/World/LivingTask', *, presentation=False):
             'material_scope': 'Uncalibrated task-asset priors; no shared robot or solver settings changed'},
         'authors_only': ['remote assembly', 'two passive prismatic buttons', 'open holder', 'materials'],
         'not_authored': ['room', 'robot', 'light', 'PhysicsScene', 'task evaluator', 'release']}
+    # Render-only segments sit 2 mm in front of the pinned room TV screen.
+    # The unchanged native observer clock selects materials; no animation,
+    # colliders, physical transforms or remote input are authored here.
+    segments = {}
+    for place, cy in (('tens', .985), ('ones', .715)):
+        for name, dy, dz, width, height in (
+                ('a', 0., .16, .16, .022), ('b', -.085, .08, .022, .14),
+                ('c', -.085, -.08, .022, .14), ('d', 0., -.16, .16, .022),
+                ('e', .085, -.08, .022, .14), ('f', .085, .08, .022, .14),
+                ('g', 0., 0., .16, .022)):
+            path = root_path+'/TelevisionCountdown/'+place+'_'+name
+            x, y, z = 2.667, cy+dy, 1.20+dz
+            mesh = UsdGeom.Mesh.Define(stage, path)
+            mesh.CreatePointsAttr([Gf.Vec3f(x, y-width/2, z-height/2), Gf.Vec3f(x, y-width/2, z+height/2),
+                                  Gf.Vec3f(x, y+width/2, z+height/2), Gf.Vec3f(x, y+width/2, z-height/2)])
+            mesh.CreateFaceVertexCountsAttr([4]); mesh.CreateFaceVertexIndicesAttr([0, 1, 2, 3])
+            mesh.CreateSubdivisionSchemeAttr('none'); mesh.CreateDoubleSidedAttr(True)
+            mesh.CreateExtentAttr(UsdGeom.PointBased.ComputeExtent(mesh.GetPointsAttr().Get()))
+            UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(mats['Graphite'])
+            segments[place+'_'+name] = path
+    metadata['television_display'] = {'segments': segments, 'normal_world': [-1., 0., 0.],
+        'screen_front_x_m': 2.669, 'segments_x_m': 2.667,
+        'scope': 'Render-only countdown overlay for the pinned living-room TV; no collision or task credit.'}
     return metadata

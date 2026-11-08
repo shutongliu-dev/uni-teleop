@@ -6,7 +6,7 @@ from bench.simulation.isaacsim_backend.workroom import SCHEMA
 
 ENVIRONMENT_ROOT = Path(f'{DATA_ROOT}/assets/scenes/scence_workrooms/kitchen_galley_20261019_v2')
 ENVIRONMENT_USD_SHA256 = '4207260f1efa8490f542cc13c7ca9581ebc1ed5907be3ee8c21c47ee6009463e'
-ENVIRONMENT_DESCRIPTION_SHA256 = '241c10a87683f78c643fab029e6cb3fdd848149cc43f6b0e39336e661723ea03'
+ENVIRONMENT_DESCRIPTION_SHA256 = 'e9907d7e365dfbec26e9ae6b9b65767e54f86df1a827c0293517afe7a743ee65'
 
 
 def environment_reference():

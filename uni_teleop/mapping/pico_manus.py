@@ -53,6 +53,22 @@ class PicoManusRetargeter:
     def __getattr__(self, name):
         return getattr(self.arm, name)
 
+    @property
+    def rotation(self):
+        return self.arm.rotation
+
+    @rotation.setter
+    def rotation(self, value):
+        self.arm.rotation = value
+
+    @property
+    def control_dt(self):
+        return self.arm.control_dt
+
+    @control_dt.setter
+    def control_dt(self, value):
+        self.arm.control_dt = self.hand.control_dt = value
+
     def set_active(self, active):
         self.session_active = bool(active)
         self.arm.set_active(active)

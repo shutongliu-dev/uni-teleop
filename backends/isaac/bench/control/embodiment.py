@@ -11,6 +11,10 @@ original executor path), and fr3_link8 rotated 180 deg about the flange axis for
 flange_axis_centred_v2 (for SHARPA H is the URDF link of that name in both).
 Hand-relative quantities (fingertips in the hand frame) are therefore identical
 across conventions; only the arm's joint-7 solution differs.
+
+The separately pinned L-adapter version has a full SE3 hand-frame offset and a
+new hand-only tree, with no old flange/wrist solids. Its frame lies on the adapter
+output interface, 35 mm before the palm. It does not use the centred-yaw path.
 """
 from __future__ import annotations
 
@@ -144,6 +148,44 @@ def hand_frame_offset(yaw):
     return offset
 
 
+def _load_l_mount(assets, spec, side, *, bimanual=False, arm_base_poses=None):
+    """Use the physical assembly chain and its massless output interface."""
+    from bench.geometry import quaternion_matrix, transform
+    from bench.simulation.isaacsim_backend.l_mount import HAND_URDF, MOUNTS, prepared_assembly
+    from bench.simulation.isaacsim_backend.robot_layout import arm_base_poses as resolve_poses
+    assembly, source = prepared_assembly(assets, side=side if bimanual else None,
+                                         version=spec['assembly_version'])
+    arm_root = f'fr3_{side}_base' if bimanual else 'base'
+    arm_tip = f'fr3_{side}_link8' if bimanual else 'fr3_link8'
+    arm = URDFKinematics(io.BytesIO(ET.tostring(urdf_subtree(assembly, arm_root, stop_links=(arm_tip,)))))
+    hand_path = assets / HAND_URDF.format(side=side)
+    hand = URDFKinematics(hand_path)
+    mount = MOUNTS[side]
+    offset = transform(mount['translation_m'], quaternion_matrix(mount['quaternion_wxyz']))
+    base = np.eye(4)
+    if bimanual:
+        poses = resolve_poses({'hand_id': BIMANUAL_ROBOT, 'assembly_version': spec['assembly_version'],
+                               **({'arm_base_poses': arm_base_poses} if arm_base_poses is not None else {})})
+        base = transform(poses[side]['position_m'], quaternion_matrix(poses[side]['quaternion_wxyz']))
+    # Verify the complete physical chain independently of the split controller
+    # trees. A stale hand-only file or a changed virtual-frame joint fails here.
+    full = URDFKinematics(assembly)
+    q = dict.fromkeys(full.names, 0.)
+    poses = full.forward(q)
+    frame = f'{side}_hand_flange'
+    for link, pose in hand.forward(q).items():
+        if not np.allclose(poses[link], poses[arm_tip] @ offset @ pose, rtol=0., atol=1e-10):
+            raise ValueError('L-mount controller hand tree differs from the physical assembly')
+    return Embodiment(robot_id=f'{BIMANUAL_ROBOT}:{side}' if bimanual else DEFAULT_HAND,
+        hand_id=spec['hand_id'], side=side, arm=arm, arm_tip=arm_tip, hand=hand, frame_id=frame,
+        tips={n: f'{side}_{"pinky" if n == "little" else n}_fingertip' for n in SHARPA_FINGERS},
+        tip_offsets={}, posture_prior=HandPosturePrior(side=side), asset_paths=[assembly, hand_path],
+        mount=f'{arm_tip}_to_{frame}_{spec["mount_convention"]}',
+        expected_mount={key: source['mount'][key] for key in ('parent', 'child', 'translation_m', 'quaternion_wxyz')},
+        sharpa_joint_semantics=True, arm_base=base, wrist_offset=offset,
+        assembly_version=spec['assembly_version'])
+
+
 def rerooted_hand_tree(subtree, flange_link, frame_link, yaw):
     """The hand subtree hung from a bare hand-frame link H = flange_link * Rz(yaw).
 
@@ -179,6 +221,9 @@ def load_embodiment(assets_root, hand_id=None, assembly_version=None):
     assets = Path(assets_root)
     hand_id = hand_id or DEFAULT_HAND
     spec = get_hand_spec(hand_id, assembly_version)
+    from bench.simulation.isaacsim_backend.l_mount import SUPPORTED_VERSIONS as L_MOUNT_VERSIONS
+    if spec['assembly_version'] in L_MOUNT_VERSIONS:
+        return _load_l_mount(assets, spec, 'right')
     yaw = spec['hand_frame_yaw_rad']
     arm_path = assets / ARM_URDF
     arm = URDFKinematics(arm_path)
@@ -244,6 +289,9 @@ def load_bimanual_side(assets_root, side, assembly_version=None, *, arm_base_pos
         raise ValueError('side must be left or right')
     assets = Path(assets_root)
     spec = get_hand_spec(BIMANUAL_ROBOT, assembly_version)
+    from bench.simulation.isaacsim_backend.l_mount import SUPPORTED_VERSIONS as L_MOUNT_VERSIONS
+    if spec['assembly_version'] in L_MOUNT_VERSIONS:
+        return _load_l_mount(assets, spec, side, bimanual=True, arm_base_poses=arm_base_poses)
     yaw = spec['hand_frame_yaw_rad']
     directory = assets / 'robots/assemblies' / BIMANUAL_ROBOT / spec['assembly_version']
     source = load_json(directory / f'SOURCE_{side}.json')

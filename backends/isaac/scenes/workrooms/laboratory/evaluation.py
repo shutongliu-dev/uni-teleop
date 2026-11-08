@@ -214,9 +214,32 @@ class NativeTaskObserver:
         radius = self.p['pellet_radius_m']
         return bool(np.all(center-radius >= lo-.001) and np.all(center+radius <= hi+.001))
 
+    def _solid_supported_grains(self, members, roots, objects, contacts, t):
+        """Trace measured upward load paths inside the supplied Task4 inventory.
+
+        Existing contact witnesses handle sleeping bodies just as direct cup
+        support does. An unrooted cycle or a quiet pose cannot create support.
+        A hand-held grain cannot act as the support of another grain.
+        """
+        members = set(members)-contacts.robot
+        # Holding the scoop is the intended action; only touched granules are
+        # excluded. Cup/robot unloading is checked separately by the readout.
+        roots = set(roots)-(contacts.robot & set(self.p['pellet_ids']))
+        candidates = contacts.upward | set(self.witnesses)
+        edges = {(body, parent) for body, parent in candidates
+                 if body in members and parent in members | roots
+                 and self._supported(body, parent, objects, contacts, t)}
+        reached = set(roots)
+        while True:
+            additions = {body for body, parent in edges if parent in reached}-reached
+            if not additions:
+                return members & reached
+            reached.update(additions)
+
     def _solid(self, frame, objects, contacts):
         p, t = self.p, frame['time_s']
         inventory = {k: [] for k in ('source_tray', 'weighing_cup', 'scoop', 'pending', 'spill')}
+        outside = []
         for name in p['pellet_ids']:
             located = None
             for container in ('weighing_cup', 'scoop', 'source_tray'):
@@ -227,21 +250,33 @@ class NativeTaskObserver:
             if name in contacts.robot:
                 self.scooped.discard(name)
                 self.scoop_load_origins.pop(name, None)
-            carrying = (located == 'scoop' and name not in contacts.robot
-                and self._supported(name, 'scoop', objects, contacts, t))
-            if carrying:
+            if located is None:
+                outside.append(name)
+            else:
+                inventory[located].append(name)
+        supported_grains = {
+            container: self._solid_supported_grains(inventory[container], {container},
+                                                    objects, contacts, t)
+            for container in ('source_tray', 'weighing_cup', 'scoop')}
+        for name in p['pellet_ids']:
+            if name in supported_grains['scoop']:
                 origin = self.scoop_load_origins.setdefault(name, deepcopy(objects['scoop']))
                 if distance(objects['scoop'], origin) >= self.limits['minimum_movement_m']:
                     self.scooped.add(name)
             else:
                 self.scoop_load_origins.pop(name, None)
-            if located is None:
-                exterior = (any(a == name for a, b in contacts.upward if b not in p['pellet_ids'])
-                    or any(a == name and b in self.surfaces for a, b in self.support_diagnostics))
-                if name in contacts.floor or (self.quiet_s[name] >= .10 and exterior):
-                    self.spilled.add(name)
-                located = 'spill' if name in self.spilled else 'pending'
-            inventory[located].append(name)
+        # A stable outside grain may rest on other grains, including a genuinely
+        # supported grain at a container rim. Never root a chain at an unverified
+        # contained grain or at the robot itself.
+        external_roots = {parent for _, parent in contacts.upward | set(self.witnesses)
+                          if parent not in p['pellet_ids'] and not parent.startswith('/World/Robot/')}
+        external_roots.update(set().union(*supported_grains.values()))
+        externally_supported = self._solid_supported_grains(outside, external_roots,
+                                                            objects, contacts, t)
+        for name in outside:
+            if name in contacts.floor or (self.quiet_s[name] >= .10 and name in externally_supported):
+                self.spilled.add(name)
+            inventory['spill' if name in self.spilled else 'pending'].append(name)
         mass = len(inventory['weighing_cup'])*p['pellet_mass_kg']
         spill = len(self.spilled)*p['pellet_mass_kg']
         if spill > p['spill_mass_limit_kg']+EPS:
@@ -254,19 +289,7 @@ class NativeTaskObserver:
             and upright(cup, self.limits['upright_tilt_rad']))
         supported = self._supported('weighing_cup', 'balance_platform', objects, contacts, t, platform_geo)
         cup_grains = set(inventory['weighing_cup'])
-        rooted = {'weighing_cup'}
-        direct = {name for name in cup_grains
-                  if self._supported(name, 'weighing_cup', objects, contacts, t)}
-        rooted.update(direct)
-        # Allow grains resting on other in-cup grains, with an actual upward
-        # contact path back to the cup. Containment alone never establishes load.
-        for _ in range(len(cup_grains)):
-            additions = {body for body, parent in contacts.upward
-                         if body in cup_grains and parent in rooted}
-            if additions <= rooted:
-                break
-            rooted.update(additions)
-        grains_supported = cup_grains <= rooted
+        grains_supported = cup_grains <= supported_grains['weighing_cup']
         unloaded = (frozenset(('scoop', 'weighing_cup')) not in contacts.pairs
                     and 'weighing_cup' not in contacts.robot)
         lo, hi = np.asarray(p['scoop_return_bounds_m'])
@@ -434,6 +457,9 @@ class NativeTaskObserver:
             goal, detail = self._cap(frame, objects, contacts)
         elif self.task_id == 'solid_weighing':
             goal, detail = self._solid(frame, objects, contacts)
+        elif self.task_id == 'tube_clamp_transfer':
+            from .tube_clamp_evidence import evaluate
+            goal, detail = evaluate(self, frame, objects, contacts)
         else:
             goal, detail = self._liquid(frame, objects, contacts)
         condition = bool(goal and not first and not contacts.robot and all(v > 0 for v in self.quiet_s.values()))
@@ -484,6 +510,7 @@ class SequenceEvaluator:
         self.events = []
         self.stable_s = 0.
         self.success = False
+        self.incomplete = False
         self.phase = next(iter(self.rules['phases']))
         self.detail = {}
         self.last_result = self._result('task_in_progress')
@@ -504,11 +531,15 @@ class SequenceEvaluator:
             'evidence_scope': 'Complete private native samples; CPU fixtures and independent scene probes are not robot task credit.'}
         if self.invalid:
             result['private_evidence_error'] = self.invalid
+        if self.incomplete:
+            # Stop the episode without turning a spent budget into a physical
+            # failure. The public referee keeps its unfinished physical state.
+            result.update(status='incomplete', terminal=True, reason='budget_exhausted')
         self.last_result = deepcopy(result)
         return result
 
     def update(self, observation):
-        if self.invalid or self.failure or self.safety or self.success:
+        if self.invalid or self.failure or self.safety or self.success or self.incomplete:
             return deepcopy(self.last_result)
         try:
             s = observation['task_state']
@@ -552,12 +583,13 @@ class SequenceEvaluator:
                 raise ValueError('Unknown physical safety reason')
             if self.failure or self.safety:
                 return self._result(self.safety or self.failure)
+            if (observation.get('budget_exhausted') is True or t > self.c['thresholds']['max_time_s']+EPS
+                    or number(observation.get('action_count', 0)) > self.c['thresholds']['max_actions']):
+                self.incomplete = True
+                return self._result('incomplete_budget')
             self.success = not first and stable+EPS >= self.c['thresholds']['stable_s']
             if self.success:
                 return self._result('success')
-            if (observation.get('budget_exhausted') is True or t > self.c['thresholds']['max_time_s']+EPS
-                    or number(observation.get('action_count', 0)) > self.c['thresholds']['max_actions']):
-                return self._result('incomplete_budget')
             return self._result(s['reason'])
         except (KeyError, TypeError, ValueError, IndexError, OverflowError) as exc:
             self.invalid = str(exc)

@@ -73,6 +73,26 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual(missing_paths([(tmp, "dir"), (str(p), "file")]), [])
             self.assertEqual(len(missing_paths([(str(p), "dir")])), 1)
 
+    def test_external_isaac_data_uses_source_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp) / 'data-v6'
+            (data / 'assets').mkdir(parents=True)
+            (data / 'datasets').mkdir()
+            config = self.config(tmp)
+            values = json.loads(config.read_text())
+            values['DEXBENCH_DATA'] = str(data)
+            config.write_text(json.dumps(values))
+            _, _, _, checks = plan('isaac-pico-manus-native-pedal-deferred', config)
+            manifest = (str(ROOT / 'backends/isaac/data/MANIFEST.json'), 'file')
+            self.assertIn(manifest, checks)
+            self.assertNotIn((str(data / 'MANIFEST.json'), 'file'), checks)
+            data_checks = [row for row in checks if row[0].startswith(str(data))]
+            self.assertEqual(set(data_checks), {(str(data / 'assets'), 'dir'),
+                                                (str(data / 'datasets'), 'dir')})
+            self.assertEqual(missing_paths([manifest, *data_checks]), [])
+            (data / 'assets').rmdir()
+            self.assertEqual(missing_paths(data_checks), [f'dir: {data / "assets"}'])
+
 
 if __name__ == "__main__":
     unittest.main()

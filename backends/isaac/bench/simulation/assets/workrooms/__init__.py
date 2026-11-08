@@ -8,7 +8,6 @@ FAMILIES = ('mechanical_assembly', 'laboratory', 'kitchen', 'study', 'card_room'
 
 SOURCE_RESOURCES = (
     'scenes/workrooms/current_release.json',
-    'scenes/catalog.json',
     'bench/apps/workroom.headless.kit',
 )
 

@@ -5,14 +5,15 @@ import json
 import math
 
 TASK_IDS = ('sample_sorting', 'vial_racking', 'cap_placement',
-            'solid_weighing', 'pipette_transfer')
-TITLES = ('样本分类', '试管扶正入架', '样本瓶开盖与复盖', '药匙定量称取颗粒', '跨台定量移液分装')
+            'solid_weighing', 'pipette_transfer', 'tube_clamp_transfer')
+TITLES = ('样本分类', '试管跨架转移', '样本瓶开盖与复盖', '药匙定量称取颗粒', '活塞定量移液分装', '弹簧试管夹转运')
 INSTRUCTIONS = (
     '把四个密封样本瓶按颜色放入对应分类托盘，保持直立，松手放稳。',
-    '将岛台浅槽中的三支横放试管扶正，转运到后台试管架，一孔一支插入任意空孔并松手放稳。',
+    '将岛台源试管架中竖直放置的三支试管向上取出，转运到后台另一试管架，一孔一支插入任意空孔并松手放稳。允许重新抓取、对准和调整。',
     '将样本瓶放入后台防转瓶座，旋下盖子并放入盖托，再取回旋合，把瓶子送回岛台归位区。',
-    '将称量杯放到后台称量平台，用药匙从原料盒取颗粒加入杯中，达到目标质量后把药匙归位并松手。',
-    '使用活塞式移液工具从岛台供液杯吸水，向后台两个接收杯分别分装10±2毫升，工具归架并松手。',
+    '将称量舟放到后台称量平台，用药匙分次取颗粒加入舟中，达到6±0.6克（11–13颗）后把药匙放回托上并松手。允许调整，归还的药匙可留有余料。',
+    '握住注射式移液器筒身，将吸嘴浸入岛台供液杯水面下，拉出活塞吸水；移到后台接收杯口上方，压入活塞出水。两个接收杯分别达到10±2毫升后，把工具放回支架并松手。允许分次吸取、补充、重新抓取和借助台面支撑。',
+    '用弹簧试管夹夹住密封试管，提离供架并搬到另一托座，放稳后拉开夹口、取回工具并归位。允许重新对准、重夹和调整。',
 )
 
 
@@ -27,9 +28,11 @@ def object_properties(task_id):
         'pipette_transfer': [('source', '空供液杯', .120), ('receiver_a', '空接收杯 A', .060),
             ('receiver_b', '空接收杯 B', .060), ('pipette', '移液工具筒身（不含独立活塞）', .065),
             ('plunger', '独立活塞', .016)],
+        'tube_clamp_transfer': [('clamp_frame', '弹簧试管夹框架与固定夹口', .110),
+            ('clamp_jaw', '弹簧滑动夹口与拇指拉片', .035), ('tube', '密封空试管', .035)],
     }[task_id]
     basis = ('冻结资产声明的模拟刚体质量；不是传感器测量或当前抓取负载。'
-             '容器和工具按空载/独立部件列示，液体有限体积模型不向刚体施加水重。'
+             '容器和工具按空载/独立部件列示；当前液体载荷由所选场景冻结的水量耦合配置另行计算，不包含在这些标称干重中。'
              if task_id == 'pipette_transfer' else
              '冻结资产声明的模拟刚体质量；不是传感器测量或当前抓取负载。容器和工具按空载/独立部件列示。')
     return [dict(id=name, label=label, nominal_mass_kg=mass, basis=basis)
@@ -44,12 +47,15 @@ def digest(value):
 def thresholds(task_id):
     if task_id not in TASK_IDS:
         raise ValueError('Unknown laboratory task')
-    return dict(stable_s=.3, pose_window_s=.02, maximum_linear_speed_m_s=.03,
+    result = dict(stable_s=.3, pose_window_s=.02, maximum_linear_speed_m_s=.03,
         maximum_angular_speed_rad_s=.3, position_drift_m=.004, orientation_drift_rad=.10,
         upright_tilt_rad=math.radians(15), placement_tolerance_m=.004,
         support_gap_m=.008, minimum_movement_m=.02, minimum_contact_impulse_ns=1.e-10,
         maximum_penetration_m=.005, support_memory_s=.05,
         max_time_s=180., max_actions=9000)
+    if task_id == 'tube_clamp_transfer':
+        result['clamp_relative_alignment_rad'] = math.radians(20)
+    return result
 
 
 def public_rules(task_id, seed=0):
@@ -61,14 +67,21 @@ def public_rules(task_id, seed=0):
         ['三支试管分别占据三个不同架孔，管底落在架内支撑面上且基本竖直；不要求对应隐藏身份。'],
         ['瓶身进入防转座后，独立盖实际旋出并在盖托放稳。',
          '盖重新旋合并实际接触瓶口，瓶子最终回到岛台归位区。'],
-        ['称量杯实际放在平台上，用药匙装载、运输并倾出独立颗粒。',
-         '杯内净样本质量达到资产声明目标（首版6±0.6克）；洒落不超过1克。',
+        ['称量舟实际放在平台上，用药匙装载、带料移动至少2厘米并倾出颗粒；允许分次舀取和调整，不得用手直接搬颗粒代替药匙运输。',
+         '舟内净样本质量达到6±0.6克，即11–13颗；累计洒落不超过1克（2颗），回收不抵扣已洒落数量。',
+         '颗粒允许叠放，由容器直接承托或经其他已受承托的颗粒放稳；悬空颗粒不计作稳定装载。',
+         '完成后药匙放回托上并释放，勺内可以留有余料。',
          '名义质量来自已知颗粒质量及实际杯内库存，读数须在杯稳定且不被手或药匙托住时确认。',
          '任务平台屏幕以克显示净颗粒质量（扣除28克空舟），连续稳定0.3秒才出数；无舟、托举、移动或换料时显示横线。读数不要求先达到目标或药匙归位，也不代表操作顺序已合格。',
          '完成窗口内杯内颗粒身份保持，竖直不弹跳；允许杯底缓慢横滚，不要求球的朝向固定。'],
-        ['供液必须来自吸嘴实际浸没时的活塞抽拉；空吸不增加水量。',
+        ['这是拉活塞吸水、推活塞出水的注射式移液器；没有自动吸液按钮或弹簧回吸。支架用于归放，吸液时需要把工具移到水杯。',
+         '供液必须来自吸嘴实际浸没时的活塞抽拉；空吸不增加水量。允许分次吸取和补充，不要求一次完成，也不规定左右手分工。',
          '两个接收杯分别含8至12毫升；累计洒漏不超过2毫升，未决飞行水不超过0.5毫升。',
          '水量使用明确声明的活塞有限体积近似：源杯、工具、接收杯、飞行水及洒漏总量守恒。'],
+        ['使用工具的两侧真实夹口接触夹持试管；试管提离供架至少3.5厘米，并在夹持段内平移至少12厘米。',
+         '试管轴线与夹口长向大体对齐，相对偏差不超过20度；允许工具与试管一起倾斜搬运。',
+         '试管由接收托座承托、基本直立；工具解除与试管的接触并回到归位托盘。',
+         '拉开拇指拉片可张开夹口；松开拉片后由被动弹簧夹紧。不得用手直接搬管代替工具夹持运输。'],
     )[index]
     contract = {
         'schema': 'physical_task_referee_contract.v1', 'task_id': task_id,
@@ -98,6 +111,9 @@ def public_rules(task_id, seed=0):
             '额外桌面陈设为固定背景，不是目标或可抓物体，也不是任务计分支撑面。'),
         'object_properties': object_properties(task_id),
     }
+    if task_id == 'pipette_transfer':
+        contract['observation_scope'] += ('筒身和杯壁刻度、实际水面及出水轨迹通过RGB-D观察。'
+            '当前液量和精确洒漏账本不作为公开真值读数；可见湿痕仅覆盖已建模的落点，不代替完整水差。')
     return {'schema': 'laboratory_rules.v2', 'task_id': task_id,
         'instruction_zh': INSTRUCTIONS[index], 'referee': contract, 'reset_credit': False,
         'scope': 'Scene objects and object-object feasibility; hand-object interaction is collected separately.',

@@ -826,13 +826,22 @@ def check_native_masses(context):
         raise MissingEvidence("Native PhysX link/object mass readback is missing")
     require(set(objects) == set(metadata["object_names"]), "Native mass readback omits task bodies")
     require(all(np.isfinite(v) and v >= 0 for v in robot.values()) and sum(robot.values()) > 0, "Native robot masses are nonfinite, negative, or all zero")
+    payload_expected, payload_report = {}, None
+    if metadata.get("scene_spec", {}).get("reduced_liquid_payload") is not None:
+        from bench.simulation.isaacsim_backend.reduced_liquid_payload import audit_native_payload, authored_object_masses
+        authored_masses = authored_object_masses(metadata)
+        payload_expected, payload_report = audit_native_payload(metadata, context["states"], authored_masses=authored_masses)
+    else:
+        require("reduced_liquid_payload" not in metadata, "Liquid payload metadata requires an explicit scene opt-in")
     object_errors = {}
     for name, mass in objects.items():
-        expected = metadata["scene_info"]["objects"][name]["mass_kg"]
+        expected = (payload_expected.get(name, authored_masses[name]) if payload_report is not None
+                    else metadata["scene_info"]["objects"][name]["mass_kg"])
         require(np.isfinite(mass) and mass > 0 and np.isclose(mass, expected, atol=1e-7, rtol=1e-5), f"Native object mass differs from authored task asset: {name}")
         object_errors[name] = float(mass - expected)
     return {"native_robot_total_mass_kg": float(sum(robot.values())), "native_robot_link_count": len(robot),
             "native_object_masses_kg": objects, "object_mass_errors_kg": object_errors,
+            **({"reduced_liquid_payload": payload_report} if payload_report is not None else {}),
             "limitation": "Robot readback verifies finite physical masses; this check does not calibrate the simulation-only hand mount"}
 
 

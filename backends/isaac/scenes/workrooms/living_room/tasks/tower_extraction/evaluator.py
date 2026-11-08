@@ -10,7 +10,7 @@ from copy import deepcopy
 import itertools
 import math
 
-from .rules import OBSERVATION_SCHEMA, SIDES
+from .rules import HOST_TERMINATIONS, OBSERVATION_SCHEMA, SIDES
 from .task import task_configuration
 
 TERMINAL = frozenset(('won', 'draw', 'abort', 'incomplete'))
@@ -102,12 +102,12 @@ class TowerExtractionGame:
         return self.snapshot()
 
     def finish(self, reason):
-        """Host termination only; budgets/timeouts never fabricate a loser."""
-        if reason not in ('timeout', 'budget', 'reset', 'evidence_missing', 'adapter_failure'):
+        """Host termination only; interruptions never fabricate a loser."""
+        if reason not in HOST_TERMINATIONS:
             raise ValueError('Unknown host termination reason')
         if self.status in TERMINAL:
             return self.snapshot()
-        return self._end('incomplete' if reason in ('timeout', 'budget') else 'abort', reason)
+        return self._end(HOST_TERMINATIONS[reason], reason)
 
     def snapshot(self):
         """Public rule state, excluding privileged poses/contact evidence."""

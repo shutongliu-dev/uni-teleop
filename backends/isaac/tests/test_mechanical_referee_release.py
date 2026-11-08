@@ -17,7 +17,7 @@ from scenes.workrooms.mechanical_assembly import referee_release, rules
 
 PARENT = Path(f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/'
     'mechanical_task_validation_20261018/sorting/task_release_sdf1024_layout_v1')
-PARENT_SHA256 = 'cfb877eb5f4e9b5dfb22a6672b7a4cf7958aeb7e4c18083da2be18ce07268769'
+PARENT_SHA256 = '5d36546d30423ae49adaeb7abff4633493db9e4bdd9242cb935efddf4f8123fb'
 
 
 def read_json(path):
@@ -104,9 +104,10 @@ def test_rule_revision_preserves_every_physical_input_and_loads_its_frozen_contr
     probe = '''import json, sys
 from pathlib import Path
 from bench.isaacsim.release import load_evaluator
+from bench.paths import load_json
 from bench.protocol.task_referee import project_referee_state, project_task_rules
 root = Path(sys.argv[1])
-task = json.loads((root/'task.json').read_text())
+task = load_json(root/'task.json')
 cls = load_evaluator(root)
 state = project_referee_state(cls(task).inspect_conditions(), project_task_rules(task)['public_rules'])
 print(json.dumps({'evaluator': cls.update.__code__.co_filename,
@@ -239,10 +240,10 @@ def test_rule_revision_cannot_sneak_in_changed_scoring_thresholds(parent, monkey
 @pytest.mark.parametrize('parent', [
     (Path(f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/'
           'mechanical_task_validation_20261019/fastener/loose_bolt_candidate_v7'),
-     'efdd235408aeb9f682273b7a248f87ef19da8eff1cf6d9f77d797e162f7d5424'),
+     '3200c488d4f8ae1282c2665b7ed91310315bb23329185c11dfa53c226cc2b0aa'),
     (Path(f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/'
           'mechanical_referee_20261018/rules_v1/releases/fastener_assembly'),
-     '490a0ee47eb1132691515ff874d71cbd6ae71c02b8ccd36ebc4be4bb871456ca'),
+     '4eec5a5377e26d50c8c8974510540c9116d452a58f5b6c6e3e0670a16c007b7c'),
 ], ids=['loose_bolt', 'preinserted'], indirect=True)
 def test_fastener_rule_revision_preserves_reset_variant_and_physics(parent):
     from scenes.workrooms.mechanical_assembly.tasks.fastener_assembly.rules import public_rules

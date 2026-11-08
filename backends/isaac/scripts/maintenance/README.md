@@ -9,6 +9,7 @@
 - `task_status.py`：从任务目录生成 README 任务状态表。
 - `parallel_pytest.py`：每个测试文件一个 pytest 进程并行运行全套 CPU 测试，并汇总结果。
 - `check_module_dependencies.py`：静态检查 `bench/`、`scenes/` 不依赖 `agent`。
+- `audit_workroom_integration.py`：用 CPU 核对当前任务目录、冻结文件/资产哈希、父环境、公开任务/策略和 Agent 别名；普通任务检查机器人配置，显式工程任务检查能力、工程入口及普通回合拒绝，不构造机器人。输出逐任务 JSON 矩阵，不启动回合、原生进程或模型。可在源码或独立安装的 wheel 中运行 `python -m scripts.maintenance.audit_workroom_integration --output /path/to/audit.json`；`--expected-count` 可固定任务数量，`--expected-package-root` 可固定导入目录。
 
 用法与验证边界见 [源码快照](../../docs/agent_bench/source_snapshots.md)。这些工具不证明任务成功或物理有效。
 实验输出放在 `outputs/`，不留在源码目录。数据包的生成与校验见 `scripts/data/package.py` 和 [data/README.md](../../data/README.md)。

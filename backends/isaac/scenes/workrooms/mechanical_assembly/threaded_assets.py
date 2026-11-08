@@ -15,7 +15,7 @@ from bench.paths import DATA_ROOT
 TOOL_ROOT = Path(f'{DATA_ROOT}/assets/task_parts/threaded_tools/v1')
 ASSEMBLY_ROOT = Path(f'{DATA_ROOT}/assets/objects/cosigen/046f7bf48865/threaded_assembly')
 SOURCE_HASHES = {
-    'tool': '33e5cfad3b78de5440dcc908f195a93c8cf354746bae019ccbe5e632c85f6d6f',
+    'tool': 'ef3f5157a8ffce217d658998fbb19f389d950cc045b93a7b940d423ae26a4cb5',
     'assembly': 'a7130f6063811d7c2539859a2e7d8fc1d83677fa91b3ae83acdca218dd4032cb',
 }
 ASSETS = {

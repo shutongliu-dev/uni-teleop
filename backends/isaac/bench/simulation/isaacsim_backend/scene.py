@@ -14,7 +14,9 @@ from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics, UsdShade
 from .asset_catalog import (load_task_asset, load_obj_mesh, collision_offsets, inertia_principal_axes,
                             collision_mesh_coordinate_scale, condition_collision_mesh,
                             validate_triangle_mesh_role, prepare_triangle_mesh)
-from .geometry import cloth_grid
+from .geometry import cloth_grid, cloth_initial_vertices, named_cloth_specs
+from .cloth_materials import surface_damping_properties
+from .cloth_sleep import author_surface_settling
 from .robot_asset import collision_configuration
 from .robot_materials import (apply_pad_compliance, bind_collider_instances, material_kind, material_options,
                               resolved_collider_materials)
@@ -208,9 +210,10 @@ def set_attr(prim, name, value):
         raise RuntimeError(f'Cannot author {name}')
 
 
-def add_cloth(stage, spec, options):
+def add_cloth(stage, spec, options, *, name=None):
     v, triangles = cloth_grid(spec)
-    path = '/World/Cloth'
+    path = '/World/Cloth' if name is None else '/World/Cloths/' + name
+    material_name = 'cloth' if name is None else 'cloth_' + name
     m = mesh(stage, path, v, triangles)
     p = m.GetPrim()
     transform(p, spec['origin_m'], spec.get('quaternion_wxyz', [1, 0, 0, 0]))
@@ -219,12 +222,21 @@ def add_cloth(stage, spec, options):
     set_attr(p, 'omniphysics:mass', float(spec['mass_kg']))
     set_attr(p, 'omniphysics:restShapePoints', Vt.Vec3fArray.FromNumpy(v))
     set_attr(p, 'omniphysics:restTriVtxIndices', Vt.Vec3iArray.FromNumpy(triangles))
+    if name is not None and 'initial_vertices_m' in spec:
+        # Author the initial deformed pose separately from the flat rest shape.
+        # This prevents the native world's initialization step from starting
+        # every pre-folded cloth as an overlapping flat sheet.
+        inverse = UsdGeom.Xformable(p).ComputeLocalToWorldTransform(Usd.TimeCode.Default()).GetInverse()
+        initial = cloth_initial_vertices(spec, v)
+        local = np.asarray([inverse.Transform(Gf.Vec3d(*map(float, point))) for point in initial], dtype=np.float32)
+        m.GetPointsAttr().Set(Vt.Vec3fArray.FromNumpy(local))
     set_attr(p, 'physxDeformableBody:selfCollision', bool(spec.get('self_contact', True)))
     set_attr(p, 'physxDeformableBody:disableGravity', False)
     set_attr(p, 'physxDeformableBody:solverPositionIterationCount', int(options.get('cloth_iterations', 32)))
     set_attr(p, 'physxDeformableBody:linearDamping', float(options.get('cloth_linear_damping', .10)))
+    author_surface_settling(p, options)
     set_attr(p, 'physxDeformableBody:maxLinearVelocity', -1.)
-    mat = UsdShade.Material.Define(stage, '/World/PhysicsMaterials/cloth')
+    mat = UsdShade.Material.Define(stage, '/World/PhysicsMaterials/' + material_name)
     mp = mat.GetPrim()
     for schema in ('OmniPhysicsBaseMaterialAPI', 'OmniPhysicsDeformableMaterialAPI',
                    'OmniPhysicsSurfaceDeformableMaterialAPI', 'PhysxSurfaceDeformableMaterialAPI'):
@@ -233,13 +245,15 @@ def add_cloth(stage, spec, options):
     young = float(options.get('cloth_youngs_modulus_pa', 2.e6))
     poisson = float(options.get('cloth_poissons_ratio', .3))
     bend = float(options.get('cloth_surface_bend_stiffness', 2.e4))
+    rest_area = (float(np.linalg.norm(np.cross(v[triangles[:, 1]] - v[triangles[:, 0]],
+                     v[triangles[:, 2]] - v[triangles[:, 0]]), axis=1).sum() / 2)
+                 if spec.get('mesh_type') == 'custom_surface' else float(np.prod(spec['size_m'])))
     properties = {'omniphysics:dynamicFriction': float(spec.get('friction', .45)),
                   'omniphysics:staticFriction': float(spec.get('friction', .45)),
-                  'omniphysics:density': float(spec['mass_kg'] / (np.prod(spec['size_m']) * thickness)),
+                  'omniphysics:density': float(spec['mass_kg'] / (rest_area * thickness)),
                   'omniphysics:youngsModulus': young, 'omniphysics:poissonsRatio': poisson,
                   'omniphysics:surfaceThickness': thickness, 'omniphysics:surfaceBendStiffness': bend,
-                  'physxDeformableMaterial:elasticityDamping': .005,
-                  'physxDeformableMaterial:bendDamping': .005}
+                  **surface_damping_properties(options)}
     for key, value in properties.items():
         set_attr(mp, key, value)
     collision(p, mat, contact_offset=float(options.get('cloth_contact_offset_m', .003)),
@@ -247,15 +261,26 @@ def add_cloth(stage, spec, options):
     # Optional contact-quality settings (NVIDIA surface demo uses 4/4 + CCD);
     # absent keys keep the PhysX defaults used by earlier releases.
     contact_quality = {}
+    if 'cloth_self_collision_filter_distance_m' in options:
+        distance = float(options['cloth_self_collision_filter_distance_m'])
+        if not np.isfinite(distance) or distance < 2*float(options.get('cloth_rest_offset_m', .0015)):
+            raise ValueError('Explicit cloth self-collision filter distance must be finite and at least twice restOffset')
     for key, attr, kind in (('cloth_collision_pair_update_frequency', 'physxDeformableBody:collisionPairUpdateFrequency', int),
                             ('cloth_collision_iteration_multiplier', 'physxDeformableBody:collisionIterationMultiplier', int),
+                            ('cloth_self_collision_filter_distance_m', 'physxDeformableBody:selfCollisionFilterDistance', float),
                             ('cloth_speculative_ccd', 'physxDeformableBody:enableSpeculativeCCD', bool)):
         if key in options:
             set_attr(p, attr, kind(options[key]))
             contact_quality[attr] = kind(options[key])
     color = options.get('cloth_visual_color', [.82, .76, .62])
-    bind_visual(p, visual_material(stage, 'cloth', color, .88))
-    return {'path': path, 'triangles': triangles, 'rest_vertices': v,
+    bind_visual(p, visual_material(stage, material_name, color, .88))
+    return {**({'id': name, 'role': spec.get('role', 'cloth'),
+                'collision_offsets_m': {'contact': float(options.get('cloth_contact_offset_m', .003)),
+                                        'rest': float(options.get('cloth_rest_offset_m', .0015))},
+                'self_contact': bool(spec.get('self_contact', True)),
+                'initial_vertices_source': 'spec.initial_vertices_m' if 'initial_vertices_m' in spec else 'transformed_rest_mesh',
+                'material_path': str(mat.GetPath())} if name is not None else {}),
+            'path': path, 'triangles': triangles, 'rest_vertices': v,
             'material': properties, 'material_calibrated': False, 'api_reference': DEFORMABLE_DOC,
             'material_units': {'youngs_modulus': 'Pa', 'surface_thickness': 'm',
                                'density': 'kg/m^3', 'surface_bend_stiffness': 'Pa; PhysX multiplies by thickness^3',
@@ -265,7 +290,14 @@ def add_cloth(stage, spec, options):
                                      'Old Newton VBD stretch/area/bend coefficients are not copied into PhysX material fields.'],
             'solver': 'PhysX surface deformable XPBD FEM', 'fixed_vertices': 0,
             'contact_quality': contact_quality,
-            'vertex_order': 'x-fast; identical named vertex indices to source task'}
+            'vertex_order': ('explicit material mesh; identical named vertex indices to source task'
+                             if spec.get('mesh_type') == 'custom_surface' else
+                             'x-fast; identical named vertex indices to source task')}
+
+
+def add_named_cloth(stage, spec, options):
+    """Independent native surface body; no runtime attachment or pinning."""
+    return add_cloth(stage, spec, {**options, **spec.get('isaacsim', {})}, name=spec['id'])
 
 
 def add_soft_body(stage, spec, index):
@@ -477,10 +509,12 @@ def add_structured_scene(stage, scene, room_spec):
             'solid_paths': solid, 'materials': material_specs, 'decorative_collision': False}
 
 
-def build_scene(stage, scene, robot_usd, *, physics_scene_path='/World/PhysicsScene'):
+def build_scene(stage, scene, robot_usd, *, physics_scene_path='/World/PhysicsScene', robot_source=None):
     if ('arm_base_poses' in scene['robot']
             and scene.get('isaacsim', {}).get('robot_base_constraint') != 'native_fixed_base_v1'):
         raise ValueError('An explicit dual arm layout requires native_fixed_base_v1')
+    from .robot_free import checked_mode
+    robot_free_mode = checked_mode(scene)
     UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)
     UsdGeom.SetStageMetersPerUnit(stage, 1.)
     world = UsdGeom.Xform.Define(stage, '/World')
@@ -515,6 +549,8 @@ def build_scene(stage, scene, robot_usd, *, physics_scene_path='/World/PhysicsSc
     if not arm_root or len(joint_paths) != expected or len(arm_roots) != (len(robot_usd) if isinstance(robot_usd, dict) else 1):
         raise RuntimeError(f'Expected FR3+hand articulation(s) with {expected} physical joints: {arm_roots}, {len(joint_paths)}')
     hand_spec = get_robot_spec(scene['robot'])
+    from .robot_frames import nonphysical_frame_paths
+    frame_paths = nonphysical_frame_paths(stage, scene['robot'], link_paths, robot_source)
     if hand_spec.get('hand_armature_kg_m2', 0.):
         for name, path in joint_paths.items():
             if not name.startswith('fr3_'):
@@ -634,6 +670,8 @@ def build_scene(stage, scene, robot_usd, *, physics_scene_path='/World/PhysicsSc
         objects.update(bundle['objects'])
         fixtures.update(bundle['fixtures'])
     cloth = add_cloth(stage, scene['cloth'], scene.get('isaacsim', {})) if scene.get('cloth', {}).get('enabled') else None
+    cloths = {name: add_named_cloth(stage, spec, scene.get('isaacsim', {}))
+              for name, spec in named_cloth_specs(scene).items()}
     soft_bodies = {}
     for index, spec in enumerate(scene.get('soft_bodies', [])):
         if spec['id'] in soft_bodies:
@@ -641,7 +679,8 @@ def build_scene(stage, scene, robot_usd, *, physics_scene_path='/World/PhysicsSc
         soft_bodies[spec['id']] = add_soft_body(stage, spec, index)
     from .static_mesh_contacts import adapt_static_meshes
     fixed_contacts = adapt_static_meshes(stage, scene.get('isaacsim', {}).get('static_mesh_contact_mode'),
-        exclude_paths=['/World/Robot', '/World/Cloth'] + [info['path'] for info in soft_bodies.values()])
+        exclude_paths=['/World/Robot', '/World/Cloth'] + [info['path'] for info in cloths.values()]
+                      + [info['path'] for info in soft_bodies.values()])
     extra = {}
     if fixed_contacts is not None:
         mapping = fixed_contacts['collider_actor_paths']
@@ -657,13 +696,19 @@ def build_scene(stage, scene, robot_usd, *, physics_scene_path='/World/PhysicsSc
             workbench['contact_filter_paths'] = table_paths
             workbench['contact_unobserved_paths'] = sorted(set(workbench['contact_unobserved_paths']) - set(mapping))
             workbench['contact_scope'] = 'Primitive static filters and opt-in fixed kinematic actors for original collision meshes.'
+    if robot_free_mode is not None:
+        # Opt-in diagnostic settle stage only: no robot/scene contact pair remains.
+        from .robot_free import filter_robot_collisions
+        extra['robot_free_settle'] = filter_robot_collisions(stage)
     return {**extra, **({'workroom_lighting': lighting_record} if lighting_record is not None else {}),
             **({'native_task_bundle': bundle} if bundle is not None else {}),
             **({'robot_base_constraint': base_constraint} if base_constraint is not None else {}),
             'robot_path': '/World/Robot', 'articulation_path': arm_roots if isinstance(robot_usd, dict) else arm_root,
             'joint_paths': joint_paths,
             'objects': objects, 'fixtures': fixtures, 'cloth': cloth, 'workbench': workbench, 'goal_markers': goal_markers,
+            **({'cloths': cloths} if cloths else {}),
             **({'task_layers': task_layers['layers']} if task_layers['layers'] else {}),
             'robot_self_collision': collision_config, 'mimic_constraints': mimic_records, 'robot_link_paths': link_paths,
+            **({'robot_frame_paths': frame_paths} if frame_paths else {}),
             'robot_contact_materials': robot_materials, 'soft_bodies': soft_bodies,
             'support_paths': table_paths}

@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from bench.paths import DATA_ROOT, load_json
+from bench.paths import DATA_ROOT
 from bench.simulation.isaacsim_backend import robot_registry
 from bench.simulation.isaacsim_backend.robot_registry import (HAND_ACTUATOR_MODELS, SHARPA_ACTUATOR_SOURCE,
                                                         hand_actuator_values)
@@ -62,33 +62,14 @@ def test_legacy_registry_defaults_are_unchanged():
     assert 'hand_armature_kg_m2' not in spec
 
 
-def test_v8_release_options_are_explicit_and_scene_bytes_unchanged(tmp_path):
-    from scenes.manipulation.fidelity_release import PHYSICS_OPTIONS, SOURCE, prepare
-    if not SOURCE.is_dir():
-        pytest.skip('Frozen v7 source release is unavailable')
-    manifest = prepare(SOURCE, tmp_path / 'v8')
-    profile = load_json(tmp_path / 'v8' / manifest['physics_profile'])
-    for key, value in PHYSICS_OPTIONS.items():
-        assert profile['isaacsim_options'][key] == value
-    for entry in manifest['tasks']:
-        assert (tmp_path / 'v8' / entry['scene']).read_bytes() == (SOURCE / entry['scene']).read_bytes()
-    grasp = load_json(tmp_path / 'v8/tasks/04_cube_grasp_hold/task.json')
-    assert grasp['evaluation']['minimum_pinch_normal_force_n'] == pytest.approx(.4265)
-    assert grasp['public_goal']['workspace']['table_top_z_m'] == pytest.approx(.75)
-    push = load_json(tmp_path / 'v8/tasks/01_cube_push/task.json')
-    old = load_json(SOURCE / 'tasks/01_cube_push/task.json')
-    assert push['evaluation'] == old['evaluation']
-
-
-def test_v8_tasks_route_projects_every_task_with_public_facts(tmp_path):
+def test_default_release_tasks_route_projects_every_task_with_public_facts():
     from types import SimpleNamespace
     from fastapi.testclient import TestClient
-    from scenes.manipulation.fidelity_release import SOURCE, prepare
+    from scenes.manipulation import DEFAULT_TASK_RELEASE
     from bench.runtime.server import create_app
-    if not SOURCE.is_dir():
-        pytest.skip('Frozen v7 source release is unavailable')
-    prepare(SOURCE, tmp_path / 'v8')
-    manager = SimpleNamespace(release=tmp_path / 'v8', shutdown=lambda: None)
+    if not DEFAULT_TASK_RELEASE.is_dir():
+        pytest.skip('Frozen default task release is unavailable')
+    manager = SimpleNamespace(release=DEFAULT_TASK_RELEASE, shutdown=lambda: None)
     with TestClient(create_app(service=manager)) as client:
         response = client.get('/tasks')
     assert response.status_code == 200

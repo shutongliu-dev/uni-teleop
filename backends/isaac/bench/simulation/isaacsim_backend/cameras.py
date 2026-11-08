@@ -19,9 +19,9 @@ LEGACY_CAMERAS = {
     'task': {'eye': [.74, -.79, 1.59], 'target': [.52, .17, .77], 'focal_length_mm': 27.},
 }
 KINDS = ('world', 'link')
-# Three world views plus one wrist on each independent robot in a dual task.
+# Four world views plus one wrist on each independent robot in a dual task.
 # Existing releases still resolve their declared camera set unchanged.
-MAX_CAMERAS = 5
+MAX_CAMERAS = 6
 # A hand-mounted camera placed at its link origin sees only the hand (measured
 # depth 2-6 cm in the room contract probe). Pushed this far along the line
 # to its target it clears the fingers and frames the work surface.

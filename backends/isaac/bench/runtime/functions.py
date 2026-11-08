@@ -68,6 +68,10 @@ class EpisodeFunctions:
             return 'This task does not publish a structured physical referee contract.'
         if name == 'query_ik' and session.robot_geometry is None:
             return 'Robot geometry is unavailable in this episode.'
+        if name == 'query_motion':
+            from .motion_support import supports_motion_query
+            if session.robot_geometry is None or not supports_motion_query(getattr(session, 'policy', None)):
+                return 'The original classical executor is unavailable for read-only motion planning.'
         if name in ('move_geometry', 'move_wrist', 'set_hand_targets'):
             policy = session.capabilities.system0
             if (session.spec.track not in ('system0', 'free_tool_agent') or policy is None
@@ -143,6 +147,8 @@ between native control ticks using the existing EpisodeSession execution loop.
             normalized = call.model_dump(mode='json')
             recorded = self._record({'phase': 'request', 'request': normalized, 'valid': True})
             try:
+                from .practice import check_function
+                check_function(session, name, call.arguments)
                 reason = self._unavailable(name)
                 if reason is not None:
                     raise FunctionCallError('unsupported_capability', reason)
@@ -271,6 +277,9 @@ between native control ticks using the existing EpisodeSession execution loop.
 
     def _query_ik(self, args):
         return self.session.query_ik(args)
+
+    def _query_motion(self, args):
+        return self.session.query_motion(args)
 
     def _get_hand_presets(self, args):
         from bench.control.hand_presets import hand_preset_catalog

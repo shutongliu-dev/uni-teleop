@@ -13,7 +13,7 @@ from scenes.workrooms.living_room.tasks.remote_operation.assets import (
 
 def built(presentation=False):
     stage = Usd.Stage.CreateInMemory()
-    return stage, author_task(stage, presentation=presentation)
+    return stage, author_task(stage, presentation=presentation, face_up=presentation)
 
 
 def mesh_data(prim, relative=None):

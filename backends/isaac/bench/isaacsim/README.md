@@ -11,7 +11,6 @@
 | `release.py` | 冻结输入校验、按完整依赖加载独立评分器、读取 task/scene/profile。其 `DEFAULT` 是 `sequential_workcell/v1`，与 HTTP 的 `scenes.manipulation.DEFAULT_TASK_RELEASE` 分属不同任务族。 |
 | `run.py`、`suite.py`、`contact_probe.py` | 顺序任务与接触工程诊断的显式 CLI；保留独立的 nominal、reset-only qualification 和接触对照语义。当前单推块入口不调用整套 suite。 |
 | `controllers.py` | 原生诊断的关节目标控制与接触摘要；也由基础任务工程控制器引用。 |
-| `curated_release.py` | 在新 release 中整理场景实例，逐字保留源 task、评分器和物理 profile；内置 v4→v5 是历史派生关系，不是当前评分默认。 |
 | `audit.py` | 回放记录、哈希、原生时钟、接触与几何证据的独立审计；部分公共函数也由 Agent 物理审计调用。 |
 | `video.py` | 对真实记录生成画面与视频，不用物体轨迹回写仿真。 |
 
@@ -37,8 +36,6 @@
 
 现有记录的渲染入口为 `scripts.media.render_isaac_demo`；基础任务回合导出入口为 `scripts.media.package_simple_bench`。工程验证入口位于 `scripts/validation/`，资产与静态诊断入口位于 `scripts/assets/`、`scripts/diagnostics/`。所有输出选择新目录。已有零模型特权工程基线；各任务的原生记录及范围见[项目说明](../../README.md)与[机器人本体](../../docs/agent_bench/embodiments.md)。新的模型 Agent 测试仍暂缓，单项成功不等于整套 release 验收，静置或渲染通过也不等于操作成功。
 
-## 保留的离线参考工具
+## 历史离线参考
 
-`bench.data_tools.reference` 读取并校验 HOI/OakInk2 数值参考；`bench.data_tools.prepare_motion` 通过 `bench.control.keypoint_retarget` 生成完整的运动学关节目标。它们不写物体状态，运动学可达性也不代表操作成功。
-
-`bench.control.retarget.MotionReferenceController` 保留为 MANO 四元数幅度的轻量替代基线；它与使用已解码关节点的 `bench.control.keypoint_retarget` 不同。`bench.evaluator` 提供显式传入完整轨迹的离线刚体/布料参考指标，不由当前原生 Agent worker 调用，也不具备 v7 的逐子步接触采样证明。重用旧指标时必须保留其输入语义与版本，不能将其布尔接触时长用于宣称当前 bench 的成功。
+HOI/OakInk2／MANO 数据准备、离线动作重定向和参考轨迹评分已退出当前主线。历史实现保存在完整冻结源码（开发存储 `datasets/fr3_sharpa_bench/development/laundry_five_tasks_20261023/source_runtime03`），对应数据与实验记录保持原位。复查旧实验应使用其原始源码和输入语义；旧运动学轨迹或布尔接触指标不构成当前原生任务的操作成功证据。

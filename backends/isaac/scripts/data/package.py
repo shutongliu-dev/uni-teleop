@@ -23,6 +23,8 @@ import sys
 
 ROOTS = ('assets', 'datasets')
 SIMULATOR = 'assets/simulators/'
+# Example assets shipped inside a simulator distribution are task data, not part of the simulator.
+SIMULATOR_DATA = re.compile(r'assets/simulators/newton/[^/]+/venv/lib/python3\.12/site-packages/(newton/examples/assets/|newton-[^/]+\.dist-info/licenses/)')
 SCHEMA = 'dexbench_data_manifest.v1'
 TEXT_SUFFIXES = {'.json', '.usda', '.py', '.txt', '.md', '.mtl', '.mtlx', '.toml', '.yaml', '.yml', '.csv',
                  '.urdf', '.xacro', '.srdf', '.xml', '.log', '.rst', '.rviz', '.asset_hash'}
@@ -35,9 +37,19 @@ USD_SUFFIXES = {'.usd', '.usda', '.usdc'}
 FOLLOWED_JSON = {'scene.json', 'task.json', 'initial_state.json', 'rules.json', 'physics_profile.json',
                  'release_manifest.json', 'asset_file_hashes.json', 'scene_description.json'}
 ARCHIVES = ('.tar', '.tar.gz', '.tgz', '.zip', '.7z', '.tar.zst')
-SHA256 = re.compile(r'\b[0-9a-f]{64}\b')
+# Runtime inputs can be referenced from these files even outside the frozen releases;
+# inventories and manifests only record provenance.
+RUNTIME_JSON = {'scene.json', 'task.json', 'initial_state.json', 'rules.json', 'physics_profile.json'}
+# Development recordings, logs and media are evidence, never packaged unless seeded.
+EVIDENCE = ('.npy', '.npz', '.jsonl', '.log', '.mp4', '.webm', '.gif')
+# A recorded hash, not a content-addressed path component (directories named by a hash stay as they are).
+SHA256 = re.compile(r'(?<![\w/])[0-9a-f]{64}(?![\w/])')
 SOURCE_ROOTS = ('bench', 'scenes', 'agent', 'scripts', 'tests', 'configs')
 BUILTIN_MDL = re.compile(r'[A-Za-z0-9_]+\.mdl')
+
+
+def is_simulator(relative):
+    return relative.startswith(SIMULATOR) and not SIMULATOR_DATA.match(relative)
 
 
 def json_strings(value):
@@ -53,12 +65,62 @@ def json_strings(value):
         yield value
 
 
+# Per-process caches: path -> ((size, mtime_ns, inode), value). Every rewrite changes mtime_ns, so
+# a later pass in the same process (refresh, export, post-export rounds) re-reads changed files only.
+_DIGESTS, _RECORDED = {}, {}
+
+
+def _stamp(path):
+    status = os.stat(path)
+    return status.st_size, status.st_mtime_ns, status.st_ino
+
+
 def digest(path):
+    stamp, key = _stamp(path), os.fspath(path)
+    hit = _DIGESTS.get(key)
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
     value = hashlib.sha256()
     with open(path, 'rb') as stream:
         for block in iter(lambda: stream.read(1 << 20), b''):
             value.update(block)
-    return value.hexdigest()
+    _DIGESTS[key] = stamp, value.hexdigest()
+    return _DIGESTS[key][1]
+
+
+def _forget(path):
+    """Drop cached values after this module rewrites a file (two writes can share one mtime tick)."""
+    _DIGESTS.pop(os.fspath(path), None)
+    _RECORDED.pop(os.fspath(path), None)
+
+
+def _replace_text(path, text):
+    """Rewrite a package file as a new file: identical package files can be hard links of one file."""
+    path = Path(path)
+    temporary = path.with_name(f'.{path.name}.{os.getpid()}.tmp')
+    temporary.write_text(text, errors='surrogateescape')
+    os.replace(temporary, path)
+    _forget(path)
+
+
+def recorded_hashes(path):
+    """The SHA256 values a text file records (cached like digest)."""
+    stamp, key = _stamp(path), os.fspath(path)
+    hit = _RECORDED.get(key)
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    found = frozenset(SHA256.findall(Path(path).read_text(errors='surrogateescape')))
+    _RECORDED[key] = stamp, found
+    return found
+
+
+def digests(root, relatives):
+    """(sha256, bytes) of many package files; threads overlap the reads on a network file system."""
+    from concurrent.futures import ThreadPoolExecutor
+    root = Path(root)
+    with ThreadPoolExecutor(int(os.environ.get('DEXBENCH_EXPORT_THREADS', '16'))) as pool:
+        rows = pool.map(lambda relative: (digest(root / relative), (root / relative).stat().st_size), relatives)
+        return dict(zip(relatives, rows))
 
 
 class Store:
@@ -87,14 +149,14 @@ class Store:
                 matches += [value for value in json_strings(json.loads(text)) if value.startswith(self.prefix)]
             for match in matches:
                 relative = self.relative(match)
-                if relative and not relative.startswith(SIMULATOR):
+                if relative and not is_simulator(relative):
                     found.add(relative)
         if path.suffix in USD_SUFFIXES:
             from pxr import Sdf, UsdUtils
             layers, assets, _ = UsdUtils.ComputeAllDependencies(Sdf.AssetPath(str(path)))
             for item in [layer.realPath for layer in layers] + list(assets):
                 relative = self.relative(item)
-                if relative and not relative.startswith(SIMULATOR):
+                if relative and not is_simulator(relative):
                     found.add(relative)
         return found
 
@@ -102,11 +164,14 @@ class Store:
 def closure(store, seeds):
     """Every store file reachable from the seeds through file references.
 
-    Seed directories are included whole. Other referenced directories (asset
-    roots, parent releases, evidence folders) contribute only the files that
-    are themselves referenced, and archives are never followed.
+    Seed directories (rooms, frozen task releases, robot assemblies) are
+    included whole. Referenced assets are packaged. Outside the seeds, datasets/
+    files are packaged only when runtime JSON references them and they are not
+    recordings; everything else there is development evidence or provenance
+    that releases merely pin. Archives are never followed.
     """
     seeds = set(seeds)
+    seed_dirs = tuple(seed + '/' for seed in seeds if (store.root / seed).is_dir())
     files, queue, seen = set(), list(seeds), set()
     while queue:
         relative = queue.pop()
@@ -123,7 +188,10 @@ def closure(store, seeds):
                 or (relative not in seeds and path.name.endswith(ARCHIVES))):
             continue
         files.add(relative)
-        queue += sorted(store.references(path))
+        inputs = path.name in RUNTIME_JSON
+        queue += sorted(reference for reference in store.references(path)
+                        if not reference.startswith('datasets/') or reference.startswith(seed_dirs)
+                        or (inputs and not reference.endswith(EVIDENCE)))
     return files
 
 
@@ -131,7 +199,7 @@ def _usd_reference(asset, store, layer_destination, output):
     relative = store.relative(asset)
     if relative is None:
         return asset
-    if relative.startswith(SIMULATOR):
+    if is_simulator(relative):
         return os.path.basename(asset)
     path = os.path.relpath(output / relative, layer_destination.parent)
     return path if path.startswith('.') else './' + path
@@ -331,7 +399,9 @@ def export(store, seeds, output, sources=None):
     files = sorted(closure(store, seeds))
     current = development_sources(sources)
     remapped, synced = {}, {}
-    for relative in files:
+
+    def copy(relative):
+        """One file; returns (old digest, new digest, repository source if synced)."""
         source, destination = store.root / relative, output / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         repository = (_repository_version(current.get(digest(source)), source)
@@ -340,7 +410,6 @@ def export(store, seeds, output, sources=None):
             _export_usd(source, destination, store, output)
         elif repository is not None:
             shutil.copyfile(repository, destination)
-            synced[relative] = str(repository.relative_to(Path(__file__).resolve().parents[2]))
         elif source.suffix == '.py':
             text = source.read_text()
             _write(source, destination, text, _rewrite_python(text, store))
@@ -355,17 +424,33 @@ def export(store, seeds, output, sources=None):
             _write(source, destination, text, _rewrite_text(text, store), errors='surrogateescape')
         else:
             shutil.copyfile(source, destination)
-        old, new = digest(source), digest(destination)
+        return digest(source), digest(destination), repository
+
+    # USD layers go through the USD library one at a time; every other file is plain I/O and
+    # hashing, which threads overlap on a network file system.
+    from concurrent.futures import ThreadPoolExecutor
+    usd = [relative for relative in files if Path(relative).suffix in USD_SUFFIXES]
+    plain = [relative for relative in files if Path(relative).suffix not in USD_SUFFIXES]
+    with ThreadPoolExecutor(int(os.environ.get('DEXBENCH_EXPORT_THREADS', '16'))) as pool:
+        results = list(zip(plain, pool.map(copy, plain)))
+    results += [(relative, copy(relative)) for relative in usd]
+    groups = {}
+    for relative, (old, new, repository) in results:
+        if repository is not None:
+            synced[relative] = str(repository.relative_to(Path(__file__).resolve().parents[2]))
         if old != new:
             remapped[old] = new
+        groups.setdefault(old, set()).add(new)
     propagate(output, files, remapped)
+    settle_path_pins(output, files, remapped, location_dependent_suspects(output, files, groups),
+                     relocated_copies(output, files, groups))
     manifest = build_manifest(output, files)
     report = {'files': len(files), 'bytes': sum(item['bytes'] for item in manifest['files'].values()),
               'rewritten_hashes': remapped, 'store_named': [], 'dangling': {}, 'rewritten_python': [],
               'synced_evaluators': synced}
     for relative in files:
         destination = output / relative
-        if destination.suffix in USD_SUFFIXES:
+        if destination.suffix in USD_SUFFIXES and destination.suffix != '.usda':  # binary layers
             text = Sdf.Layer.FindOrOpen(str(destination)).ExportToString()
         elif destination.suffix in TEXT_SUFFIXES:
             text = destination.read_text(errors='ignore')
@@ -390,29 +475,291 @@ def export(store, seeds, output, sources=None):
     return manifest, report
 
 
-def propagate(root, relatives, remapped):
-    """Replace recorded old hashes inside package text files until nothing changes.
+RECORD = re.compile(r'\{[^{}]*\}')
+RECORD_SIZE = re.compile(r'("(?:bytes|size_bytes)"\s*:\s*)(\d+)')
+RECORD_HASH = re.compile(r'"sha256"\s*:\s*"([0-9a-f]{64})"')
 
-    A rewritten file gets a new hash, so every JSON or USDA file that records
-    it changes too; the loop follows those changes through manifests.
+
+def _record_sizes(text, sizes):
+    """A size recorded next to exactly one package file hash follows that file."""
+    def record(match):
+        body = match.group(0)
+        hashes = RECORD_HASH.findall(body)
+        if len(hashes) != 1 or hashes[0] not in sizes:
+            return body
+        return RECORD_SIZE.sub(lambda size: size.group(1) + str(sizes[hashes[0]]), body)
+    return RECORD.sub(record, text)
+
+
+def propagate(root, relatives, remapped):
+    """Replace recorded old hashes (and the sizes recorded with them) in package text files.
+
+    A rewritten file gets a new hash and size, so every JSON or USDA file that
+    records it changes too. Text files are rewritten once each, in dependency
+    order: a file is rewritten after every package file whose hash it records,
+    so the hashes it records are already final. (Frozen releases nest deeply;
+    rewriting everything until nothing changes re-read the package per level.)
+    `remapped` (old -> new hash) is extended with every change and returned.
     """
-    while True:
-        changed = {}
-        for relative in relatives:
-            path = Path(root) / relative
-            if not is_text(path) and path.suffix != '.usda':
-                continue
+    from concurrent.futures import ThreadPoolExecutor
+    root = Path(root)
+    rows = digests(root, relatives)
+    sizes = {value: size for value, size in rows.values()}
+    texts = [relative for relative in relatives if is_text(root / relative)]
+
+    def recorded(relative):
+        return relative, recorded_hashes(root / relative)
+
+    with ThreadPoolExecutor(int(os.environ.get('DEXBENCH_EXPORT_THREADS', '16'))) as pool:
+        contains = dict(pool.map(recorded, texts))
+
+    def current(value):
+        """The hash a recorded value names now, following earlier remaps."""
+        seen = set()
+        while value in remapped and value not in seen:
+            seen.add(value)
+            value = remapped[value]
+        return value
+
+    producers = {}
+    for relative in texts:
+        producers.setdefault(rows[relative][0], []).append(relative)
+    waiting, users = {}, {}
+    for relative in texts:
+        needs = {producer for value in contains[relative] for producer in producers.get(current(value), ())
+                 if producer != relative}
+        waiting[relative] = len(needs)
+        for producer in needs:
+            users.setdefault(producer, []).append(relative)
+    final = {}  # current hash of a rewritten file -> its new hash
+
+    def mapped(value):
+        value = current(value)
+        return final.get(value, value)
+
+    ready = sorted(relative for relative, count in waiting.items() if count == 0)
+    done = 0
+    while ready:
+        relative = ready.pop()
+        done += 1
+        if any(mapped(value) != value for value in contains[relative]):
+            path = root / relative
             text = path.read_text(errors='surrogateescape')
-            updated = SHA256.sub(lambda match: remapped.get(match.group(0), match.group(0)), text)
+            updated = SHA256.sub(lambda match: mapped(match.group(0)), text)
+            if path.suffix == '.json':
+                updated = _record_sizes(updated, sizes)
             if updated != text:
-                before = digest(path)
-                path.write_text(updated, errors='surrogateescape')
-                changed[before] = digest(path)
+                _replace_text(path, updated)
+                value, size = digest(path), path.stat().st_size
+                final[rows[relative][0]] = value
+                sizes[value] = size
+        for user in users.get(relative, ()):
+            waiting[user] -= 1
+            if waiting[user] == 0:
+                ready.append(user)
+    if done != len(texts):
+        raise RuntimeError('Recorded hashes form a cycle; cannot order the rewrite')
+    for old, new in list(remapped.items()):
+        remapped[old] = mapped(new)
+    remapped.update(final)
+    return remapped
+
+
+# Store and repository files whose exported bytes depend on where they live (layer- and
+# file-relative paths): identical sources at different depths export differently.
+LOCATION_DEPENDENT = USD_SUFFIXES | RELATIVE_SUFFIXES
+FULL_SHA256 = re.compile(r'^[0-9a-f]{64}$')
+
+
+def _path_pins(value, base, found):
+    """(key as written, recorded hash, package-relative file) for every hash recorded next to its file.
+
+    Path-keyed maps ({"data://p": hash} or {"data://p": {"sha256": hash}}), path records
+    ({"path": "data://p", "sha256"/"manifest_sha256": hash}), sibling pins ({"x": "data://p",
+    "x_sha256": hash}), USD/URDF rows with one path ({"usd_path": "data://p.usda", "sha256": hash})
+    and, in release manifests, files maps keyed by release-relative names.
+    """
+    if isinstance(value, dict):
+        paths = [key for key, item in value.items() if isinstance(key, str) and (key == 'path' or key.endswith('_path'))
+                 and isinstance(item, str) and item.startswith(DATA_URI)]
+        for key, item in value.items():
+            if isinstance(key, str) and key.startswith(DATA_URI):
+                recorded = item.get('sha256') if isinstance(item, dict) else item
+                if isinstance(recorded, str) and FULL_SHA256.match(recorded):
+                    found.append((key, recorded, key[len(DATA_URI):]))
+            elif isinstance(item, str) and item.startswith(DATA_URI):
+                row = paths == [key] and Path(item).suffix in LOCATION_DEPENDENT
+                for pin in {key + '_sha256', key.removesuffix('_path') + '_sha256',
+                            'sha256' if key == 'path' or row else None}:
+                    recorded = value.get(pin) if pin else None
+                    if isinstance(recorded, str) and FULL_SHA256.match(recorded):
+                        found.append((pin, recorded, item[len(DATA_URI):]))
+                if key == 'path' and isinstance(value.get('manifest_sha256'), str):
+                    found.append(('manifest_sha256', value['manifest_sha256'], item[len(DATA_URI):] + '/release_manifest.json'))
+        if base is not None:
+            for name in ('files_sha256', 'files'):
+                for relative, item in (value.get(name) or {}).items() if isinstance(value.get(name), dict) else ():
+                    recorded = item.get('sha256') if isinstance(item, dict) else item
+                    if isinstance(recorded, str) and FULL_SHA256.match(recorded) and not relative.startswith(DATA_URI):
+                        found.append((relative, recorded, f'{base}/{relative}'))
+        for item in value.values():
+            _path_pins(item, None, found)
+    elif isinstance(value, list):
+        for item in value:
+            _path_pins(item, None, found)
+
+
+DATA_URI = 'data://'
+
+
+def repair_path_pins(root, relatives, suspects):
+    """Rewrite hashes recorded next to a package file to that file's actual hash.
+
+    Hash-only propagation cannot tell apart package files exported from identical sources at
+    different locations (USD, URDF): it maps their shared source hash to one of their new
+    hashes everywhere. Only JSON files recording one of `suspects` are inspected; returns
+    old -> new hashes of the JSON files changed.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    root = Path(root)
+    if not suspects:
+        return {}
+    rows = digests(root, relatives)
+    texts = [relative for relative in relatives if relative.endswith('.json')]
+
+    def inspect(relative):
+        if suspects.isdisjoint(recorded_hashes(root / relative)):
+            return relative, None
+        text = (root / relative).read_text(errors='surrogateescape')
+        found = []
+        base = str(Path(relative).parent) if Path(relative).name == 'release_manifest.json' else None
+        _path_pins(json.loads(text), base, found)
+        fixes, conflicts = {}, []
+        for key, recorded, target in found:
+            actual = rows.get(target, (None,))[0]
+            # Only a hash that names another location-dependent package file is a clash; other
+            # values next to a path (a pixel hash beside its file's own pin, say) stay as recorded.
+            if actual is None or actual == recorded or recorded not in suspects:
+                continue
+            previous = fixes.setdefault((key, recorded), actual)
+            if previous != actual:
+                conflicts.append((key, recorded))
+        if not fixes:
+            return relative, None
+        updated = text
+        for (key, recorded), actual in fixes.items():
+            if (key, recorded) in conflicts:
+                continue
+            pattern = re.compile(re.escape(json.dumps(key, ensure_ascii=False)) + r'(\s*:\s*(?:\{\s*"sha256"\s*:\s*)?")'
+                                 + recorded + '"')
+            updated = pattern.sub(lambda match: match.group(0).replace(recorded, actual), updated)
+        if updated == text:
+            return relative, None
+        _replace_text(root / relative, updated)
+        return relative, (rows[relative][0], digest(root / relative), sorted(set(conflicts)))
+
+    changed, unresolved = {}, []
+    with ThreadPoolExecutor(int(os.environ.get('DEXBENCH_EXPORT_THREADS', '16'))) as pool:
+        for relative, result in pool.map(inspect, texts):
+            if result:
+                changed[result[0]] = result[1]
+                unresolved += [(relative,) + item for item in result[2]]
+    if unresolved:
+        print(f'{len(unresolved)} path pins with ambiguous recorded hashes left unchanged', file=sys.stderr)
+    return changed
+
+
+def location_dependent_suspects(root, relatives, groups=None):
+    """Hashes that may name the wrong one of several location-dependent exports of one source."""
+    root = Path(root)
+    if groups is not None:  # export: source hash -> new hashes of its package copies
+        return {value for news in groups.values() if len(news) > 1 for value in news}
+    rows = digests(root, [relative for relative in relatives if Path(relative).suffix in LOCATION_DEPENDENT])
+    return {value for value, _ in rows.values()}
+
+
+def _nearest(relative, candidates):
+    """The candidate path sharing the longest directory prefix with `relative` (ties: sorted first)."""
+    parts = relative.split('/')
+
+    def shared(path):
+        count = 0
+        for mine, theirs in zip(parts, path.split('/')):
+            if mine != theirs:
+                break
+            count += 1
+        return count
+    return max(sorted(candidates), key=shared)
+
+
+def repair_relocated_hashes(root, relatives, copies):
+    """A relocated copy's hash recorded without a path names the copy nearest to the recording file.
+
+    `copies` maps each package hash of a location-dependent file to the package paths of every copy
+    of the same source. Values recorded next to a path are repair_path_pins' business; elsewhere
+    (e.g. {"urdf_sha256": ...} beside the URDF it describes) the nearest copy is the one meant.
+    Returns old -> new hashes of the JSON files changed.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    root = Path(root)
+    if not copies:
+        return {}
+    rows = digests(root, relatives)
+    texts = [relative for relative in relatives if relative.endswith('.json')]
+
+    def inspect(relative):
+        found = recorded_hashes(root / relative) & copies.keys()
+        if not found:
+            return relative, None
+        text = (root / relative).read_text(errors='surrogateescape')
+        pins = []
+        base = str(Path(relative).parent) if Path(relative).name == 'release_manifest.json' else None
+        _path_pins(json.loads(text), base, pins)
+        pinned = {recorded for _, recorded, _ in pins}
+        updated = text
+        for value in found - pinned:
+            actual = rows[_nearest(relative, copies[value])][0]
+            if actual != value:
+                updated = SHA256.sub(lambda match: actual if match.group(0) == value else match.group(0), updated)
+        if updated == text:
+            return relative, None
+        _replace_text(root / relative, updated)
+        return relative, (rows[relative][0], digest(root / relative))
+
+    with ThreadPoolExecutor(int(os.environ.get('DEXBENCH_EXPORT_THREADS', '16'))) as pool:
+        return dict(result for _, result in pool.map(inspect, texts) if result)
+
+
+def relocated_copies(root, relatives, groups):
+    """package hash -> paths of all copies of its source, for sources exported to several hashes."""
+    rows = digests(root, relatives)
+    paths = {}
+    for relative in relatives:
+        paths.setdefault(rows[relative][0], []).append(relative)
+    copies = {}
+    for news in groups.values():
+        if len(news) > 1:
+            members = sorted(path for value in news for path in paths.get(value, ()))
+            for value in news:
+                copies[value] = members
+    return copies
+
+
+def settle_path_pins(root, relatives, remapped, suspects, copies=None):
+    """repair_path_pins (and repair_relocated_hashes), then carry the repaired files' new hashes,
+    until no pin changes."""
+    for _ in range(10):
+        changed = repair_path_pins(root, relatives, suspects)
+        if copies:
+            changed.update(repair_relocated_hashes(root, relatives, copies))
         if not changed:
             return remapped
+        propagate(root, relatives, changed)
         for old, new in list(remapped.items()):
             remapped[old] = changed.get(new, new)
         remapped.update(changed)
+        suspects = set(suspects) | set(changed.values())
+    raise SystemExit('Path pins did not settle')
 
 
 def update_sources(remapped, repo):
@@ -438,9 +785,8 @@ def package_files(root):
 
 
 def build_manifest(root, relatives):
-    root = Path(root)
-    return {'schema': SCHEMA, 'files': {relative: {'sha256': digest(root / relative),
-                                                   'bytes': (root / relative).stat().st_size}
+    rows = digests(root, list(relatives))
+    return {'schema': SCHEMA, 'files': {relative: {'sha256': rows[relative][0], 'bytes': rows[relative][1]}
                                         for relative in relatives}}
 
 
@@ -454,13 +800,11 @@ def refresh(root):
     root = Path(root).resolve()
     recorded = json.loads(MANIFEST.read_text())['files']
     files = package_files(root)
-    remapped = {}
-    for relative in files:
-        if relative in recorded:
-            current = digest(root / relative)
-            if current != recorded[relative]['sha256']:
-                remapped[recorded[relative]['sha256']] = current
+    rows = digests(root, [relative for relative in files if relative in recorded])
+    remapped = {recorded[relative]['sha256']: current for relative, (current, _) in rows.items()
+                if current != recorded[relative]['sha256']}
     propagate(root, files, remapped)
+    settle_path_pins(root, files, remapped, location_dependent_suspects(root, files))
     sources = update_sources(remapped, Path(__file__).resolve().parents[2])
     write_manifest(MANIFEST, build_manifest(root, files))
     print(f'{len(files)} files, {len(remapped)} changed hashes, {len(sources)} source files updated')
@@ -474,8 +818,9 @@ def check(root):
     manifest = json.loads(MANIFEST.read_text())
     if manifest.get('schema') != SCHEMA:
         raise SystemExit('Unknown data manifest schema')
+    rows = digests(root, [relative for relative in manifest['files'] if (root / relative).is_file()])
     problems = [relative for relative, record in manifest['files'].items()
-                if not (root / relative).is_file() or digest(root / relative) != record['sha256']]
+                if relative not in rows or rows[relative][0] != record['sha256']]
     for relative in problems[:20]:
         print(f'missing or changed: {relative}', file=sys.stderr)
     print(f"{len(manifest['files'])} files: {'ok' if not problems else f'{len(problems)} problems'}")

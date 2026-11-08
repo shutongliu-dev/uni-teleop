@@ -17,7 +17,7 @@ from scenes.workrooms.card_room.robot_layout import ready_configuration, arm_bas
 from bench.simulation.isaacsim_backend.workroom import SCHEMA, checked, digest, verify_reference
 
 BASE_RELEASE = Path(f'{DATA_ROOT}/datasets/fr3_sharpa_bench/isaacsim/releases/simple_manipulation/v13_pad_compliance_r2/bimanual')
-BASE_SHA256 = 'be1799c4c3e95c25d468f1622a2a5929b3b3e5c6fb839acd67403c972b1f74eb'
+BASE_SHA256 = '89655523fae9700c46efa3284178047eedfa3d960ac1ec114ed0dba68bd35933'
 ASSET_ROOT = Path(f'{DATA_ROOT}/assets/task_parts/board_games')
 
 

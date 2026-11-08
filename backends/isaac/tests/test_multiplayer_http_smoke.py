@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from bench.isaacsim.release import validate as validate_frozen_release
+from bench.paths import load_json
 from scripts.validation import multiplayer_http_smoke
 from scripts.validation.multiplayer_http_smoke import PlayerProbe
 from test_agent_service import frozen_inputs
@@ -69,7 +70,12 @@ def test_smoke_refuses_wrong_starting_player_before_robot_commands(turn_game, tm
         assert not [row for row in game.worker.calls if row[0] == 'step']
 
 
-def test_smoke_accepts_frozen_scene_cancel_reason_without_changing_it(turn_game, tmp_path, monkeypatch):
+# tower_extraction v9 keeps the host vocabulary; the v8 referee it was derived
+# from reports its own legacy reason, which differs from the episode outcome.
+@pytest.mark.parametrize('referee,expected', [('current', 'cancelled'), ('historical', 'adapter_failure')])
+def test_smoke_accepts_frozen_scene_cancel_reason_without_changing_it(turn_game, tmp_path, monkeypatch,
+                                                                      referee, expected):
+    import json
     from bench.isaacsim import release as release_api
     from bench.isaacsim.release import load_evaluator, task_inputs
     from scenes.workrooms.catalog import task_definition
@@ -78,6 +84,12 @@ def test_smoke_accepts_frozen_scene_cancel_reason_without_changing_it(turn_game,
     # Use the real adapter and the current immutable referee; no physics or
     # native observation is fabricated for the scene cancellation itself.
     release = Path(task_definition('living_room', 'tower_extraction')['source_release']['path'])
+    if referee == 'historical':
+        # The derivation record lives on the original-robot v9 release.
+        current = Path(task_definition('living_room', 'tower_extraction',
+                                       robot_profile='original')['source_release']['path'])
+        derivation = load_json(current/'release_manifest.json')['host_termination_derivation']
+        release = Path(derivation['source_release'])
     # The generic turn fixture substitutes its own release validator. Restore
     # the real reader only while loading this independent immutable referee.
     with monkeypatch.context() as actual:
@@ -89,7 +101,7 @@ def test_smoke_accepts_frozen_scene_cancel_reason_without_changing_it(turn_game,
     native.env, native.events = SimpleNamespace(time_s=0.), io.StringIO()
     frozen_reply = native.request({'type': 'end_episode', 'reason': 'cancelled'})
     assert frozen_reply['turn_game']['status'] == 'interrupted'
-    assert frozen_reply['turn_game']['terminal_reason'] == 'timeout'
+    assert frozen_reply['turn_game']['terminal_reason'] == expected
     assert frozen_reply['turn_game']['winner_player_id'] is None
 
     with turn_game() as game:
@@ -106,7 +118,7 @@ def test_smoke_accepts_frozen_scene_cancel_reason_without_changing_it(turn_game,
         report = {}
         PlayerProbe(game.client, output, report, 'turn', game.created).exercise()
         assert report['result']['episode']['outcome'] == 'cancelled'
-        assert report['result']['turn_game']['terminal_reason'] == 'timeout'
+        assert report['result']['turn_game']['terminal_reason'] == expected
 
 
 def test_smoke_rejects_completed_winner_but_preserves_terminal_evidence(turn_game, tmp_path):

@@ -14,7 +14,7 @@ from .scene import environment_reference
 from .scene_candidates import scene_candidate
 from .dual_robot_layout import robot_configurations, ready_configuration, placement_transform
 
-TASK_IDS = ('remote_operation', 'water_pouring')
+TASK_IDS = ('remote_operation', 'water_pouring', 'storage_box')
 TASK_SCHEMA = 'living-room-manipulation-task-v1'
 PHYSICS_DT = .0005
 
@@ -38,7 +38,7 @@ def bind_episode_task(task, seed, rules):
         asset_metadata=task['asset_metadata'])
     if ident == 'remote_operation':
         task['public_rules'] = rules.public_rules(seed=seed)
-        if task['evaluation']['schema'] == 'living_remote_evaluation.v3':
+        if task['evaluation']['schema'] in ('living_remote_evaluation.v3', 'living_remote_evaluation.v4'):
             television = task['public_rules']['television']
             task['public_goal'] = {'operation': 'cycle_television_power', 'frame_id': 'world_m_z_up',
                 'object_id': 'remote', 'controlled_object_id': 'television',
@@ -46,6 +46,8 @@ def bind_episode_task(task, seed, rules):
                 'initial_power_on': television['initial_power_on'],
                 'required_on_s': television['required_on_s'],
                 'description': task['public_rules']['instruction_zh']}
+            if television.get('automatic_power_off'):
+                task['public_goal'].update(automatic_power_off=True, initial_remote_face_up=True)
             if task['public_rules']['success'].get('holder_return_required'):
                 task['public_goal'].update(target_id='holder', holder_return_required=True,
                     stable_duration_s=task['public_rules']['success']['stable_duration_s'])
@@ -55,6 +57,10 @@ def bind_episode_task(task, seed, rules):
             task['public_goal'] = {'operation': 'operate_remote', 'frame_id': 'world_m_z_up',
                 'object_id': 'remote', 'button_sequence': task['evaluation']['button_sequence'],
                 'description': task['public_rules']['instruction_zh']}
+    elif ident == 'storage_box':
+        task['public_rules'] = rules.public_rules()
+        task['public_goal'] = {'operation': 'storage_box', 'frame_id': 'world_m_z_up',
+            'description': task['public_rules']['instruction_zh'], 'target_center_xy_m': [.94, -.12]}
     else:
         task['public_rules'] = rules.public_rules()
         task['public_goal'] = {'operation': 'pour_water', 'frame_id': 'world_m_z_up',
@@ -107,6 +113,10 @@ def build_task_inputs(task_id, *, seed=0):
                   **{name: info['body_path'] for name, info in metadata['buttons'].items()}}
         joints = {name: info['joint_path'] for name, info in metadata['buttons'].items()}
         particles = {}
+    elif task_id == 'storage_box':
+        bodies = deepcopy(metadata['actors'])
+        joints = deepcopy(metadata['joints'])
+        particles = {}
     else:
         bodies = {name: info['path'] for name, info in metadata['containers'].items()}
         joints = {}
@@ -114,10 +124,11 @@ def build_task_inputs(task_id, *, seed=0):
         particles = {'water': {'prim_path': w['particles_path'], 'system_path': w['system_path'],
             'particle_count': w['particle_count'], 'total_mass_kg': w['total_mass_kg'], 'position_attribute': 'points'}}
     task = {'schema_version': TASK_SCHEMA, 'id': task_id, 'task_id': task_id,
-        'title_zh': 'Task1 · 遥控电视开关机' if task_id == 'remote_operation' else 'Task2 · 水壶倒水',
+        'title_zh': {'remote_operation': 'Task1 · 遥控电视开关机',
+                     'water_pouring': 'Task2 · 水壶倒水', 'storage_box': 'Task5 · 卡扣收纳盒取物'}[task_id],
         'difficulty': 'single_arm_dexterous', 'cloth': False,
         'steps': [{'id': task_id, 'instruction_zh':
-            '用遥控器打开电视，连续保持开机10秒，再关机并将遥控器放回收纳架、松手稳定。'
+            '按红色电源键开启电视，屏幕10秒倒计时结束后自动关机，再将遥控器放回收纳架、松手稳定。'
             if task_id == 'remote_operation' else '完成公开目标，松手并稳定归位。'}],
         'initial_state': deepcopy(initial), 'asset_metadata': metadata,
         'recommended_budgets': {'sim_time_s': 120., 'wall_time_s': 1800., 'max_actions': 6000},
@@ -126,6 +137,8 @@ def build_task_inputs(task_id, *, seed=0):
         'qualification_scope': 'Published executable candidate; complete robot manipulation success is separate evidence.'}
     rules = importlib.import_module(f'{__package__}.tasks.{task_id}.rules')
     task = bind_episode_task(task, seed, rules)
+    if task_id == 'storage_box':
+        task['recommended_budgets'] = {'sim_time_s': 180., 'wall_time_s': 1800., 'max_actions': 9000}
     files = evaluator_sources(task_id)
     entry = 'native_observer.py' if 'native_observer.py' in files else 'sequence_evaluator.py'
     scene['native_task_bundle'] = {'schema': 'native-usd-task-bundle-v1',
@@ -134,7 +147,7 @@ def build_task_inputs(task_id, *, seed=0):
         'observer': {'path': 'evaluator/'+entry, 'sha256': digest(files[entry]),
             'files': {name: digest(path) for name, path in files.items()},
             'class_name': 'NativeTaskObserver', 'configuration': deepcopy(task)}}
-    if task_id == 'remote_operation' and task['evaluation']['schema'] == 'living_remote_evaluation.v3':
+    if task_id == 'remote_operation' and task['evaluation']['schema'] in ('living_remote_evaluation.v3', 'living_remote_evaluation.v4'):
         scene['native_task_bundle']['visual_state_bindings'] = {
             'schema': 'boolean-material-bindings-v1', 'bindings': [{
                 'id': 'television_power',
@@ -144,6 +157,16 @@ def build_task_inputs(task_id, *, seed=0):
                     'emissive_color_rgb': [0., 0., 0.], 'roughness': .11, 'metallic': .12},
                 'true_material': {'diffuse_color_rgb': [.12, .35, .65],
                     'emissive_color_rgb': [.15, .65, 1.5], 'roughness': .3, 'metallic': 0.}}]}
+        if task['evaluation']['schema'] == 'living_remote_evaluation.v4':
+            bindings = scene['native_task_bundle']['visual_state_bindings']['bindings']
+            bindings[0]['true_material'].update(diffuse_color_rgb=[.01, .018, .03],
+                                                emissive_color_rgb=[.015, .04, .1])
+            for label, path in metadata['television_display']['segments'].items():
+                bindings.append({'id': 'countdown_'+label, 'target_prim_path': path,
+                    'state_path': ['television', 'countdown_segments', label],
+                    'false_material': deepcopy(bindings[0]['false_material']),
+                    'true_material': {'diffuse_color_rgb': [.8, .95, 1.],
+                        'emissive_color_rgb': [1.2, 2.3, 3.], 'roughness': .45, 'metallic': 0.}})
     scene['living_room_provenance'] = {'asset_candidate': candidate, 'ready_design': ready,
         'stand_manifest_sha256': STAND_MANIFEST_SHA256, 'parent_environment_unchanged': True,
         'shared_controller_unchanged': True, 'task_object_pose_writes_after_reset': False}

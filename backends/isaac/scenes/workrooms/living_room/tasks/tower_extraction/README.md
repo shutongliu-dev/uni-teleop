@@ -1,5 +1,7 @@
 # Task 4: opposing-arm tower extraction
 
+2026-10-24 新增物体交互验证：当前 v8 初塔正常进入等待意图，实体收集盘落座通过；两条各 11 s 的工程抽取均完成原生物理记录，选中木条撤力后在正式槽位稳定，其余 35 根保持支撑。原诊断报告导出失败，完整原始流经独立复核后另存恢复报告，原错误不覆盖。未计入合法游戏回合或机器人成功。详见[四任务验证报告](../../../../../docs/scenes/living_interactions.md)。
+
 The new scene profile `trays_v1` builds a **12-layer, 36-block tower directly on
 the original table**, with a physical collection tray for each player. Blocks
 measure 200 × 45 × 30 mm. Parallel neighbors have a 10 mm gap and each end
@@ -291,9 +293,21 @@ state = game.finish('budget')
 
 Other commands are `cancel`, `push`, `pull`, `regrasp`, `release` and `wait`.
 Commands express intent and permission only; they do not execute a controller.
-`finish` accepts `timeout`, `budget`, `reset`, `evidence_missing` and
-`adapter_failure`. An expired host budget must be delivered before another
+Current v9 (`living_tower_extraction_rules.v2`) also preserves the host reasons
+`time_limit`, `step_limit`, `cancelled` and `runtime_error`, alongside the legacy
+`timeout`, `budget`, `reset`, `evidence_missing` and `adapter_failure` vocabulary.
+Time and step budgets end as `incomplete`; cancellation and runtime errors end
+as `abort`. Neither assigns a winner or loser, and later shutdown cannot replace
+the first terminal result. Public `terminal_reason` retains the host reason;
+cancellation and runtime errors are not reported as player rule violations.
+An expired host budget must be delivered before another
 observation; this reference has no wall-clock scheduler or native step budget.
+
+The v9 derivative preserves v8's physical inputs, robot reset and gameplay
+thresholds; only the termination contract and frozen referee change. Its stand
+reference points to a byte-identical local copy. Historical v8 remains unchanged;
+the shared runtime translates host reasons into its older accepted categories.
+This CPU protocol repair does not add native extraction or match qualification.
 
 The constructor defaults to `trusted_normalized_input=False`. In that mode an
 observation aborts with `trusted_adapter_unavailable`. Setting the flag is a

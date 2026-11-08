@@ -1,7 +1,10 @@
 """NIST-derived rigid assembly parts and explicit passive-link flexible candidates.
 
-Original STL vertices retain their source scale (millimetres converted to SI).
-Only rigid coordinate changes and documented sub-micrometre seam welding occur.
+Original STL files retain their source scale (millimetres converted to SI).
+The explicit usability profile additionally scales designated task meshes in SI;
+source records and matched interface geometry preserve that distinction.
+Without that opt-in, only rigid coordinate changes and documented
+sub-micrometre seam welding occur.
 Flexible materials are articulated engineering approximations, not calibrated
 continuum models. This module never authors a robot, controller or PhysicsScene.
 """
@@ -23,9 +26,11 @@ ROOT_PRIM = '/World/NistTask'
 TASK_IDS = ('nist_connector_insertion', 'nist_belt_drive_assembly', 'nist_cable_routing', 'nist_wire_harness')
 SOURCE_URL = 'https://www.nist.gov/el/intelligent-systems-division-73500/robotic-grasping-and-manipulation-assembly/assembly'
 SCHEMA = 'mechanical-nist-task-asset.v1'
-ASSET_VERSIONS = {'nist_connector_insertion':'v3','nist_cable_routing':'v5','nist_belt_drive_assembly':'v5','nist_wire_harness':'v4'}
+ASSET_VERSIONS = {'nist_connector_insertion':'v3','nist_cable_routing':'v5','nist_belt_drive_assembly':'v7','nist_wire_harness':'v4'}
 TABLE_Z = .78
 PLATE_Z = .790
+# Initial (supply) centre of the closed belt loop; see _belt_task.
+BELT_SUPPLY_CENTER_XY_M = (.280, -.056)
 
 
 def _hash(path):
@@ -212,6 +217,8 @@ class Author(GeometryAuthor):
 
 
 def _connector_task(a):
+    from .nist_usability import enabled, scale_source
+    scale=1.6 if enabled(a) else 1.
     a.plate(size=(.30,.56,.010))
     goals=[]
     # These two pairs were exported in a shared assembled coordinate frame.
@@ -220,26 +227,30 @@ def _connector_task(a):
         ('usb','USB_Male.STL','USB_Female.STL',(311.9105,345.8883,42.71591949),(.43,-.14,.834),(.30,-.14),.025),
         ('bnc','BNC_Male.STL','BNC_Female.STL',(311.9105,138.8883,66.3959198),(.43,.14,.814),(.30,.14),.018)):
         T=np.eye(4);T[:3,:3]=np.diag([1.,-1.,-1.]);T[:3,3]=-T[:3,:3]@np.asarray(center)
-        fm=a.source_mesh(1,female,matrix=T);mm=a.source_mesh(1,male,matrix=T)
+        fm=scale_source(a,a.source_mesh(1,female,matrix=T),scale)
+        mm=scale_source(a,a.source_mesh(1,male,matrix=T),scale)
+        if scale!=1.:port=(*port[:2],PLATE_Z+(port[2]-PLATE_Z)*scale)
         # Source USB port42mm body, BNC port21.17mm body: lower face rests on a pedestal.
         base=port[2]+float(fm.bounds[0,2]);height=base-PLATE_Z
-        supports=[box((.043,.055,max(.001,height)),(0,0,-height/2))]
+        supports=[box((.043*scale,.055*scale,max(.001,height)),(0,0,-height/2))]
         a.body(name+'_pedestal',pose(port[0],port[1],base),supports,color='teal')
         a.body(name+'_socket',pose(*port),[fm],color='steel',approximation='sdf',source_pair_frame_preserved=True)
         initial=pose(supply[0],supply[1],PLATE_Z+.0003-float(mm.bounds[0,2]))
-        a.body(name+'_plug',initial,[mm],mass,'blue' if name=='usb' else 'steel',approximation='sdf',nominal_support='workplate')
+        a.body(name+'_plug',initial,[mm],mass*scale**3,'blue' if name=='usb' else 'steel',approximation='sdf',nominal_support='workplate')
         target=pose(*port)
         if name=='bnc':
             # Source coframe has bayonet-pin interference. Align source entry
             # slots90degrees and withdraw2.5mm; about8mm actual insertion
             # remains. No locked-bayonet/electrical-continuity claim.
-            target=pose(port[0],port[1],port[2]+.0025,(0.,0.,-math.sqrt(.5),math.sqrt(.5)))
+            target=pose(port[0],port[1],port[2]+.0025*scale,(0.,0.,-math.sqrt(.5),math.sqrt(.5)))
         a.meta['diagnostic_goal_poses'][name+'_plug']=target
         goals.append(a.seating(name+'_plug',target,[name+'_socket'],axis_only=name=='bnc'))
     a.meta['task_parameters']={'seating_goals':goals,'flexible_groups':[],
         'required_moved_ids':['usb_plug','bnc_plug'],
-        'bnc_entry_configuration':{'source_axial_withdrawal_m':.0025,'world_yaw_degrees':-90.,'approximate_insertion_depth_m':.008,'source_sampling':'4000 male surface samples; no source-female interior samples at this entry configuration; native fit separately required.'},
+        'bnc_entry_configuration':{'source_axial_withdrawal_m':.0025*scale,'world_yaw_degrees':-90.,'approximate_insertion_depth_m':.008*scale,'source_sampling':'4000 male surface samples; no source-female interior samples at this entry configuration; native fit separately required.'},
         'adaptation':'ATB1 connector insertion subset; BNC uses a partially inserted slot-aligned entry, no electrical continuity or BNC bayonet-lock test; other ATB1 operations duplicate existing Tasks2/4/5.'}
+    if enabled(a):
+        a.meta['usability_adaptation']['changes'].append({'parts':['usb_plug','usb_socket','bnc_plug','bnc_socket'],'linear_scale':scale,'mass_scale_dynamic':scale**3,'matching_male_female_scale':True,'fixture_xy_centers_unchanged':True,'bnc_target_withdrawal_m':.0025*scale})
 
 
 def _atb2_rotation(a):
@@ -307,24 +318,44 @@ def _belt_task(a):
     outline,perim,residual=_belt_outline(centers,centerline_radii,count)
     if abs(residual)>1e-8:raise ValueError('Belt equal-chord closure failed')
     target_z=PLATE_Z+.0175
-    poses={}
+    poses={};idler_revision=None
     for name,center,mesh,radius,mass,supply in (
         ('drive_pulley',centers[0],small,.00475,.085,None),
         ('timing_pulley',centers[1],large,.00570,.19,[.29,.265]),
         ('tensioner_idler',centers[2],None,.00370,.028,[.28,-.28])):
         if mesh is None:
             parts=ring(.0042,.015,-.013,.013,48)
+            if a.meta.get('usability_profile') == 'nist_manipulation_scale_v1':
+                from .nist_belt_usability import idler_parts, idler_metadata
+                revised_parts=idler_parts()
+                idler_revision=idler_metadata(parts,mass,revised_parts)
+                parts=revised_parts;mass=idler_revision['recomputed_mass_kg']
             z=PLATE_Z+.0145
         else:parts=[mesh];z=PLATE_Z+.0015-float(mesh.bounds[0,2])
         target=pose(center[0],center[1],z);poses[name]=target
         shaft=[cylinder(radius,.026,(0,0,.0145)),cylinder(radius+.003,.0015,(0,0,.00075))]
+        if name=='tensioner_idler' and idler_revision is not None:
+            from .nist_belt_usability import idler_shaft_parts
+            shaft=idler_shaft_parts()
+            idler_revision['guide_post']={'top_above_workplate_m':.0475,
+                'straight_radius_m':.0037,'lead_tip_radius_m':.0023,'lead_taper_height_m':.005,
+                'support_shoulder_diameter_m':.020,
+                'tip_below_seated_hub_top_m':.003,
+                'reason':'Bore captures the guide before the idler touches the belt; passive geometric guidance only.'}
         a.body(name+'_shaft',pose(center[0],center[1],PLATE_Z),shaft,color='steel')
         initial=target if supply is None else pose(supply[0],supply[1],PLATE_Z+.0003-min(p.bounds[0,2] for p in parts))
-        a.body(name,initial,parts,mass,'steel',approximation='sdf' if mesh is not None else 'convexHull',nominal_support='workplate')
+        a.body(name,initial,parts,mass,'steel',
+            approximation='sdf' if mesh is not None or idler_revision is not None else 'convexHull',
+            nominal_support='workplate',**({'handling_revision':idler_revision} if name=='tensioner_idler' and idler_revision else {}))
         a.meta['diagnostic_goal_poses'][name]=target
-    # Equal chord loop: total physical segment length is675mm exactly.
+    # Equal chord loop: total physical segment length is675mm exactly. Its centre
+    # sits 1 mm further along -y than the original (.280, -.055): there links
+    # 004/005 overlapped the 20 mm idler support shoulder by 0.145/0.128 mm (exact
+    # cube/convex-hull depth). Now every link clears every fixed solid by >= 0.32 mm
+    # and the x position, so every -x workplate margin, is the original one.
     radius=length/(2*count*math.sin(math.pi/count));angles=np.linspace(0,2*math.pi,count,endpoint=False)
-    nodes=np.c_[.280+radius*np.cos(angles),-.055+radius*np.sin(angles),np.full(count,PLATE_Z+.0127+.0003)]
+    nodes=np.c_[BELT_SUPPLY_CENTER_XY_M[0]+radius*np.cos(angles),BELT_SUPPLY_CENTER_XY_M[1]+radius*np.sin(angles),
+                np.full(count,PLATE_Z+.0127+.0003)]
     ids=a.chain('belt_link',nodes,width=.0254,thickness=.0025,color='black',mass=.065,closed=True)
     goals_nodes=np.c_[outline,np.full(count,target_z)]
     for i,name in enumerate(ids):
@@ -345,6 +376,13 @@ def _belt_task(a):
             'source_pulley_axial_groove_half_width_m':.014,'goal_uses_actual_axial_groove':True,
             'approximation':'Passive articulated closed tape; no continuum strain, calibrated tension or timing-tooth transmission claim.'},
         'adaptation':'ATB2 timing-pulley/belt/tensioner subset. Independent idler is installed on a real post to extend belt path. Collars/threading omitted as duplicates.'}
+    if idler_revision is not None:
+        from .nist_belt_usability import ASSEMBLY_GUIDANCE
+        a.meta['task_parameters']['idler_handling_revision']=idler_revision
+        a.meta['task_parameters']['assembly_guidance']=dict(ASSEMBLY_GUIDANCE)
+        a.meta['usability_adaptation']['changes'].append({
+            'id':'tensioner_idler','geometry':idler_revision,
+            'source_pulleys_and_closed_belt_unchanged':True})
 
 
 def _tube_mesh(a):
@@ -356,8 +394,13 @@ def _tube_mesh(a):
 
 
 def _cable_task(a):
+    from .nist_usability import enabled, scale_source, capsule_mass_ratio
+    scale=1.6 if enabled(a) else 1.
+    radius=.00175*(1.5 if enabled(a) else 1.)
     a.plate()
-    tube=_tube_mesh(a);guide_z=PLATE_Z-float(tube.bounds[0,2])
+    tube=_tube_mesh(a)
+    if enabled(a):tube=scale_source(a,tube,1.25)
+    guide_z=PLATE_Z-float(tube.bounds[0,2])
     guides=[(.40,-.105,guide_z),(.40,.095,guide_z)]
     for i,c in enumerate(guides):a.body(f'guide_{i}',pose(*c),[tube.copy()],color='green' if i==0 else 'amber',approximation='sdf')
     # Two original-size cable-end fixtures; open clip and tube route is reversible.
@@ -365,22 +408,26 @@ def _cable_task(a):
         a.body(f'route_post_{i}',pose(.365,y,PLATE_Z),[cylinder(.006,.022,(0,0,.011))],color='steel')
     stereo=a.source_mesh(3,'Stereo Plug.STL');origin=np.array([*stereo.bounds.mean(0)[:2],stereo.bounds[0,2]])
     stereo.apply_translation(-origin)
+    stereo=scale_source(a,stereo,scale)
     R=np.array([[1,0,0],[0,0,1],[0,-1,0.]]) # localZ points world+Y
     q=_q(R);count=42;wire_len=.56
-    nodes=np.c_[np.full(count+1,.27),np.linspace(-.305,.255,count+1),np.full(count+1,PLATE_Z+.00175+.0003)]
-    ids=a.chain('cable_link',nodes,mass=.023)
+    nodes=np.c_[np.full(count+1,.27),np.linspace(-.305,.255,count+1),np.full(count+1,PLATE_Z+radius+.0003)]
+    cable_mass=.023*capsule_mass_ratio(.00175,radius,wire_len/count) if enabled(a) else .023
+    ids=a.chain('cable_link',nodes,radius=radius,mass=cable_mass)
     # Cable has a physical weighted start plug, not a forbidden static-body joint.
-    start='cable_start';a.body(start,pose(nodes[0,0],nodes[0,1],PLATE_Z+.0048),[box((.012,.012,.009))],.018,'black')
+    start_z=PLATE_Z+.0045*scale+.0003 if enabled(a) else PLATE_Z+.0048
+    start='cable_start';a.body(start,pose(nodes[0,0],nodes[0,1],start_z),[box(tuple(v*scale for v in (.012,.012,.009)))],.018*scale**3,'black')
     a.joint('cable_start_join',start,ids[0],nodes[0],kind='FixedJoint')
-    end='cable_end';a.body(end,pose(nodes[-1,0],nodes[-1,1],PLATE_Z+.0053,q),[stereo],.018,'black',approximation='sdf')
+    end_z=PLATE_Z+.0003-float((np.asarray(stereo.vertices)@R.T)[:,2].min()) if enabled(a) else PLATE_Z+.0053
+    end='cable_end';a.body(end,pose(nodes[-1,0],nodes[-1,1],end_z,q),[stereo],.018*scale**3,'black',approximation='sdf')
     a.joint('cable_end_join',ids[-1],end,nodes[-1],kind='FixedJoint')
     # True open cylindrical socket for the3.5mm audio pin; no convex hull closure.
     socket_y=.309;socket_z=guide_z
-    sockets=ring(.00215,.007,-.006,.006,32)
+    sockets=ring(.00215*scale,.007*scale,-.006*scale,.006*scale,32)
     for m in sockets:m.apply_transform(trimesh.geometry.align_vectors([0,0,1],[0,1,0]))
     a.body('audio_socket',pose(.40,socket_y,socket_z),sockets,color='steel')
-    a.body('audio_socket_stand',pose(.40,socket_y,PLATE_Z),[box((.024,.024,socket_z-PLATE_Z-.007),(0,0,(socket_z-PLATE_Z-.007)/2))],color='teal')
-    target=pose(.40,socket_y-.054,socket_z,q)
+    a.body('audio_socket_stand',pose(.40,socket_y,PLATE_Z),[box((.024*scale,.024*scale,socket_z-PLATE_Z-.007*scale),(0,0,(socket_z-PLATE_Z-.007*scale)/2))],color='teal')
+    target=pose(.40,socket_y-.054*scale,socket_z,q)
     allids=[start,*ids,end]
     delta=np.asarray(target[:3])-a.entries[end]['initial_pose_xyzw'][:3]
     for name in allids:
@@ -393,7 +440,7 @@ def _cable_task(a):
     # The imported body's origin is at the cable tail, 54 mm behind the pin
     # mating region. Natural tilt about a still-inserted pin moves that origin
     # by several millimetres; measure insertion at the physical pin instead.
-    seat['actor_local_point_m']=[0.,0.,.054]
+    seat['actor_local_point_m']=[0.,0.,.054*scale]
     seat['target_position_m']=[.40,socket_y,socket_z]
     seat['position_reference_note']='Original source pin mating region, 54 mm from the source tail origin; socket center is the target.'
     seat['support_via_flexible_group']='audio_cable'
@@ -401,29 +448,37 @@ def _cable_task(a):
         'required_moved_ids':[end],
         'flexible_groups':[{'id':'audio_cable','actor_ids':allids,'closed':False,
             'maximum_neighbor_distance_m':.025,'support_ids':['workplate','guide_0','guide_1','audio_socket'],
-            'minimum_support_fraction':.02,'route_gates':[{'center_m':list(c),'radius_m':.0095} for c in guides]}],
-        'cable':{'diameter_m':.0035,'length_m':wire_len,'source_designation':'EMSOD-1.5 / ATB3 thin audio cable',
+            'minimum_support_fraction':.02,'route_gates':[{'center_m':list(c),'radius_m':.01125 if enabled(a) else .0095} for c in guides]}],
+        'cable':{'diameter_m':2*radius,'length_m':wire_len,'source_designation':'EMSOD-1.5 / ATB3 thin audio cable',
             'approximation':'Passive spherical-link cable, nonadjacent self-collision enabled, no continuum bending calibration.',
             'diagnostic_route_waypoints_m':route.tolist()},
         'adaptation':'One original-size audio cable and two source tubes; routing/correct-end insertion retained. No hand control or pin electrical continuity claim.'}
+    if enabled(a):
+        seat['position_reference_note']='Scaled source pin mating region, 86.4 mm from the source tail origin; socket center is the target.'
+        a.meta['task_parameters']['adaptation']='Enlarged 1.6x audio connector pair and block end, 5.25 mm cable with original 560 mm route length and 1.25x guide tubes. No electrical continuity or original NIST dimensions claim.'
+        a.meta['usability_adaptation']['changes'].append({'parts':['cable_start','cable_end','audio_socket'],'linear_scale':scale,'mass_scale_dynamic':scale**3,'cable_diameter_m':2*radius,'cable_mass_kg':cable_mass,'cable_length_m':wire_len,'guide_linear_scale':1.25,'guide_xy_centers_unchanged':True,'route_centerline_gate_radius_m':.01125,'route_gate_basis':'13.2985 mm minimum faceted bore radius minus 2.625 mm wire radius plus 0.5765 mm practical centering margin; excludes tube wall-top routing.','pin_reference_from_tail_m':.054*scale})
 
 
 def _harness_task(a):
+    from .nist_usability import enabled, scale_source, capsule_mass_ratio
+    scale=1.6 if enabled(a) else 1.
+    radius=.0015*(1.5 if enabled(a) else 1.)
     a.plate(size=(.48,.78,.010))
     # Actual ATB4 connector body. Keep its mesh open recesses under SDF.
-    mesh=a.centered_source(4,'Wire harness - AT06_2S_LED1220-2 AT06_2S_LED1220_3-1.STL')
+    mesh=scale_source(a,a.centered_source(4,'Wire harness - AT06_2S_LED1220-2 AT06_2S_LED1220_3-1.STL'),scale)
     # Source18mm body is positioned vertically as a terminal endpoint; the
     # project fixture is a broad removable nest, not a magnetic connector latch.
     half=mesh.extents/2;terminal_z=PLATE_Z+float(half[2])+.0003
     goals=[];groups=[];moved=[];allactors=[]
     for color,x,goalx in [('red',.255,.41),('blue',.31,.46)]:
-        count=30;nodes=np.c_[np.full(count+1,x),np.linspace(-.205,.205,count+1),np.full(count+1,PLATE_Z+.0015+.0003)]
-        ids=a.chain(color+'_link',nodes,radius=.0015,color=color,mass=.018)
+        count=30;nodes=np.c_[np.full(count+1,x),np.linspace(-.205,.205,count+1),np.full(count+1,PLATE_Z+radius+.0003)]
+        wire_mass=.018*capsule_mass_ratio(.0015,radius,.410/count) if enabled(a) else .018
+        ids=a.chain(color+'_link',nodes,radius=radius,color=color,mass=wire_mass)
         endpoints=[]
         for side,index,y in [('a',0,-.213),('b',count,.213)]:
             name=color+'_end_'+side
             bodypose=pose(x,y,terminal_z)
-            a.body(name,bodypose,[mesh.copy()],.012,color,approximation='sdf')
+            a.body(name,bodypose,[mesh.copy()],.012*scale**3,color,approximation='sdf')
             anchor=nodes[index]
             a.joint(name+'_wire',name,ids[0] if side=='a' else ids[-1],anchor,kind='FixedJoint')
             endpoints.append(name);moved.append(name)
@@ -432,7 +487,7 @@ def _harness_task(a):
             # wall. An unbroken wall here crosses the attached wire and makes
             # the fixed endpoint joint pull two bodies through solid material.
             outer=(float(mesh.extents[0])+.009,float(mesh.extents[1])+.009,.012)
-            floor=.003;wall=.003;exit_width=.006
+            floor=.003;wall=.003;exit_width=.009 if enabled(a) else .006
             parts=tray_parts(outer,floor=floor,wall=wall)
             del parts[3 if side=='a' else 4]
             pillar_width=(outer[0]-exit_width)/2
@@ -443,7 +498,7 @@ def _harness_task(a):
             a.body(name+'_terminal',pose(goalx,y,PLATE_Z),parts,color=color,
                 cable_exit={'direction_local':[0,1 if side=='a' else -1,0],
                     'width_m':exit_width,'bottom_above_plate_m':floor,
-                    'open_top':True,'wire_diameter_m':.003,
+                    'open_top':True,'wire_diameter_m':2*radius,
                     'note':'Only the wire-facing wall is split; floor and remaining walls retain original nest dimensions.'})
             goals.append(a.seating(name,target,[name+'_terminal'],tol=(.006,.006,.009)))
             a.meta['diagnostic_goal_poses'][name]=target
@@ -456,24 +511,37 @@ def _harness_task(a):
     for i,y in enumerate([-.06,.06]):
         # Common open retainer retains routing while permitting vertical release.
         parts=[box((.09,.014,.003),(0,0,.0015)),box((.004,.014,.018),(-.043,0,.009)),box((.004,.014,.018),(.043,0,.009))]
+        if enabled(a):
+            # Match the terminal floors with one continuous open support strip.
+            # Unsupported spans otherwise sag 3 mm onto the workplate and the
+            # freely articulated circular links can keep rolling sideways.
+            # One fixture owns the floor; the second has only side posts, so
+            # there are no duplicate coplanar collision surfaces or cable lids.
+            if i==0:parts[0]=box((.09,.386,.003),(0,-y,.0015))
+            else:parts.pop(0)
         a.body('bundle_retainer_'+str(i),pose(.435,y,PLATE_Z),parts,color='black')
-    traycenter=[.40,.325,PLATE_Z]
-    a.body('collection_tray',pose(*traycenter),tray_parts((.35,.12,.025),floor=.003,wall=.003),color='teal')
+    traycenter=[.40,.315 if enabled(a) else .325,PLATE_Z]
+    tray_size=(.38,.14,.030) if enabled(a) else (.35,.12,.025)
+    a.body('collection_tray',pose(*traycenter),tray_parts(tray_size,floor=.003,wall=.003),color='teal')
     a.meta['task_parameters']={'seating_goals':goals,'flexible_groups':groups,'required_moved_ids':moved,
-        'removal':{'actor_ids':allactors,'center_m':[.40,.325,PLATE_Z+.060],
-            'half_extents_m':[.171,.056,.057],'support_ids':['collection_tray']},
+        'removal':{'actor_ids':allactors,'center_m':[.40,traycenter[1],PLATE_Z+.060],
+            'half_extents_m':([.186,.066,.057] if enabled(a) else [.171,.056,.057]),'support_ids':['collection_tray']},
         'adaptation':'ATB4 two-color prepared-lead subset: correct terminal mapping, shared open retainer routing, released assembly then removal to tray. No crimping, hidden snap, electrical-current or cable-tie tightening claim.',
-        'harness':{'lead_count':2,'wire_diameter_m':.003,'wire_length_m':.410,
+        'harness':{'lead_count':2,'wire_diameter_m':2*radius,'wire_length_m':.410,
             'source_designation':'ATB4 color-coordinated harness with AT06-2S housings',
             'approximation':'Passive spherical-link conductors with source connector shells; synthetic open terminal nests permit reversible removal.'}}
+    if enabled(a):
+        a.meta['usability_adaptation']['changes'].append({'parts':['red_end_a','red_end_b','blue_end_a','blue_end_b'],'linear_scale':scale,'mass_scale_dynamic':scale**3,'wire_diameter_m':2*radius,'wire_mass_kg_each':wire_mass,'wire_length_m':.410,'terminal_inner_side_clearance_m':.0015,'cable_exit_width_m':exit_width,'collection_tray_size_m':list(tray_size),'terminal_and_route_xy_centers_unchanged':True,'continuous_open_bundle_support':{'owner':'bundle_retainer_0','size_m':[.09,.386,.003],'center_xy_m':[.435,0.],'top_z_m':PLATE_Z+.003,'second_retainer_floor_removed':True,'top_open':True,'purpose':'Align wire and terminal support heights; prevent suspended spans from acquiring rolling motion during passive settling.'}})
 
 
-def author_task(stage,task_id,root_path=ROOT_PRIM,*,source_root=SOURCE_ROOT,presentation=False):
+def author_task(stage,task_id,root_path=ROOT_PRIM,*,source_root=SOURCE_ROOT,presentation=False,usability_profile=None):
     if task_id not in TASK_IDS:raise ValueError(task_id)
     if presentation:raise ValueError('This builder authors canonical reset only; use separately recorded diagnostic poses')
     if stage.GetPrimAtPath(root_path):raise ValueError('Task root must be fresh')
     UsdGeom.SetStageMetersPerUnit(stage,1.);UsdGeom.SetStageUpAxis(stage,'Z')
     a=Author(stage,task_id,root_path,source_root)
+    from .nist_usability import configure
+    configure(a,usability_profile)
     {_id:_fn for _id,_fn in zip(TASK_IDS,(_connector_task,_belt_task,_cable_task,_harness_task))}[task_id](a)
     return a.finish()
 
@@ -506,11 +574,13 @@ def structural_audit(stage,meta):
         'scope':'Authored topology/units/mass/anchors only; native collision and task feasibility require separate evidence.'}
 
 
-def build_assets(task_id,output_dir=None,*,source_root=SOURCE_ROOT):
+def build_assets(task_id,output_dir=None,*,source_root=SOURCE_ROOT,usability_profile=None):
+    if usability_profile is not None and output_dir is None:
+        raise ValueError('A usability adaptation requires an explicit new immutable output directory')
     output=Path(output_dir) if output_dir else ASSET_ROOT/task_id/ASSET_VERSIONS.get(task_id,'v1')
     if output.exists() and any(output.iterdir()):raise FileExistsError(f'Refusing to rewrite immutable asset: {output}')
     output.mkdir(parents=True,exist_ok=True)
-    stage=Usd.Stage.CreateNew(str(output/'task.usda'));meta=author_task(stage,task_id,source_root=source_root)
+    stage=Usd.Stage.CreateNew(str(output/'task.usda'));meta=author_task(stage,task_id,source_root=source_root,usability_profile=usability_profile)
     stage.GetRootLayer().Save();audit=structural_audit(stage,meta)
     (output/'metadata.json').write_text(json.dumps(meta,indent=2,sort_keys=True)+'\n')
     (output/'structural_audit.json').write_text(json.dumps(audit,indent=2,sort_keys=True)+'\n')
@@ -521,6 +591,8 @@ def build_assets(task_id,output_dir=None,*,source_root=SOURCE_ROOT):
         +'No archive-level license file was supplied. Commercial part identifiers and CAD authorship are preserved; this is not a claim that every third-party asset is CC0.\n'
         +'2026-10-20 modifications: millimetre-to-metre conversion; rigid local frame changes; documented STL seam welding; compact fixtures and finite rigid-link flexible approximations.\n'
         +'This derivative is an adapted simulation task, not a NIST-certified implementation or measurement.\n')
+    if usability_profile is not None:
+        attribution+='2026-10-23 opt-in usability adaptation: physically enlarged task geometry and matching fixtures; original source files, units and notices remain unchanged. Exact per-part changes are in metadata.json.\n'
     (output/'ATTRIBUTION.txt').write_text(attribution)
     dependencies={item['path']:{'sha256':item['sha256']} for item in meta['source']['external_assets']}
     for name in ['provenance.json','provenance_sources/source_manifest.json','provenance_sources/nist_copyrights_disclaimers.html','provenance_sources/nist_data_license_policy.html']:

@@ -2,16 +2,16 @@
 from copy import deepcopy
 import re
 
-from .rules import public_rules, thresholds
+from .rules import public_rules
 from bench.paths import DATA_ROOT
 
 RELEASE_ROOT = f'{DATA_ROOT}/datasets/fr3_sharpa_bench/isaacsim/releases/kitchen'
 EVIDENCE_ROOT = f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/kitchen_tasks_20261019'
 ASSET_ROOT = f'{DATA_ROOT}/assets/task_parts/kitchen'
 TASK_IDS = ('breakfast_serving', 'produce_transfer', 'utensil_sorting', 'pot_lid_placement',
-            'pantry_stocking', 'table_clearing')
+            'pantry_stocking', 'table_clearing', 'surface_wiping')
 TITLES = ('早餐配盘与整盘端送', '果蔬分类装盘', '餐具分类收纳', '冷灶锅具就位与锅盖盖合',
-          '调味品与干货分类归位', '餐后餐桌分类清理')
+          '调味品与干货分类归位', '餐后餐桌分类清理', '海绵擦拭台面并归位')
 
 
 def implemented_task_definition(task_id, *, intended_roles, inventory_counts,
@@ -19,7 +19,8 @@ def implemented_task_definition(task_id, *, intended_roles, inventory_counts,
                                 manifest_sha256, asset_version='v1', release_version='v1',
                                 contextual_prop_count=0, evidence_root=EVIDENCE_ROOT,
                                 canonical_run='canonical', goal_support_run='goal_support',
-                                canonical_sha256=None, goal_support_sha256=None):
+                                canonical_sha256=None, goal_support_sha256=None,
+                                asset_metadata=None):
     number = TASK_IDS.index(task_id)+1
     counts = (dynamic_count, fixed_fixture_count, contextual_prop_count, *inventory_counts.values())
     if any(type(count) is not int or count < 0 for count in counts):
@@ -31,7 +32,9 @@ def implemented_task_definition(task_id, *, intended_roles, inventory_counts,
     published = manifest_sha256 is not None
     if not published and (canonical_sha256 or goal_support_sha256):
         raise ValueError('An unpublished task cannot claim release-bound evidence')
-    rules = public_rules(task_id)
+    # New volume releases explicitly supply their static asset declaration;
+    # omitting it preserves every historical catalog contract.
+    rules = public_rules(task_id, metadata=asset_metadata)
     evidence = [{'path': f'{evidence_root}/{task_id}/{kind}/qualification.json',
                  'sha256': sha} for kind, sha in
                 ((canonical_run, canonical_sha256), (goal_support_run, goal_support_sha256))
@@ -66,7 +69,8 @@ def implemented_task_definition(task_id, *, intended_roles, inventory_counts,
             'implementation': 'scenes.workrooms.kitchen.rules', 'contract': rules},
         'evaluator': {'implementation': 'scenes.workrooms.kitchen.evaluation' if published else None,
             'reference_implementation': 'scenes.workrooms.kitchen.evaluation.SequenceEvaluator',
-            'frozen_path': 'evaluator/sequence_evaluator.py', 'thresholds': thresholds(task_id),
+            'frozen_path': 'evaluator/sequence_evaluator.py',
+            'thresholds': deepcopy(rules['referee']['thresholds']),
             'scope': 'Complete native poses/contact impulses, task order, actual support, release and 400 ms stability.'},
         'source_release': {'path': f'{RELEASE_ROOT}/{task_id}/{release_version}',
             'manifest_sha256': manifest_sha256} if published else None,

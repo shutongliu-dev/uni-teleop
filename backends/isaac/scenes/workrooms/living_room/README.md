@@ -2,12 +2,17 @@
 
 固定父环境沿用 `scene.py` 的 `living_room_residential_20261018_v7`。房间、空桌、装修和灯光不随任务重建；所有操作物体、初态、规则和评分属于各自任务。编号是任务 ID 对照，不是学习阶段，也不保证不同参数下难度严格单调。
 
+2026-10-30 起，Task1、Task2、Task5 的当前目录选择 `initial_randomization_v1/<configuration>`：每项支持单 Agent 的三种机器人安装，各有 `seed=0..9` 十个冻结物理初态。搭高 Task3 和双人抽塔 Task4 不随机。位置、贴图、实际尺寸与碰撞形状的范围、Bench/Agent seed 用法及验证边界见[客厅初态随机化](../../../docs/scenes/living_room_randomization.md)。下文旧版本的路径和结果保留其历史范围，当前发布以目录中的 manifest 为准。
+
 | 编号 | 目录 | 机器人 | 核心任务 | 当前范围 |
 |---|---|---|---|---|
-| Task1 | `tasks/remote_operation/` | 单臂 | 遥控器开电视、连续开机 10 秒、关机后归架 | 电源实体按键；归架需松手稳定 300 毫秒 |
-| Task2 | `tasks/water_pouring/` | 单臂 | 抓壶定量倒水、控制洒漏、放回水壶 | 已注册可运行候选：冻结 250 mL 水、原生粒子观察器与裁判 |
+| Task1 | `tasks/remote_operation/` | 单 Agent，单臂或左右双臂 | 遥控器开电视、10 秒倒计时自动关机后归架 | 电源实体按键；归架需松手稳定 300 毫秒；十个初态 seed |
+| Task2 | `tasks/water_pouring/` | 单 Agent，单臂或左右双臂 | 抓壶定量倒水、控制洒漏、放回水壶 | 冻结 250 mL 水、原生粒子观察器与裁判；十个初态 seed |
 | Task3 | `tasks/tower_building/` | 单臂 | 自由搭高，记录回合内最高稳定高度 | 36 根木条、两侧实体供料托盘；不限塔形、层数、用料数或方向 |
 | Task4 | `tasks/tower_extraction/` | 双臂、两方对抗 | 轮流抽一根放入己方托盘，倒塔方输 | 桌面上 12 层 36 根初始塔、双方各 15 格实体收集托盘 |
+| Task5 | `tasks/storage_box/` | 单 Agent，单臂或左右双臂 | 开双卡扣、开盖取物入盘，再关盖扣回 | 三个真实被动铰链；释放稳定 300 毫秒，允许重抓调整；十个初态 seed |
+
+Task5 的物物交互验证、原始失败、公开规则和冻结发布见 [收纳盒任务说明](tasks/storage_box/README.md)。工程载荷验证真实卡扣阻挡、解锁、开盖、托盘承托、关盖扣回及松手稳定；机器人操作策略、构型 IK 与普通接口接线分别记录，不能互相替代资格。
 
 Task1／Task2 已注册为 `implemented`，`catalog.load_task` 可校验并加载各自冻结发布，仍是 `prepared_unvalidated` 场景候选。Task1 于 2026-10-19 修订为电视开机保持 10 秒、关机后归架任务；当前 v7 的原生入口与独立电视显示检查已通过，完整机器人操作尚未验收。旧 v3 两键任务记录仅作历史证据。Task2 的入口检查与机器人完整倒水操作分别记录。Task3／Task4 分别接入 `/episodes` 和认证 `/turn-games`。2026-10-19 新场景使用显式 `trays_v1`：Task3 木条为 15×4.5×2.5 cm，Task4 为 20×4.5×3 cm，任务发布分别为 v5／v8。实际加载路径和哈希以各 `definition.py` 为准。CPU 合成观测测试和物体静置不代表机器人已经搭高或抽塔成功。
 
@@ -50,7 +55,7 @@ living_room/
 | 任务 | 发布目录 | release manifest SHA256 |
 |---|---|---|
 | Task1 | `remote_operation/v7` | `b644bc3bf5fc0513db6295aea8785d7649d3b92b816be9e3245bdadecffb664b` |
-| Task2 | `water_pouring/v5` | `83e6616a3ef22864139298ccdd36f07345c532935c63ca67fb3cd0ab4eaaffd5` |
+| Task2 | `water_pouring/v6` | `095a9608bbabfa88c602f068abe0f25959b6c9f8126ea6647e92311d4187d542` |
 
 两项复用普通 canonical `/episodes` 与公开机器人函数，冻结 `scene.json/task.json/initial_state.json/rules.json`、原生观察器与裁判源码以及父环境／共享资产哈希。`implemented` 表示可加载的完整运行候选；manifest 的 `physics_accepted=false` 和 `task_policy_success_claimed=false` 保留，本轮 native smoke 与实际机器人操作证据另外附加，不能改写冻结发布为已验收。
 
@@ -60,7 +65,9 @@ Task1 v7 绑定冻结 `source03`（manifest `2e7484fa8b41a577ce084b457396adec30b
 
 Task2 v4 的新入口验证（开发存储 `datasets/fr3_sharpa_bench/development/living_water_coupling_20261018/publication/water_pouring01/qualification.json`）已通过同样的 300 ms／600 子步检查，488 粒留壶，裁判无误得分，四路 RGB-D 正常。资产 v2 保持 250 g 真水，改用 8 mm 离散并关闭两容器休眠；独立倒水台架达到 93.75 mL 且无洒漏。满壶水重反作用误差约 +4.4%，该杯量下约 +22.7%，按用户要求作为实用近似，完整机器人倒水未验收。新版实际相机图（开发存储 `demo/interface/scenes/living_water_coupling_20261018_v4/index.html`）。
 
-Task2 v5 沿用 v4 的物理资产，补充水差与洒漏报告：初始水量减壶内、杯内及未决水量得到当前洒漏，累计洒漏仍限 5 mL，洒后回收不退额度。新冻结裁判的原生入口检查（开发存储 `datasets/fr3_sharpa_bench/development/living_water_coupling_20261018/publication/water_pouring02/qualification.json`）通过，报告含完整水量账本；v5 实际相机画面（开发存储 `demo/interface/scenes/living_water_coupling_20261018_v5/index.html`）。
+历史 Task2 v5 沿用 v4 的物理资产，补充水差与洒漏报告：初始水量减壶内、杯内及未决水量得到当前洒漏，累计洒漏仍限 5 mL，洒后回收不退额度。该版冻结裁判的原生入口检查（开发存储 `datasets/fr3_sharpa_bench/development/living_water_coupling_20261018/publication/water_pouring02/qualification.json`）通过，报告含完整水量账本；v5 实际相机画面（开发存储 `demo/interface/scenes/living_water_coupling_20261018_v5/index.html`）。
+
+当前 v6 修正了实际错杯实验发现的洒漏漏计：8 mm 粒子的真实落地中心约高出表面 6.667 mm，旧 6 mm 包络会把已落盘的水长期记为未决。新版依据冻结粒子尺寸采用 7.667 mm 表面包络，维持原 5 mL 上限及所有水量、稳定门槛，物体和物理参数不变。新原生正向测试入杯 93.75 mL、零洒漏；错杯测试将 102.459 mL 正确计为洒漏。单臂、同侧双臂、对侧双臂均重新通过实际 HTTP/Agent 仿真入口检查，完整机器人倒水仍未验收。见[本轮物体交互验证](../../../docs/scenes/living_interactions.md)。
 
 历史 bench 接入检查覆盖 Task2 v5、Task3 v4 等候选：各通过 0.42 s／840 原生子步的公共微动与四路 RGB-D，进程和 worker 均退出 0。Task2 v5 的两次 reset 还验证了 488 个原始粒子 ID 及持续更新的真实位置／速度。检查通过进程内 ASGI HTTP 调用真实独立原生 worker，未调用模型；它们验证接口与读回，完整按键、倒水和搭塔仍未验收。当前及历史结果分别绑定源码与发布，见本轮集成报告（开发存储 `datasets/fr3_sharpa_bench/development/living_bench_integration_20261018/report.json`）。
 
@@ -72,7 +79,7 @@ Task2 v5 沿用 v4 的物理资产，补充水差与洒漏报告：初始水量�
 .venv/bin/python -m scenes.workrooms task --family living_room --task water_pouring
 ```
 
-服务通过 `BENCH_TASK_RELEASE` 选择完整冻结路径后，使用现有 `POST /episodes` 和公开机器人函数；`GET /episodes/{episode_id}/task` 返回本回合目标与规则。Task1 当前选择 `remote_operation/v7`，Task2 为 `water_pouring/v5`。Agent 入口采用 `--family living_room --task task1` 或 `task2`，校验目录发布 hash。任务恢复、预算耗尽和观测故障的语义均随 `rules.json` 冻结。
+服务通过 `BENCH_TASK_RELEASE` 选择完整冻结路径后，使用现有 `POST /episodes` 和公开机器人函数；`GET /episodes/{episode_id}/task` 返回本回合目标与规则。Task1 当前选择 `remote_operation/v7`，Task2 为 `water_pouring/v6`。Agent 入口采用 `--family living_room --task task1` 或 `task2`，校验目录发布 hash。任务恢复、预算耗尽和观测故障的语义均随 `rules.json` 冻结。
 
 ## 自由搭高与对抗抽塔
 

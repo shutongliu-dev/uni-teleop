@@ -18,5 +18,6 @@
   "SHARPA_RETARGET_ROOT": "/path/to/sharpa_retarget_root",
   "SHARPA_RETARGET_PYTHON": "/path/to/sharpa_retarget_python",
   "PICO_SDK_LIBRARY": "/path/to/libPXREARobotSDK.so",
-  "PEDAL_EVENT": "/dev/input/by-id/YOUR_PEDAL-event-kbd"
+  "PEDAL_EVENT": "/dev/input/by-id/YOUR_PEDAL-event-kbd",
+  "MANUS_NATIVE_READER": "/path/to/compiled/manus-native-reader"
 }

@@ -20,5 +20,12 @@ TASK = planned_task(
 
 TASK = bind_prepared_release(
     TASK, path=f'{DATA_ROOT}/datasets/fr3_sharpa_bench/isaacsim/releases/living_room/tower_building/v5',
-    manifest_sha256='78118f6ae52e523c532e2e57b98f6129baf3fd1fee39a1a56432640b2c0b4e28',
+    manifest_sha256='59c32f726e715b3b19edff4ca4aeed7d156091eb1460e86044fb9ba4b880b374',
 )
+
+TASK['qualification']['object_interaction_evidence'] = {
+    'path': f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/living_interactions_20261024/towers/qualification.json',
+    'sha256': '1c7ae15762120a8ea2d24fd2f5894505da4db5d8591a5550147df07240fed9f5',
+    'scope': 'Object-only supply support/zero score, reset-only three-layer stack stability and free-fall '
+             'support checks on v5. No robot construction trajectory or configuration-specific grasp qualification.',
+}

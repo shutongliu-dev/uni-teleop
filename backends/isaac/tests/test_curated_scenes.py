@@ -1,28 +1,41 @@
 """Task inventory and frozen-input integrity for five uncluttered layouts."""
 from copy import deepcopy
+import json
+from pathlib import Path
 
 import pytest
 
-from bench.isaacsim.curated_release import SOURCES, TASK_LAYOUT, prepare
-from bench.isaacsim.release import digest, load_evaluator, task_inputs, validate
-from bench.paths import load_json
+from bench.paths import DATA_ROOT, load_json
 from bench.simulation.isaacsim_backend.scene_variants import CURATED_LAYOUTS, apply_scene_variant, curate_scene
+
+RELEASES = Path(f'{DATA_ROOT}/datasets/fr3_sharpa_bench/isaacsim/releases')
+FROZEN_PAIRS = {
+    'simple': ('simple_manipulation/v4_humanlike', 'simple_manipulation/v5_curated'),
+    'sequential': ('sequential_workcell/v1', 'sequential_workcell/v2_curated'),
+}
+TASK_IDS = ('01_cube_push', '02_cube_lift_hold', '03_cube_pick_place', '04_cube_grasp_hold',
+            '01_ordered_kitting', '02_loose_gear_assembly', '03_lined_tray_loading', '04_cover_and_secure')
 
 
 def source_inputs(task_id):
-    source = SOURCES['simple' if 'cube_' in task_id else 'sequential']
+    source_name, published_name = FROZEN_PAIRS['simple' if 'cube_' in task_id else 'sequential']
+    source = RELEASES / source_name
     manifest = load_json(source / 'release_manifest.json')
     entry = next(row for row in manifest['tasks'] if row['id'] == task_id)
-    return source, entry, load_json(source / entry['scene'])
+    published = RELEASES / published_name
+    frozen_manifest = load_json(published / 'release_manifest.json')
+    frozen_entry = next(row for row in frozen_manifest['tasks'] if row['id'] == task_id)
+    frozen_scene = load_json(published / frozen_entry['scene'])
+    return frozen_scene['scene_variant']['layout_id'], load_json(source / entry['scene'])
 
 
-@pytest.mark.parametrize('task_id', list(TASK_LAYOUT))
+@pytest.mark.parametrize('task_id', TASK_IDS)
 def test_curated_inventory_preserves_required_assets_and_all_physical_settings(task_id):
-    _, _, scene = source_inputs(task_id)
+    layout_id, scene = source_inputs(task_id)
     original = deepcopy(scene)
-    selected = curate_scene(scene, TASK_LAYOUT[task_id])
+    selected = curate_scene(scene, layout_id)
     assert scene == original
-    layout = CURATED_LAYOUTS[TASK_LAYOUT[task_id]]
+    layout = CURATED_LAYOUTS[layout_id]
     for kind in ('objects', 'fixtures'):
         assert {row['id']: row['asset_id'] for row in selected[kind]} == layout[kind]
         assert selected[kind] == [row for row in scene.get(kind, []) if row['id'] in layout[kind]]
@@ -35,7 +48,7 @@ def test_curated_inventory_preserves_required_assets_and_all_physical_settings(t
 
 
 def test_curating_enriched_scene_removes_unrelated_instances_not_shared_assets():
-    _, _, source = source_inputs('01_ordered_kitting')
+    _, source = source_inputs('01_ordered_kitting')
     decorated = apply_scene_variant(source, 'enriched_v2')
     curated = curate_scene(decorated)
     assert curated['objects'] == source['objects']
@@ -48,7 +61,7 @@ def test_curating_enriched_scene_removes_unrelated_instances_not_shared_assets()
 
 @pytest.mark.parametrize('mutation', ['missing', 'wrong_asset', 'duplicate', 'cloth'])
 def test_curating_rejects_missing_or_substituted_task_geometry(mutation):
-    _, _, scene = source_inputs('01_cube_push')
+    _, scene = source_inputs('01_cube_push')
     if mutation == 'missing':
         scene['objects'] = [row for row in scene['objects'] if row['id'] != 'cube']
     elif mutation == 'wrong_asset':
@@ -59,33 +72,3 @@ def test_curating_rejects_missing_or_substituted_task_geometry(mutation):
         scene['cloth']['enabled'] = True
     with pytest.raises(ValueError):
         curate_scene(scene, 'cube_workbench')
-
-
-@pytest.mark.parametrize('family', ['simple', 'sequential'])
-def test_curated_release_freezes_new_scenes_but_preserves_tasks_evaluators_assets_and_source(family, tmp_path):
-    source = SOURCES[family]
-    original = validate(source)
-    original_hash = digest(source / 'release_manifest.json')
-    output = tmp_path / 'curated_release'
-    result = prepare(source, output)
-    assert validate(output) == result
-    assert digest(source / 'release_manifest.json') == original_hash
-    assert digest(output / 'source_release_manifest.json') == original_hash
-    assert result['scene_stratum'] == 'curated_v1'
-    for entry in result['tasks']:
-        prior = next(row for row in original['tasks'] if row['id'] == entry['id'])
-        assert entry['task_sha256'] == prior['task_sha256']
-        assert (output / entry['task']).read_bytes() == (source / prior['task']).read_bytes()
-        assert entry['scene_sha256'] != prior['scene_sha256']
-        _, scene, task, initial = task_inputs(output, entry['id'])
-        assert not initial
-        assert scene['scene_variant']['retained_asset_specs_unchanged']
-        assert task == load_json(source / prior['task'])
-    for relative in original['files']:
-        if relative.startswith('evaluator/') or relative == 'asset_file_hashes.json':
-            assert (output / relative).read_bytes() == (source / relative).read_bytes()
-    assert result['physics_profile_sha256'] == original['physics_profile_sha256']
-    assert load_evaluator(output)
-    assert not list(tmp_path.glob('.curated_release.preparing-*'))
-    with pytest.raises(FileExistsError):
-        prepare(source, output)

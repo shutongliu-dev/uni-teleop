@@ -13,8 +13,10 @@ TITLES = ('连接器配对插接', '带轮与皮带装配', '单根电缆绕障�
 INSTRUCTIONS = (
     '将 USB 与 BNC 插头插入各自接口，允许重新对准和重插，最后松手放稳。',
     '装入带轮，将闭环皮带套在两带轮外并经过张紧区域，允许调整松紧，最后松手放稳。',
-    '将单根电缆按顺序绕过导向区域，末端插入对应接口，避免抄近路，最后松手放稳。',
-    '按颜色将两根导线的两端放入对应端子，沿共同导向区域整理成束并松手确认；'
+    '从黑色方块端沿电缆朝细长音频插头端，依次穿过绿色导向管、黄色（琥珀色）导向管，'
+    '再将插头插入末端金属圆孔，最后松手放稳。这是最终电缆的路径顺序，操作先后自由。',
+    '按颜色将红线两端分别放入两个红色端子、蓝线两端分别放入两个蓝色端子，每个端子只放一个端头；'
+    '同色导线的两端等价，允许整根线掉头。两根导线都经过两个共同导向区域，整理成束并松手确认；'
     '随后从端子和导向处取出整组线束，放入收集托盘并松手放稳。',
 )
 
@@ -36,20 +38,29 @@ def thresholds(task_id):
         fallen_height_m=.10, max_time_s=240., max_actions=12000)
 
 
-def public_rules(task_id, seed=0):
+def public_rules(task_id, seed=0, *, usability_profile=None):
     if task_id not in TASK_IDS or type(seed) is not int or not 0 <= seed < 2**32:
         raise ValueError('Known NIST task and uint32 seed required')
     index = TASK_IDS.index(task_id)
+    if usability_profile not in (None, 'nist_manipulation_scale_v1'):
+        raise ValueError('Unknown NIST usability profile')
+    instruction = INSTRUCTIONS[index]
+    if usability_profile is not None and task_id == 'nist_belt_drive_assembly':
+        instruction += ('建议先装两个带轮和皮带，再从上方握住张紧轮的凸起轮毂装入轴柱。'
+                        '皮带不可伸长，不宜在三个轮子都装好后强行跨过全部法兰。'
+                        '这是装配建议，裁判不限定动作先后。')
     goals = (
         ['两个不同接口的插头分别进入匹配接口；实际接触接口并受到支撑。',
          '只验证插接位置、朝向、接触和释放稳定，不声称电连接或 BNC 锁扣功能。'],
         ['带轮到位，实际闭环皮带围住两带轮且长度、平面位置及链节连接合理。',
          '皮带分别与两只带轮产生实际配合接触；台面承托不能代替带轮接触。',
          '允许合理松弛；不要求张紧轮持续压紧、精确张力标定或动力传动效率。'],
-        ['实际电缆中心线按公开顺序经过各导向区域，末端进入对应接口。',
+        ['沿最终电缆从黑色方块端朝细长音频插头端，依次经过绿色导向管、黄色（琥珀色）导向管，插头进入末端金属圆孔。',
+         '检查的是最终电缆路径顺序，抓取、穿线、插接的操作先后自由。',
          '插接位置按插针上的配合点判断，允许端头自然倾斜；端头可由完整线缆及导向部件共同承托。',
          '允许线缆弯曲、少量悬空与重复调整；不能只把末端放对而绕过布线路径。'],
-        ['颜色与端子配对正确，两根实际导线分别经过共同导向区域形成线束。',
+        ['红线两端占用两个红色端子，蓝线两端占用两个蓝色端子；每个端子只放一个端头，并有实际接触与支撑。',
+         '同色导线两端等价，允许整根线掉头；每根实际导线都经过两个共同导向区域形成线束。',
          '先保持配对、布线和释放稳定 0.3 秒，再将全部导线及端头取出到收集托盘。',
          '不要求扎带锁紧、电气通断或线束内导线的严格毫米间距。'],
     )[index]
@@ -66,7 +77,7 @@ def public_rules(task_id, seed=0):
     }
     referee = {
         'schema': 'physical_task_referee_contract.v1', 'task_id': task_id,
-        'instruction_zh': INSTRUCTIONS[index],
+        'instruction_zh': instruction,
         'phases': {'working': '完成配对、装配或布线。', 'settling': '松手并等待稳定。',
                    'removing': '取出已确认的线束并放入收集托盘。'},
         'reason_descriptions': reasons,
@@ -83,13 +94,18 @@ def public_rules(task_id, seed=0):
         'physical_actions': '任务动作仅控制原机器人关节；工程物物探针单独记录，不计机器人操作成功。',
         'observation_scope': '公开规则及粗粒度阶段；真实刚体位姿、接触和柔性链几何由私有原生裁判读取。',
     }
-    return {'schema': 'mechanical_nist_rules.v1', 'task_id': task_id,
+    result = {'schema': 'mechanical_nist_rules.v2' if index >= 2 else 'mechanical_nist_rules.v1', 'task_id': task_id,
         'task_number': TASK_NUMBERS[task_id], 'source_board': index+1,
-        'instruction_zh': INSTRUCTIONS[index], 'referee': referee,
+        'instruction_zh': instruction, 'referee': referee,
         'reset_credit': False,
         'source_scope': 'Deduplicated task-board adaptation, not the full official NIST benchmark.',
         'simulation_scope': 'Passive connected rigid-link approximation for flexible parts; no electrical or latch qualification.',
         'randomization': 'Frozen physical reset; seed records identity without changing source geometry.'}
+    if usability_profile is not None:
+        result['source_scope'] += (' This usability revision adds a graspable tensioner hub or enlarges '
+                                  'paired connectors and cable diameters; these are project adaptations, '
+                                  'not official NIST dimensions.')
+    return result
 
 
 def _finite_vector(value, size):
@@ -98,8 +114,52 @@ def _finite_vector(value, size):
         raise ValueError('Finite metadata vector required')
 
 
+def _harness_endpoint_matching(parameters, fixtures):
+    """Bind each unmarked lead to its own two distinct physical terminal nests.
+
+    The immutable asset keeps its original endpoint IDs and poses. Equivalence
+    is a scoring contract: exchange the two endpoints together and rotate their
+    target orientations by a world-Z half turn, preserving inward wire exits.
+    """
+    seats = parameters.get('seating_goals', [])
+    by_actor = {goal['actor']: goal for goal in seats}
+    if (len(by_actor) != len(seats) or len({goal['id'] for goal in seats}) != len(seats)):
+        raise ValueError('Harness endpoints require unique seating actors and IDs')
+    groups, used_actors, used_terminals = [], set(), set()
+    for group in parameters.get('flexible_groups', []):
+        if group['closed']:
+            raise ValueError('Equivalent harness endpoints require an open lead')
+        endpoints = [group['actor_ids'][0], group['actor_ids'][-1]]
+        if set(group['actor_ids']) & used_actors or not set(endpoints) <= set(by_actor):
+            raise ValueError('Each independent harness lead needs its own two seated endpoints')
+        used_actors.update(group['actor_ids'])
+        goals = [by_actor[name] for name in endpoints]
+        terminals = []
+        for goal in goals:
+            support, contact = goal['support_ids'], goal['contact_ids']
+            if (len(support) != 1 or support != contact or support[0] not in fixtures
+                    or goal.get('support_via_flexible_group') is not None
+                    or goal.get('orientation_axis_only', False)):
+                raise ValueError('Harness endpoints require one directly supporting terminal and full orientation')
+            terminal = support[0]
+            if terminal in used_terminals:
+                raise ValueError('Harness terminals must have one distinct endpoint occupant')
+            used_terminals.add(terminal)
+            terminals.append(terminal)
+        groups.append({'group_id': group['id'], 'endpoint_actor_ids': endpoints,
+            'seating_goal_ids': [goal['id'] for goal in goals], 'terminal_ids': terminals,
+            'assignments': [
+                {'id': 'forward', 'actor_indices_by_goal': [0, 1], 'world_z_rotation_rad': 0.},
+                {'id': 'reversed', 'actor_indices_by_goal': [1, 0], 'world_z_rotation_rad': math.pi}],
+            'route_direction': 'either'})
+    if not groups or {name for group in groups for name in group['endpoint_actor_ids']} != set(by_actor):
+        raise ValueError('Harness seating must cover exactly the two endpoints of every lead')
+    return {'schema': 'mechanical_harness_endpoint_matching.v1',
+            'terminal_occupancy': 'one_endpoint_per_terminal', 'groups': groups}
+
+
 def evaluation_configuration(task_id, metadata, seed=0, physics_dt_s=.0005, room_support_paths=None):
-    rules = public_rules(task_id, seed)
+    rules = public_rules(task_id, seed, usability_profile=metadata.get('usability_profile'))
     if (type(physics_dt_s) not in (int, float) or not math.isfinite(physics_dt_s)
             or not 0 < physics_dt_s <= .002
             or abs(.02/physics_dt_s-round(.02/physics_dt_s)) > 1.e-8):
@@ -199,10 +259,13 @@ def evaluation_configuration(task_id, metadata, seed=0, physics_dt_s=.0005, room
         _finite_vector(removal['half_extents_m'], 3)
         if min(removal['half_extents_m']) <= 0:
             raise ValueError('Invalid collection tray region')
-    return {'schema': 'mechanical_nist_evaluation.v1', 'task_id': task_id,
+    result = {'schema': 'mechanical_nist_evaluation.v1', 'task_id': task_id,
         'episode_seed': seed, 'physics_dt_s': float(physics_dt_s),
         'metadata': deepcopy(metadata), 'room_support_paths': deepcopy(room_support_paths or {}),
         'thresholds': thresholds(task_id), 'public_rules_sha256': digest(rules)}
+    if task_id == 'nist_wire_harness':
+        result['harness_endpoint_matching'] = _harness_endpoint_matching(p, fixtures)
+    return result
 
 
 def bind_task_rules(task):

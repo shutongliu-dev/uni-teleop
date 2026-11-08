@@ -7,7 +7,7 @@ import numpy as np
 from scenes.workrooms.mechanical_assembly import robot_layout as source_layout
 
 TASK_IDS = ('breakfast_serving', 'produce_transfer', 'utensil_sorting', 'pot_lid_placement',
-            'pantry_stocking', 'table_clearing')
+            'pantry_stocking', 'table_clearing', 'surface_wiping')
 BASE_POSITION_M = (.65, 0., .78)
 # Exact original ready values sealed in all four kitchen v1 initial states.
 # Re-solving the same source IK in Isaac's NumPy can differ by ~4e-16 rad;

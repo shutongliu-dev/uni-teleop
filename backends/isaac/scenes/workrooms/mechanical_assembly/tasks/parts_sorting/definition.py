@@ -33,7 +33,7 @@ TASK = planned_task(
 TASK = bind_prepared_release(
     TASK,
     path=f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/mechanical_referee_20261018/rules_v1/releases/parts_sorting',
-    manifest_sha256='27a0ca3c69388cf4aed1b9ca34ad87bcaebbeb8dfdf1f351c2a9aba16a724252',
+    manifest_sha256='838ebf8d0205382404d04225eea83b15b58ca40e400bf7ad19b8861a68737fbb',
     evidence=[{
         'path': f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/mechanical_task_validation_20261018/sorting/release_binding01/report.json',
         'sha256': 'ece977658e4b341853e765acf02539b293e8012a4897252cba6bd6571d72bba0'}, {
@@ -41,3 +41,7 @@ TASK = bind_prepared_release(
         'sha256': 'ba3f9eac66c47dd00dc7c0413a11d999704ef8a3148bf3b3367aab9e569929e8'}],
     scope='The corrected separated supply/tray lanes and explicit source-preserving SDF ring match the retained four-case native gravity evidence. Current whole-geometry scoring is separately frozen and CPU checked; no robot transport or canonical episode success is claimed.',
 )
+
+
+from scenes.workrooms.mechanical_assembly.desktop_catalog import bind_desktop_release
+TASK = bind_desktop_release(TASK)

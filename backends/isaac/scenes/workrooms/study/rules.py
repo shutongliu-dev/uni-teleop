@@ -10,9 +10,12 @@ import json
 import math
 import re
 
+from bench.paths import portable
+
 RULES_VERSION = 'study_rules_v1'
 CONFIGURATION_SCHEMA = 'study_task_configuration_v1'
 OBSERVATION_SCHEMA = 'study_native_observation_v1'
+# Historical placement schema IDs; drawer uses its separate configuration/referee.
 TASK_IDS = ('stationery_sorting', 'book_stacking', 'book_retrieval', 'book_shelving')
 THRESHOLDS = {
     'physics_dt_s': .0005, 'minimum_stable_s': .300,
@@ -78,7 +81,8 @@ def rotation(value):
 
 
 def canonical_hash(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'),
+    # Identities hash data:// references, never this machine's data root.
+    return hashlib.sha256(json.dumps(portable(value), sort_keys=True, separators=(',', ':'),
         ensure_ascii=True, allow_nan=False).encode()).hexdigest()
 
 
@@ -121,6 +125,12 @@ def _upright_goal(obj, goal):
 
 
 def public_rules(task_id, configuration=None):
+    if task_id == 'reading_stand':
+        from .reading_stand_rules import public_rules as stand_rules
+        return stand_rules(configuration)
+    if task_id == 'drawer_retrieval':
+        from .drawer_rules import public_rules as drawer_public_rules
+        return drawer_public_rules(configuration)
     if task_id not in TASK_IDS:
         raise ValueError('Unknown study task')
     instruction = {
@@ -197,6 +207,12 @@ def build_configuration(task_id, objects, targets, supports, *, budget=None,
 
 
 def validate_configuration(configuration):
+    if configuration.get('task_id') == 'reading_stand':
+        from .reading_stand_rules import validate_configuration as validate_stand
+        return validate_stand(configuration)
+    if configuration.get('task_id') == 'drawer_retrieval':
+        from .drawer_rules import validate_configuration as validate_drawer
+        return validate_drawer(configuration)
     c = deepcopy(configuration)
     if c.get('schema') != CONFIGURATION_SCHEMA or c.get('task_id') not in TASK_IDS:
         raise ValueError('Unsupported study configuration')

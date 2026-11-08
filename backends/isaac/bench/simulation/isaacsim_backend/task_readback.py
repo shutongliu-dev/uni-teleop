@@ -110,6 +110,22 @@ def prismatic_state(joint, bodies):
             float(axis @ (speeds[1]-speeds[0]) + np.cross(angular[0], axis) @ delta))
 
 
+def revolute_state(joint, bodies):
+    """Use both actual body rotations and world angular velocities; no state writes."""
+    from .revolute_readback import revolute_coordinate
+    rotations, angular = [], []
+    for n in (0, 1):
+        body = bodies[joint[f'body{n}']] if joint[f'body{n}'] else None
+        pose = np.asarray(body['pose_xyzw'] if body else [0, 0, 0, 0, 0, 0, 1], dtype=float)
+        velocity = np.asarray(body['velocity'] if body else np.zeros(6), dtype=float)
+        if pose.shape != (7,) or velocity.shape != (6,) or not np.isfinite(velocity).all():
+            raise RuntimeError('Invalid native revolute body state')
+        rotations.append(rotation_xyzw(pose[3:]) @ rotation_xyzw(joint[f'local_rot{n}_xyzw']))
+        angular.append(velocity[3:])
+    return revolute_coordinate(rotations[0].T @ rotations[1], joint['axis'],
+                               rotations[0].T @ (angular[1]-angular[0]))
+
+
 def validate_particle_arrays(points, velocities, ids, count, expected_ids=None):
     points, velocities, ids = np.asarray(points, dtype=float), np.asarray(velocities, dtype=float), np.asarray(ids)
     if points.shape != (count, 3) or velocities.shape != points.shape:
@@ -124,6 +140,8 @@ def validate_particle_arrays(points, velocities, ids, count, expected_ids=None):
 
 class TaskLayerReadback:
     def __init__(self, stage, layers):
+        if any(layer.get('volume_bodies') for layer in layers):
+            raise ValueError('Native volume runtime readback requires native_task_bundle, not rigid task_layers')
         from pxr import UsdGeom, UsdPhysics
         self.stage, self.layers = stage, deepcopy(layers)
         self.body_paths = {name: path for layer in layers for name, path in layer['rigid_bodies'].items()}
@@ -208,7 +226,8 @@ class TaskLayerReadback:
         bodies = {self.body_paths[name]: {'pose_xyzw': object_q[object_names.index(name)],
                     'velocity': object_qd[object_names.index(name)], 'com_local_m': self.coms[name]}
                   for name in self.body_paths}
-        values = [prismatic_state(joint, bodies) for joint in self.joints]
+        values = [(revolute_state if joint['type'] == 'revolute' else prismatic_state)(joint, bodies)
+                  for joint in self.joints]
         result = {'task_joint_q': np.asarray([v[0] for v in values]),
                   'task_joint_qd': np.asarray([v[1] for v in values])}
         if self.particles:
@@ -233,9 +252,13 @@ class TaskLayerReadback:
         return {'schema': 'bench_task_runtime_v1',
             'native_physics_step_index': int(state['native_physics_step_index']),
             'native_world_time_s': float(state['native_world_time_s']), 'objects': objects,
-            'joints': {joint['path']: {'kind': 'prismatic',
+            'joints': {joint['path']: ({'kind': 'revolute',
+                'position_rad': float(state['task_joint_q'][i]), 'velocity_rad_s': float(state['task_joint_qd'][i]),
+                'coordinate_range': 'principal_angle_minus_pi_to_pi',
+                'source': 'derived_from_native_rigid_rotations_and_world_angular_velocities'}
+                if joint['type'] == 'revolute' else {'kind': 'prismatic',
                 'position_m': float(state['task_joint_q'][i]), 'velocity_m_s': float(state['task_joint_qd'][i]),
-                'source': 'derived_from_native_rigid_transforms_and_COM_velocities'}
+                'source': 'derived_from_native_rigid_transforms_and_COM_velocities'})
                 for i, joint in enumerate(self.joints)},
             'particle_sets': {name: {'path': item['path'],
                 'ids': state[f'task_particle_{name}_ids'].tolist(),

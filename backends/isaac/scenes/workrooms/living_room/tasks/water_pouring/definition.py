@@ -27,11 +27,28 @@ TASK = {
         'reference_implementation': 'scenes.workrooms.living_room.tasks.water_pouring.evaluator.SequenceEvaluator',
         'frozen_path': 'evaluator/sequence_evaluator.py', 'scope': 'Original particle mass ledger, cumulative spill, actual spout transfer, supported vessel return and 300 ms release stability.'},
     'source_release': {
-        'path': f'{DATA_ROOT}/datasets/fr3_sharpa_bench/isaacsim/releases/living_room/water_pouring/v5',
-        'manifest_sha256': 'aab64d8dacfab33aa873db69e23b5c2d0fe9fdba7c996a9bbf85751d1f1bdd67'},
-    'qualification': {'status': 'candidate_native_smoke_passed', 'native_preflight': True,
-        'manipulation': False, 'physics_accepted': False, 'public_http_smoke': False, 'public_functions_smoke': True,
-        'evidence': f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/living_water_coupling_20261018/publication/water_pouring02/qualification.json',
-        'evidence_sha256': '2924c1ed5b789072fc1fede8f2b1d9caa205be6182e33000b326d9b2180df81d',
-        'scope': 'Frozen v5 reset, public robot hold for 300 ms, 600 native substeps, four RGB-D cameras and observer continuity passed. Practical approximate liquid load; no full robot pouring, quantitative force calibration or HTTP transport claim.'},
+        'path': f'{DATA_ROOT}/datasets/fr3_sharpa_bench/isaacsim/releases/living_room/water_pouring/v6',
+        'manifest_sha256': 'c31bd1582381ad850b3363570e701cd2623e720c20ed6b797d72461d412d28b5'},
+    'qualification': {'status': 'candidate_native_smoke_passed',
+                      'native_preflight': True,
+                      'manipulation': False,
+                      'physics_accepted': False,
+                      'public_http_smoke': True,
+                      'public_functions_smoke': True,
+                      'agent_bench_interface': True,
+                      'evidence': f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/living_interactions_20261024/root/http_single_arm02/qualification.json',
+                      'evidence_sha256': 'a920e751696d592f64e9b06a04b270cf3fd9474157a246bdfb32a9d462281feb',
+                      'object_interaction_evidence': {'path': f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/living_interactions_20261024/task2/qualification.json',
+                                                      'sha256': '8ba8c0229257c59411af544b11c173ac65eb7c06df9aeac9852a478d0a9fb7b3',
+                                                      'scope': 'Native object-only retention, aimed and missed pouring; not '
+                                                               'robot manipulation.'},
+                      'scope': 'V6/source_runtime05 single-arm actual HTTP/Agent selection, four RGB-D cameras, wrist '
+                               'motion/return and hold; 1 s/2000 native steps, valid physics and normal process exits. '
+                               'Separate object-only probes verify conservation, transfer and spilled-water classification. '
+                               'No full robot pour or calibrated force claim.'},
 }
+
+
+from scenes.workrooms.living_room.randomization.catalog import bind_definition
+
+TASK = bind_definition(TASK)

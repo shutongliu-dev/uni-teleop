@@ -18,6 +18,9 @@ def install_projection(monkeypatch, frozen_inputs, *, opt_in=True,
                        projection_change=None, worker_change=None, initial_state='ongoing'):
     manifest, inputs = deepcopy(frozen_inputs)
     manifest['schema_version'] = 'isaacsim-living-room-manipulation-release-v1'
+    # Living-room manipulation scenes pin their frozen hand; the borrowed
+    # workcell scene leaves the same default SHARPA hand implicit.
+    inputs[1]['robot']['hand_id'] = 'sharpa_w01_right'
     task = inputs[2]
     if opt_in:
         task.update(declared_task(task['id']))

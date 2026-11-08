@@ -1,4 +1,27 @@
 local/
+# Downloaded data, simulator/SDK installs and model caches outside local/.
+/downloads/
+/data/
+/weights/
+/checkpoints/
+/pretrained_models/
+/.cache/
+
+# Release archives, including split DexBench tar.zst downloads.
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.tgz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
+*.tar.*.part-*
+*.zip.part-*
+*.part
+*.crdownload
+
 .venv*/
 __pycache__/
 *.pyc
@@ -15,10 +38,15 @@ records/
 *.onnx
 *.pt
 *.pth
+*.ckpt
+*.safetensors
+*.onnx.data
+*.onnx_data
 *.so
 *.dll
 *.dylib
 backends/isaac/data/*
+# Keep the versioned checksum manifest and installation notes, not payloads.
 !backends/isaac/data/MANIFEST.json
 !backends/isaac/data/README.md
 backends/isaac/runtime/*

@@ -11,6 +11,6 @@ TASK = prepared_task(
                      'target slots.',
             'success': 'Each whole body occupies its own category and identity slot, supported by '
                        'the desk; all three released and stable together.'},
-    release_version='v4',
-    manifest_sha256='69acaf448f031fdbbeb2811093dc5f8b60ea7b592972732ccfccd40477583d1e',
+    release_version='v5',
+    manifest_sha256='29b22f2ceb94f0c114a75ab51a7b37bcfdd4ba39b3538ea9db73be390515ac4f',
 )

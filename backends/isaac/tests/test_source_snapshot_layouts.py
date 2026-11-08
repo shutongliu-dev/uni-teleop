@@ -137,18 +137,18 @@ def test_new_freeze_matches_suite_inventory_without_treating_kit_or_json_as_pyth
         (source/tree).mkdir(parents=True)
     names = (*runner.CLIENT_SOURCE_DEPENDENCIES, 'scripts/isaac_python.sh',
              'agent/model_client/runner.py', 'bench/simulation/native.py',
-             'bench/adapters/manus.py', 'bench/data_tools/prepare.py',
-             'bench/apps/native.kit', 'scenes/catalog.json')
+             'bench/adapters/manus.py', 'bench/control/fixture.py',
+             'bench/apps/native.kit', 'scenes/workrooms/current_release.json')
     for name in names:
         path = source/name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('# fixture resource\n')
     (source/'scripts/isaac_python.sh').chmod(0o755)
     result = freeze.freeze(source, tmp_path/'snapshot',
-                           ('scripts/isaac_python.sh', 'bench/apps/native.kit', 'scenes/catalog.json'))
+                           ('scripts/isaac_python.sh', 'bench/apps/native.kit', 'scenes/workrooms/current_release.json'))
     monkeypatch.setattr(suite, 'PROJECT', source)
     assert result['source_utility_version'] == 'complete_benchmark_source_verifier_v6'
     assert result['source_trees'] == ['bench', 'agent', 'scenes']
     assert result['suite_source_pins'] == suite.source_pins()
-    for name in ('bench/apps/native.kit', 'scenes/catalog.json'):
+    for name in ('bench/apps/native.kit', 'scenes/workrooms/current_release.json'):
         assert name in result['files_sha256'] and name not in result['suite_source_pins']

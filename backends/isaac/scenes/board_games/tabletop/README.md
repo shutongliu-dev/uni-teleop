@@ -48,4 +48,7 @@ thresholds. Runtime/API interruptions and budget exhaustion do not award wins.
 See [the public bench contract](../../../docs/agent_bench/card_room_rules.md) for
 action fields, recoverable feedback and the split from the Agent implementation.
 Native acceptance and manipulation evidence must be attached independently.
-The legacy `scenes.board_games.hex` package and historical releases remain intact.
+The retired red/blue Hex implementation remains available in its frozen source
+snapshots and historical releases. Current shared asset primitives live in
+`scenes/workrooms/card_room/asset_primitives.py`; the old implementation and
+standalone bridge are no longer part of the development source tree.

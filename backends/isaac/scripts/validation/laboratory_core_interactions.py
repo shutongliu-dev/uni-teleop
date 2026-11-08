@@ -3,9 +3,14 @@
 Canonical and goal modes test separately declared gravity resets. Thread mode
 applies bounded tool wrench only to the independent cap. Bottle remains passive;
 cap Z is never prescribed and its measured axial lead must follow real contact.
+Extraction mode checks the source rack using a bounded vertical force on each
+vial, then returns and fully releases it. It does not represent a robot grasp.
+Seating mode lowers the vials through the destination holes with the same
+bounded vertical-force tool, then removes all forces for passive settling.
 """
 from __future__ import annotations
 import argparse
+from copy import deepcopy
 import importlib
 import json
 import math
@@ -60,18 +65,46 @@ def run(args):
             cube.CreateSizeAttr(1);cube.AddTranslateOp().Set(Gf.Vec3d(.65,y,.875))
             cube.AddScaleOp().Set(Gf.Vec3f(2.4,sy,.05));UsdPhysics.CollisionAPI.Apply(cube.GetPrim())
         module=importlib.import_module('scenes.workrooms.laboratory.tasks.'+args.task+'.assets')
-        meta=module.author_task(stage,presentation=args.case in ('goal','insertion'))
-        if args.case=='insertion':
+        adapted=None
+        if args.release is not None:
+            from bench.isaacsim.release import task_inputs, digest
+            from bench.simulation.isaacsim_backend.native_task_bundle import add_bundle
+            _,scene,task,_=task_inputs(args.release,args.task)
+            if scene['isaacsim']['physics_dt_s']!=.0005:
+                raise ValueError('Probe timestep must equal its selected release')
+            api=PhysxSchema.PhysxSceneAPI.Apply(stage.GetPrimAtPath(pc.prim_path))
+            api.CreateEnableCCDAttr(False);api.CreateGpuMaxRigidContactCountAttr(2**20)
+            api.CreateGpuMaxRigidPatchCountAttr(2**18);api.CreateGpuFoundLostAggregatePairsCapacityAttr(2**14)
+            api.CreateGpuTotalAggregatePairsCapacityAttr(2**18)
+            if 'enable_external_forces_every_iteration' in scene['isaacsim']:
+                api.CreateEnableExternalForcesEveryIterationAttr(scene['isaacsim']['enable_external_forces_every_iteration'])
+            meta=deepcopy(task['asset_metadata'])
+            add_bundle(stage,scene['native_task_bundle'],physics_scene_path='/World/PhysicsScene')
+            report['release']={'path':str(args.release.resolve()),'manifest_sha256':digest(args.release/'release_manifest.json')}
+            report['physics_options']=scene['isaacsim']
+            report['geometry_source']='Exact frozen native task bundle, including fixed desktop props; two isolated table planes, no room or robot.'
+            if args.case in ('goal','insertion','seating'):
+                goals={h['object_id']:h['goal_pose_xyzw'] for h in meta['task_parameters']['holes']}
+                for entry in meta['objects']:
+                    position=goals[entry['id']][:3]
+                    op=UsdGeom.Xformable(stage.GetPrimAtPath(entry['body_path'])).GetOrderedXformOps()[0]
+                    op.Set(Gf.Vec3d(*position));entry['initial_position_m']=position
+                    entry['initial_pose_xyzw']=[*position,*entry['initial_pose_xyzw'][3:]]
+        else:
+            meta=module.author_task(stage,presentation=args.case in ('goal','insertion','seating'))
+        if args.case in ('insertion','seating'):
             holes={h['object_id']:h for h in meta['task_parameters']['holes']}
             for entry in meta['objects']:
                 hole=holes[entry['id']]
                 position=[*hole['center_m'][:2],hole['bottom_z_m']+.075]
                 op=UsdGeom.Xformable(stage.GetPrimAtPath(entry['body_path'])).GetOrderedXformOps()[0]
                 op.Set(Gf.Vec3d(*position));entry['initial_position_m']=position
-                entry['initial_pose_xyzw'][:3]=position
-            report['insertion_protocol']={'kind':'gravity-only release',
+                # The procedural presentation metadata can alias a goal pose.
+                # Replace the reset list instead of moving that goal in place.
+                entry['initial_pose_xyzw']=[*position,*entry['initial_pose_xyzw'][3:]]
+            report['insertion_protocol']={'kind':'gravity-only release' if args.case=='insertion' else 'bounded-force lowering and release',
                 'initial_bottom_above_top_rim_m':.015,'initial_bottom_above_support_floor_m':.075,'pose_writes_after_reset':False,
-                'external_forces_or_targets':False,'robot_present':False}
+                'external_forces_or_targets':args.case=='seating','robot_present':False}
         if args.task=='cap_placement' and args.case!='canonical':
             holder=meta['task_parameters']['holder_center_m']
             for entry in meta['objects']:
@@ -83,9 +116,15 @@ def run(args):
                 entry['initial_pose_xyzw'][:3]=position
         for name,path in meta['actors'].items():
             PhysxSchema.PhysxContactReportAPI.Apply(stage.GetPrimAtPath(path)).CreateThresholdAttr(0)
+        if args.release is not None:
+            from bench.simulation.isaacsim_backend.static_mesh_contacts import adapt_static_meshes, FixedActorGuard
+            adapted=adapt_static_meshes(stage,scene['isaacsim'].get('static_mesh_contact_mode'))
+            report['static_mesh_adaptation']=adapted
         dump(output/'metadata.json',meta);stage.Export(str(output/'initial.usda'))
         world.reset()
         sim=world.physics_sim_view
+        fixed_view=sim.create_rigid_body_view(adapted['kinematic_body_paths']) if adapted and adapted['kinematic_body_paths'] else None
+        guard=FixedActorGuard(fixed_view.prim_paths,array(fixed_view.get_transforms())) if fixed_view else None
         views={name:sim.create_rigid_body_view(path) for name,path in meta['actors'].items()}
         contacts={name:sim.create_rigid_contact_view(path,filter_patterns=[c for fixture in meta['fixture_metadata'].values() for c in fixture['collider_paths']]+
             [p for n,p in meta['actors'].items() if n!=name]+['/World/Island','/World/Rear'],
@@ -93,8 +132,36 @@ def run(args):
         report['contact_filter_paths']={n:list(v.filter_paths) for n,v in contacts.items()}
         device=next(iter(views.values())).get_transforms().device
         indices=torch.tensor([0],dtype=torch.int32,device=device)
-        dt=.0005;duration=15. if args.case=='thread' else 3. if args.case=='insertion' else 1.5
+        if args.release is not None:
+            specs={o['id']:o for o in meta['objects']}
+            for name,view in views.items():
+                view.set_transforms(torch.tensor([specs[name]['initial_pose_xyzw']],dtype=torch.float32,device=device),indices)
+                view.set_velocities(torch.zeros((1,6),dtype=torch.float32,device=device),indices)
+            report['reset_boundary_writes']={'poses':len(views),'velocities':len(views),
+                'scope':'One reset-only restore after World.reset warmup, before baseline and forces; none during the recorded trajectory.'}
+        dt=.0005;duration=5. if args.case=='extraction' else 15. if args.case=='thread' else 3. if args.case in ('insertion','seating') else 1.5
         report['duration_s']=duration
+        if args.case=='extraction':
+            source_holes=meta['task_parameters']['source_holes']
+            if set(h['object_id'] for h in source_holes)!=set(views):
+                raise ValueError('Extraction requires one source-rack hole for each vial')
+            starts={o['id']:o['initial_position_m'][2] for o in meta['objects']}
+            report['tool_boundary']={'kind':'bounded vertical engineering force',
+                'force_limit_n':.5,'vertical_stiffness_n_m':8.,'vertical_damping_ns_m':.7,
+                'rise_m':.10,'duration_s':duration,'torques_applied':False,
+                'pose_or_velocity_writes_after_reset':False,'robot_grasp_claimed':False,
+                'protocol':'0.5s passive settle; 1.5s lift; 0.5s hold; 1.5s lower; 1s fully released'}
+            report['scope']='Source rack support, force-bounded vertical withdrawal and released reseating; no robot grasp or cross-table transfer.'
+        if args.case=='seating':
+            starts={o['id']:o['initial_position_m'][2] for o in meta['objects']}
+            destinations={h['object_id']:h['goal_pose_xyzw'][2] for h in meta['task_parameters']['holes']}
+            if not all(starts[n]-destinations[n]>.07 for n in starts):
+                raise ValueError('Seating must lower from above the unchanged destination goal')
+            report['tool_boundary']={'kind':'bounded vertical engineering force',
+                'force_limit_n':.5,'vertical_stiffness_n_m':8.,'vertical_damping_ns_m':.7,
+                'torques_applied':False,'pose_or_velocity_writes_after_reset':False,
+                'robot_grasp_claimed':False,'protocol':'1.5s lower through open holes; 0.5s hold; 1s fully released'}
+            report['scope']='Destination hole traversal and released support after bounded-force lowering; no robot grasp or cross-table transfer.'
         if args.case=='thread':
             report['tool_boundary']={'body':'cap','kind':'bounded wrench',
               'torque_limit_nm':.006,'radial_force_limit_n':1.,'constant_downforce_n':.04,
@@ -104,6 +171,20 @@ def run(args):
         rows=[]
         for tick in range(round(duration/dt)):
             time=tick*dt;load=None
+            if (args.case=='extraction' and .5<=time<4.) or (args.case=='seating' and time<2.):
+                if args.case=='extraction':
+                    rise=.10*min((time-.5)/1.5,1.) if time<2.5 else .10*max((4.-time)/1.5,0.)
+                load={}
+                for name,view in views.items():
+                    position=array(view.get_transforms())[0]
+                    velocity=array(view.get_velocities())[0]
+                    mass=next(o['mass_kg'] for o in meta['objects'] if o['id']==name)
+                    target=starts[name]+rise if args.case=='extraction' else starts[name]+(destinations[name]-starts[name])*min(time/1.5,1.)
+                    force=float(np.clip(8.*(target-position[2])-.7*velocity[2]+mass*9.81,-.5,.5))
+                    view.apply_forces_and_torques_at_position(
+                        force_data=torch.tensor([[0.,0.,force]],dtype=torch.float32,device=device),
+                        torque_data=None,position_data=None,indices=indices,is_global=True)
+                    load[name]={'force_n':[0.,0.,force],'target_bottom_z_m':target}
             if args.case=='thread' and .5<=time<14.:
                 cap=array(views['cap'].get_transforms())[0];bottle=array(views['sample_bottle'].get_transforms())[0]
                 velocity=array(views['cap'].get_velocities())[0]
@@ -128,7 +209,9 @@ def run(args):
                     position_data=None,indices=indices,is_global=True)
                 load={'force_n':force.tolist(),'torque_nm':torque.tolist()}
             world.step(render=False)
-            if tick%10==0 or tick==round(duration/dt)-1:
+            if guard is not None:
+                guard.check(fixed_view.prim_paths,array(fixed_view.get_transforms()))
+            if args.case in ('extraction','seating') or tick%10==0 or tick==round(duration/dt)-1:
                 row={'time_s':(tick+1)*dt,'native_step':tick+1,'objects':{},'load':load}
                 for name,view in views.items():
                     row['objects'][name]={'pose_xyzw':array(view.get_transforms())[0].tolist(),
@@ -148,7 +231,7 @@ def run(args):
                 'contact_force_norm_n':float(np.linalg.norm(forces)),
                 'upward_contact_force_n':float(np.sum(np.maximum(forces[:,2],0.)))}
             checks[name+'_released_rest']={'passed':bool(np.linalg.norm(v[:3])<.02 and np.linalg.norm(v[3:])<.15)}
-        if args.task=='vial_racking' and args.case in ('goal','insertion'):
+        if args.task=='vial_racking' and args.case in ('goal','insertion','seating'):
             checks['true_hole_insertion']={'passed':all(abs(final[h['object_id']]['pose_xyzw'][2]-h['bottom_z_m'])<.003
                 and np.linalg.norm(np.array(final[h['object_id']]['pose_xyzw'][:2])-h['center_m'][:2])<.003
                 for h in meta['task_parameters']['holes'])}
@@ -165,6 +248,51 @@ def run(args):
                     'measured_descent_m':descent,
                     'minimum_bottom_z_m':min(r['objects'][name]['pose_xyzw'][2] for r in rows)}
             checks['no_actuation_after_reset']={'passed':all(r['load'] is None for r in rows)}
+        if args.case=='extraction':
+            terminal=[r for r in rows if r['time_s']>=4.5]
+            checks['complete_native_stream']={'passed':len(rows)==round(duration/dt)
+                and all(r['native_step']==i+1 for i,r in enumerate(rows)),
+                'frames':len(rows),'terminal_frames':len(terminal)}
+            checks['complete_release']={'passed':all(r['load'] is None for r in terminal)}
+            for hole in source_holes:
+                name=hole['object_id'];center=np.asarray(hole['center_m'])[:2]
+                clearance=max(r['objects'][name]['pose_xyzw'][2] for r in rows)-hole['rim_z_m']
+                filters=report['contact_filter_paths'][name]
+                if len(filters)==1 and isinstance(filters[0],list):
+                    filters=filters[0]  # One sensor group, one entry per force-matrix column.
+                fixture_paths=set(meta['fixture_metadata'][hole['fixture']]['collider_paths'])
+                support_indices=[i for i,p in enumerate(filters) if p in fixture_paths]
+                def supported(row):
+                    forces=np.asarray(row['objects'][name]['contact_forces_n'])
+                    return bool(support_indices and np.maximum(forces[support_indices,2],0.).sum()>.01)
+                def seated(row):
+                    obj=row['objects'][name];pose=np.asarray(obj['pose_xyzw']);v=np.asarray(obj['velocity'])
+                    return bool(np.linalg.norm(pose[:2]-center)<.003 and abs(pose[2]-hole['bottom_z_m'])<.003
+                        and np.linalg.norm(v[:3])<.02 and np.linalg.norm(v[3:])<.15 and supported(row))
+                checks[name+'_withdrawn_above_source_rim']={'passed':clearance>.04,'bottom_rim_clearance_m':clearance}
+                checks[name+'_passive_source_support']={'passed':all(seated(r) for r in rows if .3<=r['time_s']<=.5)}
+                checks[name+'_released_source_reseating']={'passed':all(seated(r) for r in terminal)}
+        if args.case=='seating':
+            terminal=[r for r in rows if r['time_s']>=2.5]
+            checks['complete_native_stream']={'passed':len(rows)==round(duration/dt)
+                and all(r['native_step']==i+1 for i,r in enumerate(rows)),
+                'frames':len(rows),'terminal_frames':len(terminal)}
+            checks['complete_release']={'passed':all(r['load'] is None for r in terminal)}
+            for hole in meta['task_parameters']['holes']:
+                name=hole['object_id'];center=np.asarray(hole['center_m'])[:2]
+                filters=report['contact_filter_paths'][name]
+                if len(filters)==1 and isinstance(filters[0],list):filters=filters[0]
+                fixture_paths=set(meta['fixture_metadata'][hole['fixture']]['collider_paths'])
+                support_indices=[i for i,p in enumerate(filters) if p in fixture_paths]
+                def seated(row):
+                    obj=row['objects'][name];pose=np.asarray(obj['pose_xyzw']);v=np.asarray(obj['velocity'])
+                    forces=np.asarray(obj['contact_forces_n'])
+                    support=bool(support_indices and np.maximum(forces[support_indices,2],0.).sum()>.01)
+                    return bool(np.linalg.norm(pose[:2]-center)<.003 and abs(pose[2]-hole['bottom_z_m'])<.003
+                        and np.linalg.norm(v[:3])<.02 and np.linalg.norm(v[3:])<.15 and support)
+                checks[name+'_crossed_destination_rim']={'passed':starts[name]>hole['rim_z_m']+.014
+                    and any(r['objects'][name]['pose_xyzw'][2]<hole['rim_z_m']-.005 for r in rows)}
+                checks[name+'_released_target_seating']={'passed':all(seated(r) for r in terminal)}
         if args.case=='thread':
             baseline=next(r for r in rows if r['time_s']>=.49)
             opened=next(r for r in rows if r['time_s']>=4.0)
@@ -182,6 +310,7 @@ def run(args):
             la,lz=relative(lifted)
             checks['cap_fully_removed']={'passed':bool(la>1.80 and lz-bz>.035),'relative_angle_rad':la,'rise_m':lz-bz}
             fa,fz=relative(rows[-1]);checks['reclosed_height']={'passed':abs(fz-bz)<.002 and abs(fa-ba)<.12,'relative_final_angle_rad':fa,'relative_final_z_m':fz,'baseline_z_m':bz}
+        if guard is not None:report['fixed_actor_guard']=guard.report()
         report['checks']=checks;report['passed']=all(c['passed'] for c in checks.values())
     except BaseException as e:
         traceback.print_exc();report['error']={'type':type(e).__name__,'message':str(e)}
@@ -189,21 +318,22 @@ def run(args):
         dump(output/'qualification.json',report)
         print(json.dumps({'passed':report['passed'],'output':str(output)}),flush=True)
         if app is not None:
-            if not report['passed']:
-                try: raise RuntimeError('Independent laboratory probe did not pass')
-                finally: app.close()
-            app.close()
+            app.close(exit_code=0 if report['passed'] else 1)
     return 0 if report['passed'] else 1
 
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--task',required=True,choices=['sample_sorting','vial_racking','cap_placement'])
-    p.add_argument('--case',required=True,choices=['canonical','goal','thread','insertion'])
+    p.add_argument('--case',required=True,choices=['canonical','goal','thread','insertion','extraction','seating'])
     p.add_argument('--output',required=True,type=Path)
+    p.add_argument('--release',type=Path,help='For vial probes, load the exact frozen asset and its published fixed-mesh contact mode')
     args=p.parse_args()
     if args.case=='thread' and args.task!='cap_placement':p.error('Thread probe only applies to cap closure')
     if args.case=='insertion' and args.task!='vial_racking':p.error('Insertion probe only applies to vial racking')
+    if args.case=='extraction' and args.task!='vial_racking':p.error('Extraction probe only applies to vial racking')
+    if args.case=='seating' and args.task!='vial_racking':p.error('Seating probe only applies to vial racking')
+    if args.release is not None and args.task!='vial_racking':p.error('Frozen-release probe is currently scoped to vial racking')
     raise SystemExit(run(args))
 
 if __name__=='__main__': main()

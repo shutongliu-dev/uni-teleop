@@ -15,7 +15,8 @@ from agent.model_client.function_http import FunctionHTTPClient
 from agent.model_client.function_session import FunctionSession
 from agent.model_client.bench_http import BenchHTTPError
 from agent.model_client.responses import MicuModelClient
-from agent.model_client.transport import ModelGatewayConfig, ModelGatewayError
+from agent.model_client.transport import (ModelClient, ModelGatewayConfig, ModelGatewayError,
+                                         GATEWAY_RETRY_POLICY, gateway_retry_metadata)
 from bench.paths import OUTPUT_ROOT, load_json
 from bench.runtime.controllers import default_registry
 from bench.runtime.server import create_app
@@ -66,8 +67,10 @@ def test_task0_is_single_agent_and_practice_is_distinct_from_transport():
         assert not learning_policy(task)['skill_mutation_tools_available']
 
 
-@pytest.mark.parametrize('fault', [None, 'private_create', 'pending', 'finish_failure', 'deadline',
-                                 'context_deadline', 'context_timeout', 'micu_retry', 'micu_failure'])
+@pytest.mark.parametrize('fault', [None, 'private_create', 'lost_create_response', 'pending', 'finish_failure', 'deadline',
+                                 'context_deadline', 'context_timeout', 'micu_retry', 'micu_failure',
+                                 'gateway_retry', 'gateway_failure',
+                                 'cleanup_unlimited', 'cleanup_short', 'cleanup_long'])
 def test_task0_uses_seeded_ready_goals_and_ordinary_functions(placement_release, tmp_path, monkeypatch, capsys, fault):
     workers = []
     def factory(**kwargs):
@@ -89,28 +92,56 @@ def test_task0_uses_seeded_ready_goals_and_ordinary_functions(placement_release,
     api = AgentService(tmp_path / 'episodes', release=placement_release, registry=default_registry(placement_release),
                        worker_factory=factory)
     model = ScriptedModel([{'function': 'observe', 'arguments': {}}, {'stop': True}])
-    micu, requests = None, []
-    if fault in ('micu_retry', 'micu_failure'):
-        from agent.model_client import responses
-        monkeypatch.setattr(responses, 'time', SimpleNamespace(monotonic=responses.time.monotonic,
-                                                              sleep=lambda _: None))
+    recovery, requests = None, []
+    gateway = fault in ('gateway_retry', 'gateway_failure')
+    if fault in ('micu_retry', 'micu_failure', 'gateway_retry', 'gateway_failure'):
+        from agent.model_client import responses, transport
+        module = transport if gateway else responses
+        monkeypatch.setattr(module, 'time', SimpleNamespace(monotonic=module.time.monotonic,
+                                                           sleep=lambda _: None))
         def handler(request):
             requests.append(request.content)
-            if fault == 'micu_failure' or len(requests) == 1:
-                return httpx.Response(401 if fault == 'micu_failure' else 503,
+            if fault in ('micu_failure', 'gateway_failure') or len(requests) == 1:
+                return httpx.Response(401 if fault in ('micu_failure', 'gateway_failure') else 503,
                                       text='Bearer private-test-function-key provider-body')
             text = json.dumps(next(model.decisions))
+            if gateway:
+                return httpx.Response(200, json={'model': 'gpt-6-astra',
+                    'choices': [{'message': {'content': text}, 'finish_reason': 'stop'}],
+                    'usage': {'prompt_tokens': 10, 'completion_tokens': 4}})
             return httpx.Response(200, json={'model': 'gpt-6-astra', 'status': 'completed',
                 'output': [{'type': 'message', 'content': [{'type': 'output_text', 'text': text}]}],
                 'usage': {'input_tokens': 10, 'output_tokens': 4}})
-        micu = MicuModelClient(ModelGatewayConfig('https://example.micuapi.ai/v1', 'private-test-function-key'),
-                              'gpt-6-astra', transport=httpx.MockTransport(handler))
+        recovery = ((ModelClient(ModelGatewayConfig('https://model.example/v1', 'private-test-function-key'),
+                      'gpt-6-astra', timeout_s=300., max_retries=None, retry_policy=GATEWAY_RETRY_POLICY,
+                      transport=httpx.MockTransport(handler))) if gateway else
+                    MicuModelClient(ModelGatewayConfig('https://example.micuapi.ai/v1', 'private-test-function-key'),
+                                    'gpt-6-astra', transport=httpx.MockTransport(handler)))
         def generate(prompt, turns, **kwargs):
             model.turns.append(deepcopy(turns))
-            return micu.generate(prompt, turns, **kwargs)
+            return recovery.generate(prompt, turns, **kwargs)
         model.generate = generate
     with TestClient(create_app(service=api)) as http:
         bench = BenchHTTPClient('http://testserver', client=http)
+        cleanup_timeouts = {'cleanup_unlimited': (None, None), 'cleanup_short': (7., 7.),
+                            'cleanup_long': (90., 30.)}
+        cleanup_requests = []
+        if fault in cleanup_timeouts:
+            original_request = http.request
+            def inspect_cleanup_request(method, url, **kwargs):
+                payload = kwargs.get('json') or {}
+                if payload.get('request_id') in ('host_final_result', 'host_finish'):
+                    # Inspect the real HTTP request option, not a local helper.
+                    cleanup_requests.append((payload['function'], kwargs['timeout']))
+                    expected_timeout = cleanup_timeouts[fault][1]
+                    if expected_timeout is None:
+                        assert kwargs['timeout'] is None
+                    else:
+                        # The transport subtracts request preparation time.
+                        assert 0. < kwargs['timeout'] <= expected_timeout
+                        assert kwargs['timeout'] == pytest.approx(expected_timeout, abs=.5)
+                return original_request(method, url, **kwargs)
+            monkeypatch.setattr(http, 'request', inspect_cleanup_request)
         if fault == 'private_create':
             original = bench.create
             def corrupt(payload):
@@ -118,6 +149,12 @@ def test_task0_uses_seeded_ready_goals_and_ordinary_functions(placement_release,
                 ready['observation']['privileged_object_poses'] = {'hidden': {}}
                 return ready
             monkeypatch.setattr(bench, 'create', corrupt)
+        if fault == 'lost_create_response':
+            original = bench.create
+            def lose_response(payload):
+                original(payload)  # The server created a real CPU worker-double session.
+                raise BenchHTTPError('Lost creation response', category='transport_timeout')
+            monkeypatch.setattr(bench, 'create', lose_response)
         if fault == 'pending':
             monkeypatch.setattr(FunctionSession, 'pending', property(lambda session: getattr(session, '_test_pending', None)))
             def unresolved(session, decision):
@@ -149,13 +186,15 @@ def test_task0_uses_seeded_ready_goals_and_ordinary_functions(placement_release,
             monkeypatch.setattr(FunctionSession, 'context', expired_context)
         try:
             report = run(RunConfig('http://testserver', 'task0', tmp_path / 'run', seed=7,
-                                  provider='micu' if micu else 'gateway', max_decisions=3,
+                                  provider='micu' if recovery and not gateway else 'gateway', max_decisions=3,
+                                  model_retry_policy=GATEWAY_RETRY_POLICY if gateway else None,
+                                  http_timeout=cleanup_timeouts.get(fault, (60., None))[0],
                                   max_status_queries=100000),
                          bench=bench, models={'single': model})
         finally:
-            if micu:
-                micu.close()
-        if micu:
+            if recovery:
+                recovery.close()
+        if recovery:
             decision = tmp_path / 'run/single/decisions/0000'
             events = [json.loads(line) for line in (decision / 'model_api_events.jsonl').read_text().splitlines()]
             assert all(row['decision_index'] == 0 and row['player'] == 'single' for row in events)
@@ -167,11 +206,12 @@ def test_task0_uses_seeded_ready_goals_and_ordinary_functions(placement_release,
             assert 'private-test-function-key' not in json.dumps(events + terminal)
             assert 'provider-body' not in json.dumps(events + terminal)
             assert not [item for item in workers[0].calls if item[0] == 'step']
-            if fault == 'micu_failure':
+            if fault in ('micu_failure', 'gateway_failure'):
                 assert len(requests) == 1
                 assert report['run_status'] == 'configuration_error' and report['task_success'] is None
                 error = load_json(decision / 'model_error.json')
-                assert error == {'decision_index': 0, 'error_category': 'http_status', 'http_status': 401, 'attempts': 1}
+                assert error == {'decision_index': 0, 'error_category': 'http_status', 'http_status': 401, 'attempts': 1,
+                                 **(gateway_retry_metadata() if gateway else {})}
                 return
             assert len(requests) == 3 and requests[0] == requests[1]
             assert [row['event'] for row in events] == ['model_request_started', 'model_request_failed',
@@ -185,6 +225,14 @@ def test_task0_uses_seeded_ready_goals_and_ordinary_functions(placement_release,
             assert report['result_source'] == 'cleanup_finish'
             assert report['result']['outcome'] == 'cancelled'
             return
+        if fault == 'lost_create_response':
+            from agent.model_client.learning.receipts import ReceiptError, collect_effort
+            assert len(workers) == len(api.sessions) == 1  # No new POST/retry.
+            assert not model.turns and report['episode_id'] is None and report['result'] is None
+            assert (tmp_path/'run/create_request.json').exists()
+            with pytest.raises(ReceiptError, match='native_effort_unavailable_without_episode_identity'):
+                collect_effort(tmp_path/'run')
+            return
         if fault == 'context_timeout':
             assert report['error_type'] == 'BenchHTTPError'
             assert report['run_status'] == 'infra_error'
@@ -193,6 +241,11 @@ def test_task0_uses_seeded_ready_goals_and_ordinary_functions(placement_release,
             return
         assert report['error_type'] is None, report
         assert report['board_game'] is False
+        if fault in cleanup_timeouts:
+            assert report['finalization_error'] is None, report
+            assert report['result_source'] == 'cleanup_finish'
+            assert report['result']['outcome'] == 'cancelled'
+            assert [name for name, _ in cleanup_requests] == ['get_result', 'finish_episode']
         if fault in ('pending', 'finish_failure'):
             assert report['run_status'] == 'infra_error'
             assert report['task_success'] is None
@@ -208,6 +261,12 @@ def test_task0_uses_seeded_ready_goals_and_ordinary_functions(placement_release,
         assert request['seed'] == 7
         settings = load_json(tmp_path / 'run/agent_config.json')
         assert settings['action_recovery']['max_status_queries_per_wait'] == 100000
+        if fault is None:
+            assert 'input_projection' not in settings
+            assert not list((tmp_path / 'run').rglob('input_projection.json'))
+            previous = load_json(tmp_path / 'run/single/decisions/0000/execution.json')
+            current = json.loads(model.turns[1][-1]['content'][0]['text'])
+            assert current['last_feedback'] == previous
         from agent.model_client.learning.journal import Journal
         journal = Journal(tmp_path / 'run/single/host/action_journal')
         assert journal.read()[0]['payload']['recovery_policy']['max_status_queries'] == 100000
@@ -262,6 +321,11 @@ def test_board_runner_authenticates_media_hands_off_and_keeps_private_histories(
             assert report['player_outcomes'] == {'player_0': 'aborted', 'player_1': 'aborted'}
             assert report['evaluation_player_outcomes'] == {'player_0': 'unknown', 'player_1': 'unknown'}
             assert not report['result_valid_for_scoring']
+            if fault == 'interrupt':
+                from agent.model_client.learning.receipts import ReceiptError, collect_match_effort
+                assert report['decisions']['player_0'] == 1
+                with pytest.raises(ReceiptError, match='model_request_completion_unavailable'):
+                    collect_match_effort(tmp_path/'run')
             return
         assert report['error_type'] is None, report
         assert report['finalization_error'] is None, report

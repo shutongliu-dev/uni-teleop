@@ -106,7 +106,7 @@ def test_declared_task_must_be_present_and_match_discovery_before_model_call(tmp
             return value
         monkeypatch.setattr(bench, '_json', corrupt)
         report = run(RunConfig('http://testserver', 'task3', tmp_path / 'run',
-                              family='living_room', seed=0), bench=bench, models={'single': model})
+                              family='living_room', configuration='single_arm', seed=0), bench=bench, models={'single': model})
     assert not model.turns and report['error_type'] is not None
     assert not report['result_valid_for_scoring']
     assert len(workers) == 1 and workers[0].closed
@@ -132,7 +132,7 @@ def test_function_runner_records_current_frozen_height_without_binary_failure(tm
     model = HeightModel([{'function': 'hold', 'arguments': {'duration_s': .02}}, {'stop': True}])
     with TestClient(create_app(service=api)) as http:
         report = run(RunConfig('http://testserver', 'task3', tmp_path / 'run',
-            family='living_room', seed=0, max_decisions=2, max_status_queries=100000),
+            family='living_room', configuration='single_arm', seed=0, max_decisions=2, max_status_queries=100000),
             bench=BenchHTTPClient('http://testserver', client=http), models={'single': model})
     assert report['run_status'] == 'completed', report
     assert report['task_outcome'] == 'unknown' and report['task_success'] is None

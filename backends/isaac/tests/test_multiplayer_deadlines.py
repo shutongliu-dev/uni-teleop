@@ -20,19 +20,29 @@ from test_function_response_bindings import episode_spec, game_result
 
 @pytest.mark.parametrize('kind', ['board', 'turn'])
 @pytest.mark.parametrize('terminal', ['win', 'draw'])
+@pytest.mark.parametrize('budget_kind', ['wall', 'simulation'])
 @pytest.mark.parametrize('offset', [1., 0., -.1],
                          ids=['late_ack', 'at_wall_deadline', 'on_time_then_slow_archive'])
 def test_terminal_ack_respects_budget_without_losing_native_evidence(
-        request, kind, terminal, offset):
-    late = offset >= 0.
+        request, monkeypatch, kind, terminal, budget_kind, offset):
+    late = offset >= 0. if budget_kind == 'wall' else offset > 0.
     factory = request.getfixturevalue(kind+'_game')
     with factory(track='direct_joints') as g:
         clock = ManualTime()
         g.session.clock._monotonic = clock
         g.session.clock._start = 0.
-        horizon = g.session.spec.budgets.wall_time_s
+        horizon = (g.session.spec.budgets.wall_time_s if budget_kind == 'wall'
+                   else g.session.spec.budgets.sim_time_s)
         captured = []
         eligible_states = []
+        contact_observations = []
+        observe_contacts = g.session.contact_history.observe
+
+        def record_contacts(raw):
+            contact_observations.append(raw['sim_time_s'])
+            return observe_contacts(raw)
+
+        monkeypatch.setattr(g.session.contact_history, 'observe', record_contacts)
         original = g.worker.request
 
         def native_reply(operation, **payload):
@@ -48,9 +58,18 @@ def test_terminal_ack_respects_budget_without_losing_native_evidence(
                 finished = (reply['board_game']['terminal'] if kind == 'board'
                             else reply['turn_game']['status'] == 'completed')
                 if finished:
+                    if budget_kind == 'wall':
+                        clock.value = horizon+offset
+                    else:
+                        # Explicit malformed native-clock receipt, not simulated
+                        # physics: the acknowledged endpoint must still be archived.
+                        g.worker.raw['sim_time_s'] = horizon+offset
+                        reply['observation']['sim_time_s'] = horizon+offset
+                        if kind == 'turn':
+                            g.worker.state['sim_time_s'] = horizon+offset
+                            reply['turn_game']['sim_time_s'] = horizon+offset
                     captured.append(deepcopy(reply))
                     eligible_states.append(g.session.player_session.state.model_dump(mode='json'))
-                    clock.value = horizon+offset
             elif operation == 'cameras' and captured and not late:
                 # Final recording may be slow, but the accepted terminal ACK
                 # stopped the active episode clock before this operation.
@@ -82,11 +101,18 @@ def test_terminal_ack_respects_budget_without_losing_native_evidence(
         model = BoardGameResult if kind == 'board' else TurnGameResult
         model.model_validate(result)
         public = result[kind+'_game']
-        assert result['episode']['outcome'] == ('wall_timeout' if late else 'success')
+        timeout = 'wall_timeout' if budget_kind == 'wall' else 'sim_timeout'
+        assert result['episode']['outcome'] == (timeout if late else 'success')
         assert result['episode']['physics_valid'] is True
         assert g.session.raw == raw['observation']
         assert g.session.player_session.last_targets == g.worker.raw['robot']['joint_targets_rad']
         assert g.session.sequence == sum(op == 'step' for op, _ in g.worker.calls)
+        assert len(contact_observations) == g.session.sequence
+        assert contact_observations[-1] == raw['observation']['sim_time_s']
+        records = [json.loads(line) for line in (g.session.recorder.directory/'events.jsonl').read_text().splitlines()]
+        commands = [row['payload'] for row in records if row['kind'] == 'robot_joint_command']
+        assert commands == [payload['command'] for op, payload in g.worker.calls if op == 'step']
+        assert g.session.snapshot.sequence == g.session.sequence
         assert g.worker.closed and g.session.done.is_set()
         assert g.session.life.active_action_id is None
         assert g.session.status(last_action)['status'] == ('failed' if late else 'completed')
@@ -110,9 +136,13 @@ def test_terminal_ack_respects_budget_without_losing_native_evidence(
             assert receipt['native_state'] == raw[kind+'_game']
             assert receipt['native_score'] == raw['score']
             assert receipt['last_budget_state'] == eligible_states[0]
+            assert receipt['outcome'] == timeout
         else:
             assert public == raw[kind+'_game']
-            assert result['episode']['elapsed_wall_s'] == pytest.approx(horizon-.1)
+            if budget_kind == 'wall':
+                assert result['episode']['elapsed_wall_s'] == pytest.approx(horizon-.1)
+            else:
+                assert result['episode']['completion_sim_s'] == pytest.approx(horizon+offset)
             assert not (g.session.directory/'private/late_game_receipt.json').exists()
         clock.value += 100.
         assert g.session.finish() == result['episode']

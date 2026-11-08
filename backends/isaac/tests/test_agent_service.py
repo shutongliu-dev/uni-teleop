@@ -6,6 +6,7 @@ from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import threading
 import time
 
@@ -29,6 +30,38 @@ def test_frontend_provenance_binds_relocated_sensor_implementations():
     for relative in ('bench/sensors/tactile.py',
                      'bench/simulation/isaacsim_backend/camera_calibration.py'):
         assert sources[relative] == hashlib.sha256((service.PROJECT / relative).read_bytes()).hexdigest()
+
+
+@pytest.mark.parametrize('relative', [
+    'scenes/workrooms/kitchen/release.py',
+    'scenes/workrooms/card_room/game_task.py',
+    'scenes/workrooms/catalog.py',
+])
+def test_workroom_source_drift_rejects_creation_before_worker(tmp_path, monkeypatch, relative):
+    """Exercise actual inventory and admission over disposable source copies."""
+    project = service.PROJECT
+    sources = service.frontend_sources()
+    # Include the challenged source even on a buggy inventory, so this tests
+    # omission rather than a missing fixture file.
+    for name in {*sources, relative}:
+        target = tmp_path/name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(project/name, target)
+    audit_paths = tuple(tmp_path/path.relative_to(project) for path in service.audit_source_paths())
+    monkeypatch.setattr(service, 'PROJECT', tmp_path)
+    monkeypatch.setattr(service, 'audit_source_paths', lambda: audit_paths)
+    before = service.frontend_sources()
+    assert before[relative] == hashlib.sha256((tmp_path/relative).read_bytes()).hexdigest()
+    monkeypatch.setattr(service, 'IMPORTED_FRONTEND_SOURCES', before)
+    with (tmp_path/relative).open('a') as stream:
+        stream.write('\n# Disposable source drift probe.\n')
+    assert service.frontend_sources()[relative] != before[relative]
+    launched = []
+    api = AgentService(tmp_path/'episodes', registry=PolicyRegistry(),
+                       worker_factory=lambda **kwargs: launched.append(kwargs))
+    with pytest.raises(ServiceError, match='Runner source changed after import'):
+        api.create(request())
+    assert launched == [] and api.sessions == {}
 
 
 @pytest.fixture(scope='module')
@@ -1296,3 +1329,23 @@ def test_irrecoverable_evaluator_state_ends_the_episode_as_a_valid_task_failure(
     session,_=session_for(make(on_step=latched))
     session.submit(action(session,duration=.1));join_action(session)
     assert session.result.outcome=='task_failure' and session.result.physics_valid is True
+
+
+def test_session_hands_server_validation_only_to_opted_in_workers(runner, monkeypatch):
+    make, _, workers = runner
+    from bench.runtime import release_cache
+    exported, received = [], []
+    monkeypatch.setattr(release_cache, 'worker_handoff', lambda release, *, sources:
+                        exported.append((release, sources)) or {'schema': release_cache.HANDOFF_SCHEMA})
+    for opted in (True, False):
+        api = make()
+        factory = api.worker_factory
+        def observed(factory=factory, **kwargs):
+            received.append(kwargs.get('release_validation', 'not offered'))
+            return factory(**kwargs)
+        if opted:
+            observed.accepts_release_validation = True
+        api.worker_factory = observed
+        session_for(api)
+    assert received == [{'schema': release_cache.HANDOFF_SCHEMA}, 'not offered']
+    assert len(exported) == 1 and exported[0][1] is service.IMPORTED_FRONTEND_SOURCES

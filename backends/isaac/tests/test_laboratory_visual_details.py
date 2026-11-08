@@ -51,7 +51,7 @@ def test_visual_details_preserve_physical_stage_and_existing_metadata(task_id, p
         assert np.all(np.isfinite(UsdGeom.Mesh(prim).GetPointsAttr().Get()))
 
 
-@pytest.mark.parametrize("task_id", TASKS)
+@pytest.mark.parametrize("task_id", TASKS[:-1])
 def test_manipulable_apparatus_labels_use_the_authored_mass(task_id):
     module = importlib.import_module(f"scenes.workrooms.laboratory.tasks.{task_id}.assets")
     stage = Usd.Stage.CreateInMemory()

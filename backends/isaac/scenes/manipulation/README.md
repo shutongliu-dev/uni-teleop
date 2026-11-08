@@ -2,7 +2,7 @@
 
 本页说明基础刚体任务与 v7 接触计时修复的历史契约。当前单臂默认发布为 `v12_mount_v2_r1/sharpa_w01_right`，双臂使用 `v13_pad_compliance_r2/bimanual`；现行范围与入口见[项目说明](../../README.md)。`retained_run.json` 只标识历史保留回合，不选择新的运行或自动续跑队列。
 
-接触计时修复的历史 release 为 `v7_contact_substeps`，由 `contract_release.py` 从 `v6_public_control` 派生。它已有[四任务原生脚本正例](../../README.md)，但冻结 manifest 仍保留生成时的 `prepared_unvalidated`、`physics_accepted=false`。单任务可行性、整套发布验收和模型成绩分别记录；CPU 测试与生成成功不能代替原生验收。旧 release、场景、物理参数和既有结果保持原样，新旧评分结果不能混合统计。
+接触计时修复的历史 release 为 `v7_contact_substeps`，从 `v6_public_control` 派生，原生成器保存在冻结源码（开发存储 `datasets/fr3_sharpa_bench/development/laundry_five_tasks_20261023/source_runtime03/scenes/manipulation/contract_release.py`）。它已有[四任务原生脚本正例](../../README.md)，但冻结 manifest 仍保留生成时的 `prepared_unvalidated`、`physics_accepted=false`。单任务可行性、整套发布验收和模型成绩分别记录；CPU 测试与生成成功不能代替原生验收。旧 release、场景、物理参数和既有结果保持原样，新旧评分结果不能混合统计。
 
 ## 目标与静态成功条件
 
@@ -31,17 +31,9 @@ v7 release 冻结的是 `simple_manipulation_contact_substeps_v4`，公开契约
 
 历史 v1 公开契约仍可投影。旧任务缺少新采样配置时须使用其冻结评分器，不能配新评分器沿用旧的时长估计。
 
-## 候选派生与开发入口
+## 开发入口与历史构建器
 
-以下只展示候选派生方法，不是当前默认发布的准备步骤，也不会复现历史 v7 的字节；生成器会复制当前源码评分器。必须使用尚不存在的新输出路径，保存源码版本后单独验收：
-
-```bash
-.venv/bin/python -B -m scenes.manipulation.contract_release \
-  --source <开发存储>/datasets/fr3_sharpa_bench/isaacsim/releases/simple_manipulation/v6_public_control \
-  --output <开发存储>/datasets/fr3_sharpa_bench/development/contact_substeps_candidate_example
-```
-
-输出已存在时拒绝覆盖。该入口只派生评分和静态公开契约，保留源场景、资产及物理 profile；新评分器需配套具有采样摘要的原生环境。`release.py` 是从基础场景生成任务的另一个入口，其默认输出为 `v7_contact_substeps_base`，不要将它误认为上述保留 curated 场景的 v7 派生 release。
+旧接触合同迁移、手型、双臂、安装朝向、材料柔顺和海绵发布构建器已经从当前主线移除。复查这些历史发布时使用完整冻结源码（开发存储 `datasets/fr3_sharpa_bench/development/laundry_five_tasks_20261023/source_runtime03/scenes/manipulation`）及各实验记录固定的输入；运行现有发布不需要重新生成它们。`release.py` 仍可从基础场景准备任务，其默认输出为 `v7_contact_substeps_base`，与保留 curated 场景的历史 v7 派生发布不同。任何新候选须另选输出目录并单独验收。
 
 `probe.py` 与 `controller.py` 提供可信工程诊断，控制器可读取私有物体状态，不能作为视觉模型 Agent 的成绩。HTTP 链路诊断入口为 `scripts.validation.validate_simple_bench`；对新评分必须显式指定新 release。单次模型回合入口为项目根目录的 `scripts/run_push.py`，需要独立启动且配置匹配的服务。
 

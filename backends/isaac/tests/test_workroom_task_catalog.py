@@ -1,6 +1,7 @@
 """Scene/task separation and fail-closed loading; no native simulation."""
 from copy import deepcopy
 import hashlib
+import importlib
 import json
 from pathlib import Path
 
@@ -12,9 +13,95 @@ from scenes.workrooms.registry import FAMILIES, main
 
 KITCHEN_TASKS = ('breakfast_serving', 'produce_transfer', 'utensil_sorting',
                  'pot_lid_placement', 'pantry_stocking', 'table_clearing')
+ALL_KITCHEN_TASKS = (*KITCHEN_TASKS, 'surface_wiping')
+KITCHEN_RELEASE_VERSIONS = {
+    'breakfast_serving': 'household_v2',
+    'produce_transfer': 'household_access_v2',
+    'utensil_sorting': 'household_grip_v1',
+    'pot_lid_placement': 'household_access_v3',
+    'pantry_stocking': 'household_v2',
+    'table_clearing': 'household_grip_v1',
+    'surface_wiping': 'elastic_cell_lattice_v2',
+}
 
 NIST_TASKS = ('nist_connector_insertion', 'nist_belt_drive_assembly',
               'nist_cable_routing', 'nist_wire_harness')
+CARD_ROOM_EXPANSION_TASKS = ('polyomino_territory', 'barrier_race', 'memory_pairs', 'disk_curling')
+CARD_ROOM_PRACTICE_TASKS = tuple(task+'_practice' for task in CARD_ROOM_EXPANSION_TASKS)
+CARD_ROOM_PLANNED_TASKS = frozenset()
+SEEDED_TASKS = {
+    'stationery_sorting': 'study', 'book_stacking': 'study', 'book_shelving': 'study',
+    'produce_transfer': 'kitchen', 'utensil_sorting': 'kitchen',
+    'pantry_stocking': 'kitchen', 'table_clearing': 'kitchen',
+    'sample_sorting': 'laboratory', 'vial_racking': 'laboratory',
+    'parts_sorting': 'mechanical_assembly',
+    'peg_insertion': 'mechanical_assembly', 'shaft_spacer_assembly': 'mechanical_assembly',
+    'fastener_assembly': 'mechanical_assembly', 'gear_train_assembly': 'mechanical_assembly',
+    'nist_connector_insertion': 'mechanical_assembly', 'nist_belt_drive_assembly': 'mechanical_assembly',
+    'nist_cable_routing': 'mechanical_assembly', 'nist_wire_harness': 'mechanical_assembly',
+    'cooperative_insertion': 'mechanical_assembly',
+    'book_retrieval': 'study', 'drawer_retrieval': 'study', 'reading_stand': 'study',
+    'breakfast_serving': 'kitchen', 'pot_lid_placement': 'kitchen', 'surface_wiping': 'kitchen',
+    'cap_placement': 'laboratory', 'solid_weighing': 'laboratory',
+    'pipette_transfer': 'laboratory', 'tube_clamp_transfer': 'laboratory',
+}
+SEEDED_SCHEMA = 'workroom_randomized_release.v1'
+REVISION_SCHEMA = 'workroom_robot_revision_release.v1'
+PROFILES = ('original', 'l_mount')
+
+
+def original_definition(family, task_id):
+    return importlib.import_module(
+        f'scenes.workrooms.{family}.tasks.{task_id}.definition').TASK
+
+
+def canonical_release(task):
+    """The new wrapper retains the exact original single-arm input identity."""
+    if task['task_id'] not in SEEDED_TASKS:
+        assert task['release_schema'] != SEEDED_SCHEMA
+        return task['source_release']
+    root = Path(task['source_release']['path'])
+    manifest = load_json(root/'release_manifest.json')
+    assert task['release_schema'] == manifest['schema'] == SEEDED_SCHEMA
+    assert digest(root/'release_manifest.json') == task['source_release']['manifest_sha256']
+    original = original_definition(task['family'], task['task_id'])
+    parent = {key: manifest['base_release'][key] for key in ('path', 'manifest_sha256')}
+    assert parent == original['source_release']
+    assert manifest['base_release']['schema'] == original['release_schema']
+    assert manifest['seed_values'] == list(range(10))
+    return parent
+
+
+def l_mount_revision(original):
+    """The L-mount profile is a robot-only revision of each exact original-profile release."""
+    from scenes.workrooms.robot_revision.inputs import canonical_hash
+    revised = catalog.task_definition(original['family'], original['task_id'], robot_profile='l_mount')
+    originals = original.get('robot_configurations') or {'fixed': original}
+    revisions = revised.get('robot_configurations') or {'fixed': revised}
+    assert set(revisions) == set(originals)
+    for key, row in revisions.items():
+        root, parent = Path(row['source_release']['path']), originals[key]
+        manifest = load_json(root/'release_manifest.json')
+        assert digest(root/'release_manifest.json') == row['source_release']['manifest_sha256']
+        assert row['release_schema'] == manifest['schema'] == REVISION_SCHEMA
+        assert manifest['base_release'] == {**parent['source_release'], 'schema': parent['release_schema']}
+        parent_root = Path(parent['source_release']['path'])
+        assert manifest['seed_values'] == load_json(parent_root/'release_manifest.json').get('seed_values')
+        revision = load_json(root/'robot_revision.json')
+        assert revision['parent_robot_sha256'] == canonical_hash(
+            load_json(parent_root/'scene.json')['robot'])
+        assert row['robot_requirements']['assembly_version'] == 'isaacsim_6_1_l_mount_v3'
+    return revised
+
+
+def frozen_candidate(definition):
+    """The exact original release under seed-case and L-mount revision wrappers."""
+    reference = {key: definition['source_release'][key] for key in ('path', 'manifest_sha256')}
+    while True:
+        manifest = load_json(Path(reference['path'])/'release_manifest.json')
+        if manifest['schema'] not in (SEEDED_SCHEMA, REVISION_SCHEMA):
+            return reference
+        reference = {key: manifest['base_release'][key] for key in ('path', 'manifest_sha256')}
 
 
 def published_nist_tasks():
@@ -26,52 +113,111 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_six_fixed_scenes_include_single_arm_card_room_task0():
-    scenes = catalog.list_scenes()
+@pytest.mark.parametrize('robot_profile', PROFILES)
+def test_original_six_fixed_scenes_include_single_arm_card_room_task0(robot_profile):
+    scenes = [catalog.scene_definition(family) for family in FAMILIES]
     assert [row['family'] for row in scenes] == list(FAMILIES)
     for row in scenes:
         assert row['environment']['family'] == row['family']
         assert row['coordinates']['table_top_z_m'] == (.90 if row['family'] in ('kitchen', 'laboratory') else .78)
-        tasks = catalog.list_tasks(row['family'], include_planned=True)
-        assert len(tasks) == {'mechanical_assembly': 9, 'card_room': 4, 'living_room': 4, 'study': 4, 'kitchen': 6, 'laboratory': 5}[row['family']]
+        tasks = catalog.list_tasks(row['family'], include_planned=True, robot_profile=robot_profile)
+        assert len(tasks) == {'mechanical_assembly': 10, 'card_room': 12, 'living_room': 5, 'study': 6, 'kitchen': 7, 'laboratory': 6}[row['family']]
         assert all(task['family'] == row['family'] for task in tasks)
-    runnable = catalog.list_tasks()
+    # All four dedicated expansion sessions are now published in the original six families.
+    # Laundry installations have their own five-task capability tests.
+    runnable = [task for task in catalog.list_tasks(robot_profile=robot_profile) if task['family'] in FAMILIES]
     new = published_nist_tasks()
-    assert {(task['family'], task['task_id']) for task in runnable} == {('card_room', game) for game in ('task0', 'tic_tac_toe_3x3', 'connect_four_5x5', 'hex7x7')} | {('mechanical_assembly', task) for task in ('parts_sorting', 'peg_insertion', 'shaft_spacer_assembly', 'fastener_assembly', 'gear_train_assembly')} | {('living_room', task) for task in ('remote_operation', 'water_pouring', 'tower_building', 'tower_extraction')} | {('study', task) for task in ('stationery_sorting', 'book_stacking', 'book_retrieval', 'book_shelving')} | {('kitchen', task) for task in KITCHEN_TASKS} | {('laboratory', task) for task in ('sample_sorting', 'vial_racking', 'cap_placement', 'solid_weighing', 'pipette_transfer')} | {('mechanical_assembly', task['task_id']) for task in new}
-    assert sorted(task['difficulty'] for task in runnable) == [0]+[1]*6+[2]*6+[3]*6+[4]*5+[5]*3+[6]+[task['task_number'] for task in new]
-    assert len(runnable) == 28+len(new)
-    assert sum(task['status'] == 'planned' for task in catalog.list_tasks(include_planned=True)) == 4-len(new)
-    assert not runnable[0]['qualification']['manipulation']
+    assert {(task['family'], task['task_id']) for task in runnable} == {('card_room', game) for game in ('task0', 'tic_tac_toe_3x3', 'connect_four_5x5', 'hex7x7', *CARD_ROOM_EXPANSION_TASKS, *CARD_ROOM_PRACTICE_TASKS)} | {('mechanical_assembly', task) for task in ('parts_sorting', 'peg_insertion', 'shaft_spacer_assembly', 'fastener_assembly', 'gear_train_assembly', 'cooperative_insertion')} | {('living_room', task) for task in ('remote_operation', 'water_pouring', 'tower_building', 'tower_extraction', 'storage_box')} | {('study', task) for task in ('stationery_sorting', 'book_stacking', 'book_retrieval', 'book_shelving', 'drawer_retrieval', 'reading_stand')} | {('kitchen', task) for task in ALL_KITCHEN_TASKS} | {('laboratory', task) for task in ('sample_sorting', 'vial_racking', 'cap_placement', 'solid_weighing', 'pipette_transfer', 'tube_clamp_transfer')} | {('mechanical_assembly', task['task_id']) for task in new}
+    assert sorted(task['difficulty'] for task in runnable) == sorted(
+        [0]+[1]*6+[2]*6+[3]*7+[4]*6+[5]*5+[6,6,6,6,7,7,10]+[task['task_number'] for task in new]+[20,21,22,23])
+    assert len(runnable) == 42+len(new)
+    assert sum(task['status'] == 'planned' for task in catalog.list_tasks(include_planned=True, robot_profile=robot_profile)
+               if task['family'] in FAMILIES) == 4-len(new)+len(CARD_ROOM_PLANNED_TASKS)
+    assert {task['task_id'] for task in catalog.list_tasks('card_room', include_planned=True, robot_profile=robot_profile)
+            if task['status'] == 'planned'} == CARD_ROOM_PLANNED_TASKS
+    # Paired parameterized instances never inherit manipulation qualification.
+    assert runnable[0]['qualification']['robot_manipulation'] is False
 
 
 def test_planned_task_refuses_loading_before_reading_any_release(monkeypatch):
     from scenes.workrooms.laboratory.catalog_definition import task_definition
     planned = task_definition('sample_sorting')
     planned['runnable'] = False
-    monkeypatch.setattr(catalog, 'task_definition', lambda *args: deepcopy(planned))
+    monkeypatch.setattr(catalog, 'task_definition', lambda *args, **kwargs: deepcopy(planned))
     monkeypatch.setattr(catalog, 'scene_definition',
                         lambda family: pytest.fail('A planned task must stop before environment loading'))
     with pytest.raises(ValueError, match='cannot run'):
         catalog.load_task('laboratory', 'sample_sorting')
 
 
-def test_kitchen_catalog_exposes_six_frozen_candidates_without_loading_assets(monkeypatch):
-    expected = list(KITCHEN_TASKS)
+@pytest.mark.parametrize('task_id,family', SEEDED_TASKS.items())
+def test_published_seed_catalog_keeps_exact_original_installations_and_seed_zero(task_id, family):
+    from scenes.workrooms.initial_randomization.common import canonical_hash
+    from scenes.workrooms.initial_randomization.physical_inputs import check_canonical_physics
+    from scenes.workrooms.robot_configurations import attach_robot_configurations
+
+    original = attach_robot_configurations(deepcopy(original_definition(family, task_id)))
+    selected = catalog.task_definition(family, task_id, robot_profile='original')
+    default = 'dual_same_side' if task_id == 'cooperative_insertion' else 'single_arm'
+    parents = original.get('robot_configurations') or {default: original}
+    releases = selected.get('robot_configurations') or {default: selected}
+    assert set(releases) == set(parents) == (
+        {'dual_same_side'} if task_id == 'cooperative_insertion' else
+        {'single_arm'} if family == 'kitchen' else {'single_arm', 'dual_same_side', 'dual_opposed'})
+    for configuration, row in releases.items():
+        root = Path(row['source_release']['path'])
+        manifest = load_json(root/'release_manifest.json')
+        assert digest(root/'release_manifest.json') == row['source_release']['manifest_sha256']
+        assert row['release_schema'] == manifest['schema'] == SEEDED_SCHEMA
+        assert manifest['configuration_id'] == configuration and manifest['task_id'] == task_id
+        assert manifest['seed_values'] == list(range(10))
+        parent = parents[configuration]
+        assert manifest['base_release'] == {
+            **parent['source_release'], 'schema': parent['release_schema']}
+        parent_root = Path(parent['source_release']['path'])
+        assert digest(parent_root/'release_manifest.json') == parent['source_release']['manifest_sha256']
+        scene = load_json(root/'scene.json')
+        parent_scene = load_json(parent_root/'scene.json')
+        check_canonical_physics(parent_scene, scene)
+        assert scene['robot'] == parent_scene['robot']
+        assert scene['workroom'] == parent_scene['workroom']
+        assert load_json(root/'initial_state.json') == load_json(parent_root/'initial_state.json')
+        task = load_json(root/'task.json')
+        case = load_json(root/manifest['cases']['0']['case'])
+        assert task['reset_case'] == case and case['seed'] == 0
+        assert case['case_sha256'] == canonical_hash({k: v for k, v in case.items() if k != 'case_sha256'})
+        assert case['configuration_id'] == configuration
+        for layer, baseline in zip(scene.get('task_layers', []), parent_scene.get('task_layers', [])):
+            assert digest(Path(layer['usd_path'])) == digest(Path(baseline['usd_path']))
+        if 'native_task_bundle' in scene:
+            assert digest(Path(scene['native_task_bundle']['usd_path'])) == digest(
+                Path(parent_scene['native_task_bundle']['usd_path']))
+    l_mount_revision(selected)
+
+
+def test_kitchen_catalog_exposes_seven_frozen_candidates_without_loading_assets(monkeypatch):
+    expected = list(ALL_KITCHEN_TASKS)
     monkeypatch.setattr(catalog, 'verify_reference',
                         lambda *_: pytest.fail('Listing metadata must not load shared assets'))
-    tasks = catalog.list_tasks('kitchen')
+    tasks = catalog.list_tasks('kitchen', robot_profile='original')
     assert [task['task_id'] for task in tasks] == expected
-    assert [task['difficulty'] for task in tasks] == list(range(1, 7))
+    assert [task['task_id'] for task in catalog.list_tasks('kitchen', robot_profile='l_mount')] == expected
+    assert [task['difficulty'] for task in tasks] == list(range(1, 8))
     for task in tasks:
         assert task['status'] == 'implemented' and task['runnable']
-        version = ('v4' if task['task_id'] == 'pot_lid_placement' else
-                   'v2' if task['task_number'] >= 5 else 'v3')
-        assert task['source_release']['path'].endswith('/kitchen/'+task['task_id']+'/'+version)
+        version = KITCHEN_RELEASE_VERSIONS[task['task_id']]
+        assert canonical_release(task)['path'].endswith('/kitchen/'+task['task_id']+'/'+version)
+        if task['task_id'] == 'surface_wiping':
+            assert task['objects']['inventory_counts'] == {'sponge': 1, 'return_tray': 1}
+            assert task['objects']['dynamic_count'] == task['objects']['fixed_fixture_count'] == 1
+            assert task['objects']['dynamic_count_scope'] == 'logical_task_objects'
+            assert task['objects']['native_rigid_body_count'] == 28
         assert len(task['source_release']['manifest_sha256']) == 64
         assert task['objects']['asset_bindings'] and task['layout']['initialization']
         assert task['evaluator']['implementation'] == 'scenes.workrooms.kitchen.evaluation'
         assert task['rules']['contract']['task_id'] == task['task_id']
-        assert task['rules']['contract']['schema'] == ('kitchen_rules.v3' if task['task_number'] >= 5 else 'kitchen_rules.v2')
+        assert task['rules']['contract']['schema'] == ('kitchen_rules.v6' if task['task_id'] == 'surface_wiping' else
+            'kitchen_rules.v3' if task['task_number'] >= 5 else 'kitchen_rules.v2')
         assert task['objects']['contextual_prop_count'] == 12
         assert task['objects']['contextual_props_scored'] is False
         assert 'candidate_success' not in task['rules']
@@ -80,8 +226,9 @@ def test_kitchen_catalog_exposes_six_frozen_candidates_without_loading_assets(mo
         assert task['robot_requirements']['articulations'] == 1
         assert task['robot_requirements']['base_position_m'] == [.65, 0., .78]
         assert not task['difficulty_calibrated']
-        assert not task['qualification']['manipulation']
+        assert task['qualification']['robot_manipulation'] is False
         assert not task['qualification']['physics_accepted']
+        l_mount_revision(task)
         json.dumps(task)
 
 
@@ -118,8 +265,7 @@ def test_kitchen_inventory_and_practical_frozen_rules(
     assert task['evaluator']['thresholds'] == limits
 
 
-def test_kitchen_current_rules_are_independent_of_historical_design_candidates():
-    from scenes.workrooms.kitchen.task_design import task_plan, task_plans
+def test_kitchen_current_catalog_returns_independent_objects_and_practical_rules():
     task = catalog.task_definition('kitchen', 'breakfast_serving')
     task['objects']['inventory_counts']['cup'] = 99
     task['rules']['contract']['referee']['thresholds']['stable_s'] = 99.
@@ -127,54 +273,54 @@ def test_kitchen_current_rules_are_independent_of_historical_design_candidates()
     assert current['objects']['inventory_counts']['cup'] == 1
     assert current['rules']['contract']['referee']['thresholds']['stable_s'] == .4
     assert current['rules']['contract']['referee']['thresholds']['carry_clearance_m'] == .015
-    plans = task_plans()
-    assert 'Historical' in plans['catalog_note'] and plans['candidate_parameters']
-    plans['robot']['base_position_m'][0] = 99.
-    assert task_plans()['robot']['base_position_m'][0] == .65
-    assert task_plan('breakfast_serving')['success_candidate']['stability_window_s'] == 1.
     utensils = catalog.task_definition('kitchen', 'utensil_sorting')['rules']['contract']
     assert any('柄朝两端均可' in text for text in utensils['referee']['success_conditions'])
     cookware = catalog.task_definition('kitchen', 'pot_lid_placement')['rules']['contract']
     assert cookware['referee']['thresholds']['lid_seat_height_tolerance_m'] == .008
 
 
-@pytest.mark.parametrize('task_id', KITCHEN_TASKS)
-def test_kitchen_catalog_and_canonical_loader_bind_same_release(task_id):
+@pytest.mark.parametrize('robot_profile', PROFILES)
+@pytest.mark.parametrize('task_id', ALL_KITCHEN_TASKS)
+def test_kitchen_catalog_and_canonical_loader_bind_same_release(task_id, robot_profile):
     from bench.isaacsim.release import task_inputs
     from scenes.workrooms.kitchen.task_robot_layout import robot_configuration
-    loaded = catalog.load_task('kitchen', task_id)
+    from scenes.workrooms.robot_revision.inputs import canonical_hash
+    loaded = catalog.load_task('kitchen', task_id, robot_profile=robot_profile)
     definition = loaded['definition']
     _, scene, task, initial = task_inputs(definition['source_release']['path'], task_id)
     # Catalog returns the portable frozen path; runtime resolves it against
-    # the same verified release before handing it to the native worker.
+    # the verified release that owns the hook. An L-mount revision replaces
+    # only the robot and keeps its original seed-case release's observer.
+    owner = Path((loaded['release_manifest']['base_release'] if robot_profile == 'l_mount'
+                  else definition['source_release'])['path'])
     frozen_scene = deepcopy(loaded['scene'])
     observer = frozen_scene['native_task_bundle']['observer']
-    observer['path'] = str(Path(definition['source_release']['path'])/observer['path'])
+    observer['path'] = str(owner/observer['path'])
     assert (scene, task, initial) == (frozen_scene, loaded['task'], loaded['initial_state'])
-    assert scene['robot'] == robot_configuration(task_id)
+    if robot_profile == 'original':
+        assert scene['robot'] == robot_configuration(task_id)
+    else:
+        revision = load_json(Path(definition['source_release']['path'])/'robot_revision.json')
+        assert scene['robot'] == revision['robot']
+        assert revision['parent_robot_sha256'] == canonical_hash(robot_configuration(task_id))
     assert task['public_rules'] == definition['rules']['contract']
     assert task['public_rules']['referee']['thresholds'] == definition['evaluator']['thresholds']
-    assert len(scene['native_task_bundle']['rigid_bodies']) == definition['objects']['dynamic_count']
+    assert len(scene['native_task_bundle']['rigid_bodies']) == definition['objects'].get(
+        'native_rigid_body_count', definition['objects']['dynamic_count'])
     assert len(initial['joint_positions_rad']) == 29
     assert loaded['release_manifest']['status'] == 'prepared_unvalidated'
     assert not loaded['release_manifest']['physics_accepted']
-    assert not definition['qualification']['manipulation']
-    for evidence in definition['qualification']['scene_contact_evidence']:
-        path = Path(evidence['path'])
-        assert digest(path) == evidence['sha256']
-        report = load_json(path)
-        assert report['passed'] is True
-        assert report['task_id'] == task_id
-        assert report['release_manifest_sha256'] == definition['source_release']['manifest_sha256']
-        assert report['task_success_claimed'] is False
-        support = report['checks']['native_support']
-        assert support['passed'] is True
-        assert support['complete_native_contact_coverage'] is True
-        assert support['stability_method'] == 'native_rolling_pose_and_independent_saved_pose'
-        assert support['duration_s']+1.e-8 >= support['terminal_dwell_s']
-        assert support['terminal_dwell_s'] >= task['public_rules']['referee']['thresholds']['stable_s']
-        assert all(row['passed'] and not row['tensor_velocity_gate_applied']
-                   and row['saved_pose_stability']['passed'] for row in support['objects'].values())
+    assert definition['qualification']['robot_manipulation'] is False
+    # Deployment contracts depend on frozen inputs, not historical validation
+    # reports. Those reports retain their own independent development audits.
+    root = Path(definition['source_release']['path'])
+    manifest = loaded['release_manifest']
+    assert digest(root/'release_manifest.json') == definition['source_release']['manifest_sha256']
+    for name in ('scene.json', 'task.json', 'rules.json', 'initial_state.json', 'physics_profile.json'):
+        assert digest(root/name) == manifest['files_sha256'][name]
+    assert load_json(root/'rules.json') == task['public_rules']
+    assert scene['isaacsim']['physics_dt_s'] == task['evaluation']['physics_dt_s']
+    assert task['public_rules']['referee']['thresholds']['stable_s'] >= .3
 
 
 @pytest.mark.parametrize('task_id', KITCHEN_TASKS)
@@ -250,7 +396,7 @@ def fake_release(tmp_path, monkeypatch, *, parent_mismatch=False, validate_contr
         # These minimal fixtures isolate catalog identity and parent checks.
         # Complete canonical contracts are exercised with frozen release copies.
         monkeypatch.setattr(runtime_release, 'validate_board_game_release', lambda *args, **kwargs: None)
-    monkeypatch.setattr(catalog, 'task_definition', lambda *_: deepcopy(definition))
+    monkeypatch.setattr(catalog, 'task_definition', lambda *_, **__: deepcopy(definition))
     monkeypatch.setattr(catalog, 'scene_definition', lambda _: {'environment': environment})
     verified = []
     monkeypatch.setattr(catalog, 'verify_reference', lambda ref: verified.append(ref))
@@ -344,7 +490,20 @@ def test_python_catalog_definitions_are_in_the_complete_source_inventory():
     files = source_tree_files(root, 'scenes')
     definitions = {str(path.relative_to(root)) for path in catalog.ROOT.glob('*/tasks/*/definition.py')}
     scenes = {str(path.relative_to(root)) for path in catalog.ROOT.glob('*/scene.py')}
-    assert len(definitions) == 32 and len(scenes) == 6
+    current = catalog.list_tasks(include_planned=True)
+    current_definitions = {
+        f"scenes/workrooms/{task['family']}/tasks/{task['task_id']}/definition.py"
+        for task in current
+    }
+    historical_definitions = {
+        'scenes/workrooms/laundry_room/tasks/shirt_stacking/definition.py',
+        'scenes/workrooms/laundry_room/tasks/trousers_stacking/definition.py',
+    }
+    assert len(current_definitions) == 51
+    assert len(catalog.list_tasks()) == 51
+    assert definitions == current_definitions | historical_definitions
+    assert not current_definitions & historical_definitions
+    assert len(scenes) == len(catalog.CURRENT_FAMILIES)
     assert definitions | scenes <= files
 
 
@@ -362,32 +521,62 @@ def test_namespace_family_helpers_are_in_wheel_package_data():
         assert any(fnmatch.fnmatchcase(relative, pattern) for pattern in patterns), relative
 
 
+def test_seed_publication_catalog_json_is_in_wheel_package_data():
+    import tomllib
+    root = Path(__file__).resolve().parents[1]
+    config = tomllib.loads((root/'pyproject.toml').read_text())
+    assert config['tool']['setuptools']['package-data'][
+        'scenes.workrooms.initial_randomization'] == ['catalog_pins.json']
+
+
+def test_seed_publication_catalog_json_is_a_default_source_snapshot_resource():
+    from scripts.maintenance.freeze_project_sources import DEFAULT_EXTRAS
+    relative = 'scenes/workrooms/initial_randomization/catalog_pins.json'
+    assert DEFAULT_EXTRAS.count(relative) == 1
+    assert (Path(__file__).resolve().parents[1]/relative).is_file()
+
+
 def test_public_cli_lists_implemented_families(capsys):
     main(['tasks', '--family', 'card_room'])
     result = json.loads(capsys.readouterr().out)
-    assert [row['task_id'] for row in result] == ['task0', 'tic_tac_toe_3x3', 'connect_four_5x5', 'hex7x7']
+    assert [row['task_id'] for row in result] == ['task0', 'tic_tac_toe_3x3', 'connect_four_5x5', 'hex7x7', *CARD_ROOM_EXPANSION_TASKS, *CARD_ROOM_PRACTICE_TASKS]
     main(['tasks', '--family', 'laboratory'])
     result = json.loads(capsys.readouterr().out)
     assert [row['task_id'] for row in result] == [
-        'sample_sorting', 'vial_racking', 'cap_placement', 'solid_weighing', 'pipette_transfer']
+        'sample_sorting', 'vial_racking', 'cap_placement', 'solid_weighing', 'pipette_transfer', 'tube_clamp_transfer']
     assert all(row['status'] == 'implemented' for row in result)
 
 
-def test_mechanical_tasks_share_one_scene_and_single_arm_layout_as_frozen_candidates():
-    tasks = catalog.list_tasks('mechanical_assembly', include_planned=True)
+def test_mechanical_tasks_share_one_scene_with_nine_single_arm_and_one_cooperative_candidate():
+    tasks = catalog.list_tasks('mechanical_assembly', include_planned=True, robot_profile='original')
     assert [task['task_id'] for task in tasks] == [
         'parts_sorting', 'peg_insertion', 'shaft_spacer_assembly',
         'fastener_assembly', 'gear_train_assembly',
-    ]+list(NIST_TASKS)
-    assert [task['difficulty'] for task in tasks] == list(range(1, 10))
+    ]+list(NIST_TASKS)+['cooperative_insertion']
+    assert [task['difficulty'] for task in tasks] == list(range(1, 11))
     assert [task['task_id'] for task in catalog.list_tasks('mechanical_assembly')] == [
         'parts_sorting', 'peg_insertion', 'shaft_spacer_assembly', 'fastener_assembly', 'gear_train_assembly'
-    ]+[task['task_id'] for task in published_nist_tasks()]
+    ]+[task['task_id'] for task in published_nist_tasks()]+['cooperative_insertion']
     for task in tasks:
         assert task['layout']['same_environment_for_all_tasks']
+        if task['runnable']:
+            l_mount_revision(task)
+        if task['task_id'] == 'cooperative_insertion':
+            assert task['robot_requirements']['articulations'] == 2
+            assert task['robot_requirements']['hand_id'] == 'dual_fr3_sharpa_w01'
+            assert task['robot_requirements']['active_sides'] == ['left', 'right']
+            assert task['robot_requirements']['layout_id'] == 'mechanical_same_side_left_right_sharpa_v1'
+            # Frozen seed cases wrap the original cooperative release.
+            assert original_definition('mechanical_assembly', task['task_id'])['release_schema'] == (
+                'mechanical_cooperative_task_release.v1')
+            canonical_release(task)
+            assert task['status'] == 'implemented' and task['runnable']
+            assert task['qualification']['robot_manipulation'] is False
+            assert not task['qualification']['physics_accepted']
+            continue
         assert task['robot_requirements']['articulations'] == 1
         assert task['robot_requirements']['layout_id'] == 'mechanical_single_arm_v1'
-        assert not task['qualification']['manipulation']
+        assert task['qualification']['robot_manipulation'] is False
         assert not task['qualification']['physics_accepted']
         if task['task_id'] in NIST_TASKS:
             assert task['robot_requirements']['base_position_m'] == [-.23, 0., .78]
@@ -406,32 +595,65 @@ def test_mechanical_common_design_data_does_not_leak_between_tasks_or_catalog_ca
     first['layout']['candidate_zones']['assembly_center_xy_m'][0] = 99.
     first['design']['physical_contract']['forbidden_shortcuts'].clear()
     for task in catalog.list_tasks('mechanical_assembly', include_planned=True):
-        if task['task_id'] in NIST_TASKS:
+        if task['task_id'] in (*NIST_TASKS, 'cooperative_insertion'):
             continue  # These independent tasks do not share the legacy design dict.
         assert task['layout']['candidate_zones']['assembly_center_xy_m'][0] != 99.
         assert 'object_pose_playback' in task['design']['physical_contract']['forbidden_shortcuts']
 
 
-def test_study_has_four_ordered_tasks_with_one_original_robot_and_no_document_slot():
-    tasks = catalog.list_tasks('study', include_planned=True)
+def test_study_has_six_ordered_tasks_with_one_original_robot_and_no_document_slot():
+    from scenes.workrooms.parameterized.catalog import QUALIFICATION
+    tasks = catalog.list_tasks('study', include_planned=True, robot_profile='original')
     assert [task['task_id'] for task in tasks] == [
-        'stationery_sorting', 'book_stacking', 'book_retrieval', 'book_shelving']
-    assert [task['difficulty'] for task in tasks] == [1, 2, 3, 4]
-    assert [task['task_number'] for task in tasks] == [1, 2, 3, 4]
-    assert catalog.list_tasks('study') == tasks
+        'stationery_sorting', 'book_stacking', 'book_retrieval', 'book_shelving', 'drawer_retrieval', 'reading_stand']
+    assert [task['difficulty'] for task in tasks] == [1, 2, 3, 4, 5, 6]
+    assert [task['task_number'] for task in tasks] == [1, 2, 3, 4, 5, 6]
+    assert catalog.list_tasks('study', robot_profile='original') == tasks
     for task in tasks:
-        assert task['layout'] == tasks[0]['layout']
+        original = original_definition('study', task['task_id'])
+        l_mount_revision(task)
+        if task['task_id'] in SEEDED_TASKS:
+            assert {k: v for k, v in task['layout'].items() if k != 'initialization'} == {
+                k: v for k, v in original['layout'].items() if k != 'initialization'}
+            assert task['layout']['initialization'] == 'Ten frozen physical initial cases selected before creation; seed 0 is canonical.'
+        else:
+            assert task['layout'] == original['layout']
         assert task['robot_requirements'] == tasks[0]['robot_requirements']
         assert task['layout']['same_environment_for_all_tasks']
         assert task['robot_requirements']['articulations'] == 1
         assert task['robot_requirements']['hand_id'] == 'sharpa_w01_right'
         assert task['robot_requirements']['base_position_m'] == [-.23, 0., .78]
-        assert task['release_schema'] == 'study_task_release.v1'
-        assert task['rules']['frozen_contract'] == task['source_release']['path'] + '/rules.json'
-        assert task['evaluator']['thresholds']['minimum_stable_s'] == .3
-        assert task['qualification']['release_status'] == 'prepared_unvalidated'
-        assert not any(task['qualification'][key] for key in (
-            'native_preflight', 'manipulation', 'physics_accepted', 'task_policy_success_claimed'))
+        parent = canonical_release(task)
+        assert original['release_schema'] == 'study_task_release.v1'
+        assert task['rules']['frozen_contract'] == parent['path'] + '/rules.json'
+        assert task['evaluator']['thresholds']['minimum_stable_s'] == (.4 if task['task_id'] == 'reading_stand' else .3)
+        if task['task_id'] in SEEDED_TASKS:
+            # A paired parameterized instance inherits no historical evidence.
+            assert task['qualification'] == QUALIFICATION
+            assert task['qualification']['status'] == 'prepared_unvalidated'
+            manifest = load_json(Path(task['source_release']['path'])/'release_manifest.json')
+            assert manifest['task_policy_success_claimed'] is False
+        else:
+            assert task['release_schema'] == 'study_task_release.v1'
+            assert task['qualification']['release_status'] == 'prepared_unvalidated'
+            assert not any(task['qualification'][key] for key in (
+                'manipulation', 'physics_accepted', 'task_policy_success_claimed'))
+        if task['task_id'] == 'drawer_retrieval':
+            # The historical evidence remains bound to the original release.
+            history = original['qualification']
+            assert history['native_preflight']
+            assert history['agent_bench_interface']
+            assert not history['object_interactions']
+            assert not history['full_rule_physical_revalidation_complete']
+            assert history['historical_v2_evidence']['object_interactions']
+            assert (history['native_interface_evidence']['release_manifest_sha256']
+                    == original['source_release']['manifest_sha256'] == parent['manifest_sha256'])
+            assert task['evaluator']['thresholds']['maximum_closed_gap_m'] == .012
+            assert task['evaluator']['thresholds']['minimum_opening_m'] == .100
+            assert task['recommended_budgets']['sim_time_s'] == 180.
+            assert task['objects']['inventory_counts'] == {'drawer': 1, 'notebook': 1}
+        elif task['task_id'] != 'reading_stand':
+            assert not original['qualification']['native_preflight']
     assert tasks[1]['objects']['stack_order'] == ['robotics', 'astronomy', 'botany']
     assert tasks[2]['objects']['retrieval_target_id'] == 'robotics'
     assert tasks[2]['objects']['protected_ids'] == ['astronomy', 'botany']
@@ -441,13 +663,13 @@ def test_study_has_four_ordered_tasks_with_one_original_robot_and_no_document_sl
     tasks[0]['layout']['table_top_z_m'] = 99
     tasks[0]['evaluator']['thresholds']['minimum_stable_s'] = 0
     tasks[1]['objects']['stack_order'].clear()
-    refreshed = catalog.list_tasks('study')
+    refreshed = catalog.list_tasks('study', robot_profile='original')
     assert refreshed[0]['layout']['table_top_z_m'] == .78
     assert refreshed[0]['evaluator']['thresholds']['minimum_stable_s'] == .3
     assert len(refreshed[1]['objects']['stack_order']) == 3
 
 
-@pytest.mark.parametrize('task_id', ['stationery_sorting', 'book_stacking', 'book_retrieval', 'book_shelving'])
+@pytest.mark.parametrize('task_id', ['stationery_sorting', 'book_stacking', 'book_retrieval', 'book_shelving', 'drawer_retrieval', 'reading_stand'])
 def test_study_catalog_and_canonical_loader_select_the_same_frozen_contract(task_id):
     from bench.isaacsim.release import task_inputs
     from scenes.workrooms.study.rules import validate_configuration
@@ -456,7 +678,11 @@ def test_study_catalog_and_canonical_loader_select_the_same_frozen_contract(task
     definition = loaded['definition']
     _, scene, task, initial = task_inputs(definition['source_release']['path'], task_id)
     frozen_task = deepcopy(task)
-    assert frozen_task.pop('evaluation_phase') == 'nominal'
+    if task_id in SEEDED_TASKS:
+        assert 'evaluation_phase' not in frozen_task
+        assert task['reset_case']['seed'] == 0
+    else:
+        assert frozen_task.pop('evaluation_phase') == 'nominal'
     assert (scene, frozen_task, initial) == (loaded['scene'], loaded['task'], loaded['initial_state'])
     assert scene['workroom'] == catalog.scene_definition('study')['environment']
     assert task['public_rules'] == load_json(Path(definition['rules']['frozen_contract']))
@@ -499,7 +725,12 @@ def test_gear_plan_requires_assembly_and_actual_tool_transmission_without_tool_i
 
 
 def test_fastener_plan_pins_selected_geometry_and_loose_bolt_default():
-    task = catalog.task_definition('mechanical_assembly', 'fastener_assembly')
+    # The selected catalog rows are seed-case wrappers (and L-mount revisions)
+    # of this exact frozen plan; its geometry and reset design stay pinned here.
+    task = original_definition('mechanical_assembly', 'fastener_assembly')
+    selected = catalog.task_definition('mechanical_assembly', 'fastener_assembly', robot_profile='original')
+    assert canonical_release(selected) == task['source_release']
+    l_mount_revision(selected)
     source = task['objects']['source_asset_bindings']['screwdriver']
     assert task['objects']['asset_bindings']['frozen_scene'] == task['source_release']['path']+'/scene.json'
     assert '/threaded_sharpa/v3/' in source['path']
@@ -510,15 +741,32 @@ def test_fastener_plan_pins_selected_geometry_and_loose_bolt_default():
     assert design['reset_design']['variant'] == 'loose_bolt'
     assert 'not engaged' in design['reset_design']['bolt']
     assert 'not inserted' in design['reset_design']['tool']
-    assert task['source_release'] == design['loose_bolt_candidate']['release']
+    assert task['previous_source_release'] == design['loose_bolt_candidate']['release']
     assert task['source_release'] != design['historical_preinserted']['release']
-    assert task['source_release']['path'].endswith('/loose_bolt_candidate_v10_pgs')
+    assert task['previous_source_release']['path'].endswith('/loose_bolt_candidate_v10_pgs')
+    root = Path(task['source_release']['path'])
+    assert digest(root/'release_manifest.json') == task['source_release']['manifest_sha256']
     assert 'screw_joint' in design['physical_contract']['forbidden_shortcuts']
     assert not task['qualification']['manipulation']
+    assert selected['qualification']['robot_manipulation'] is False
     assert not design['historical_contact_qualification']['robot_grasp_or_task_accepted']
     assert design['existing_asset_geometry_m']['handle_diameter'] == .044
-    gear_task = catalog.task_definition('mechanical_assembly', 'gear_train_assembly')
-    assert gear_task['objects']['asset_bindings']['screwdriver'] == source
+    gear_task = original_definition('mechanical_assembly', 'gear_train_assembly')
+    # The task-specific input catalog may omit historical acceptance outputs
+    # while preserving the original driver and its actual physical declaration.
+    binding = gear_task['objects']['asset_bindings']['screwdriver']
+    manifest_path = Path(binding['asset_root'])/'manifest.json'
+    assert digest(manifest_path) == binding['manifest_sha256']
+    gear_asset = load_json(manifest_path)['assets'][binding['asset_id']]
+    assert gear_asset['source_dependencies_sha256'][source['path']] == source['sha256']
+    assert gear_asset['source_scale'] == source['source_scale']
+    scene = load_json(root/'scene.json')
+    driver = next(obj for obj in scene['objects'] if obj['id'] == 'screwdriver')
+    asset_manifest = load_json(Path(driver['asset_root'])/'manifest.json')
+    fastener_asset = asset_manifest['assets'][driver['asset_id']]
+    for field in ('usd_path', 'source_scale', 'mass_kg', 'center_of_mass_m',
+                  'inertia_diag_kg_m2', 'collision_parts', 'material_prim_paths'):
+        assert gear_asset[field] == fastener_asset[field]
 
 
 def test_threaded_asset_validator_rejects_changed_source_before_using_its_paths(tmp_path):
@@ -539,16 +787,28 @@ def test_threaded_asset_source_hashes_and_license_scopes_are_preserved_when_avai
     assert not contract['native_physics_validated']
 
 
-def test_fastener_catalog_and_canonical_loader_use_identical_frozen_candidate():
+@pytest.mark.parametrize('robot_profile', PROFILES)
+def test_fastener_catalog_and_canonical_loader_use_identical_frozen_candidate(robot_profile):
     from bench.isaacsim.release import task_inputs
     from scenes.workrooms.mechanical_assembly.robot_layout import robot_configuration
-    loaded = catalog.load_task('mechanical_assembly', 'fastener_assembly')
+    from scenes.workrooms.parameterized.catalog import QUALIFICATION
+    from scenes.workrooms.robot_revision.inputs import canonical_hash
+    loaded = catalog.load_task('mechanical_assembly', 'fastener_assembly', robot_profile=robot_profile)
     definition = loaded['definition']
     entry, scene, task, initial = task_inputs(definition['source_release']['path'], 'fastener_assembly')
     assert (loaded['scene'], loaded['task'], loaded['initial_state']) == (scene, task, initial)
-    assert loaded['scene']['robot'] == robot_configuration()
+    if robot_profile == 'original':
+        assert loaded['scene']['robot'] == robot_configuration()
+    else:
+        revision = load_json(Path(definition['source_release']['path'])/'robot_revision.json')
+        assert loaded['scene']['robot'] == revision['robot']
+        assert revision['parent_robot_sha256'] == canonical_hash(robot_configuration())
     assert loaded['task']['public_rules'] == definition['rules']['contract']
-    assert loaded['release_manifest']['reset_variant'] == 'loose_bolt'
+    # Seed cases (and the L-mount revision) wrap the frozen loose-bolt candidate.
+    candidate = original_definition('mechanical_assembly', 'fastener_assembly')['source_release']
+    candidate_manifest = load_json(Path(candidate['path'])/'release_manifest.json')
+    assert digest(Path(candidate['path'])/'release_manifest.json') == candidate['manifest_sha256']
+    assert candidate_manifest['reset_variant'] == 'loose_bolt'
     assert task['evaluation']['reset_variant'] == 'loose_bolt'
     assert [step['id'] for step in task['steps']] == [
         'pickup_bolt', 'start_thread', 'insert_tool', 'settle', 'advance', 'release']
@@ -562,17 +822,22 @@ def test_fastener_catalog_and_canonical_loader_use_identical_frozen_candidate():
     assert loaded['task']['public_rules']['success']['nominal_turn_degrees'] == 30.
     assert loaded['task']['public_rules']['success']['nominal_additional_advance_m'] == .00025
     assert loaded['release_manifest']['status'] == 'prepared_unvalidated'
-    assert not definition['qualification']['native_preflight']
-    assert not definition['qualification']['physics_accepted']
-    tasks = catalog.list_tasks(include_planned=True)
-    assert sum(task['status'] == 'implemented' for task in tasks) == 28+len(published_nist_tasks())
-    assert sum(task['status'] == 'planned' for task in tasks) == 4-len(published_nist_tasks())
+    # A paired parameterized instance inherits no native or physics evidence.
+    assert definition['qualification'] == QUALIFICATION
+    tasks = [task for task in catalog.list_tasks(include_planned=True, robot_profile=robot_profile)
+             if task['family'] in FAMILIES]
+    assert sum(task['status'] == 'implemented' for task in tasks) == 42+len(published_nist_tasks())
+    assert sum(task['status'] == 'planned' for task in tasks) == 4-len(published_nist_tasks())+len(CARD_ROOM_PLANNED_TASKS)
+    assert {(task['family'], task['task_id']) for task in tasks if task['status'] == 'planned'} == {
+        ('card_room', task_id) for task_id in CARD_ROOM_PLANNED_TASKS}
 
 
+@pytest.mark.parametrize('robot_profile', PROFILES)
 @pytest.mark.parametrize('task_id', ['parts_sorting', 'peg_insertion', 'shaft_spacer_assembly', 'gear_train_assembly'])
-def test_mechanical_scene_handoffs_load_canonical_supply_and_frozen_rules(task_id):
+def test_mechanical_scene_handoffs_load_canonical_supply_and_frozen_rules(task_id, robot_profile):
     from bench.isaacsim.release import task_inputs
-    loaded = catalog.load_task('mechanical_assembly', task_id)
+    from scenes.workrooms.parameterized.catalog import QUALIFICATION
+    loaded = catalog.load_task('mechanical_assembly', task_id, robot_profile=robot_profile)
     definition = loaded['definition']
     _, scene, task, initial = task_inputs(definition['source_release']['path'], task_id)
     assert (scene, task, initial) == (loaded['scene'], loaded['task'], loaded['initial_state'])
@@ -582,16 +847,19 @@ def test_mechanical_scene_handoffs_load_canonical_supply_and_frozen_rules(task_i
     assert scene['isaacsim']['physics_dt_s'] == definition['evaluator']['thresholds']['physics_dt_s']
     assert len(initial['joint_positions_rad']) == 29
     assert loaded['release_manifest']['status'] == 'prepared_unvalidated'
-    assert not definition['qualification']['physics_accepted']
-    assert not definition['qualification']['manipulation']
-    for evidence in definition['qualification']['scene_contact_evidence']:
-        assert digest(Path(evidence['path'])) == evidence['sha256']
+    assert definition['qualification'] == QUALIFICATION
+    # Both profiles wrap the same frozen original supply release.
+    original = original_definition('mechanical_assembly', task_id)
+    assert frozen_candidate(definition) == original['source_release']
     if task_id == 'parts_sorting':
         assert [row['position_m'][1] for row in scene['objects']] == [-.17, 0., .17]
         assert scene['objects'][2]['asset_id'] == 'sorting_ring_sdf1024'
     elif task_id == 'gear_train_assembly':
-        assert definition['source_release'] == definition['design']['supply_layout_candidate']['release']
-        assert definition['candidate_referee']['release'] == definition['source_release']
+        candidate = frozen_candidate(definition)
+        assert candidate == definition['design']['supply_layout_candidate']['release']
+        assert definition['candidate_referee']['release'] == candidate
+        assert definition['previous_source_release'] != candidate
+        assert digest(Path(candidate['path'])/'release_manifest.json') == candidate['manifest_sha256']
         assert task['supply_layout']['revision'] == 'table_inset_v1'
         assert task['evaluation']['gear_teeth'] == {'input_gear': 20, 'idler_gear': 32, 'output_gear': 20}
         assert len(scene['objects']) == 6 and task['supply_layout']['display_pads_or_supply_rests'] is False

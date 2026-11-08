@@ -13,18 +13,19 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 
 from bench.protocol.policies import PolicyStep
-from bench.protocol.schemas import (AgentObservation, PolicyDescriptor, RobotExecutionState, RobotJointCommand,
+from bench.protocol.schemas import (ActionDiagnostic, AgentObservation, PolicyDescriptor, RobotExecutionState, RobotJointCommand,
                                  RobotPostureProfile, System0Action)
 from bench.control.embodiment import BIMANUAL_ROBOT, load_bimanual_side
-from bench.control.fingertip import CONTROL_DT, ClassicalFingertipPolicy, ExecutorLimits, Fr3SharpaGeometry
+from bench.control.fingertip import CONTROL_DT, ClassicalFingertipPolicy, ExecutorLimits, Fr3SharpaGeometry, GeometryIKError
 
 SIDES = ('left', 'right')
-VERSION = '1.2.0'
+VERSION = '1.2.1'
 
 
 class BimanualGeometry:
@@ -87,18 +88,18 @@ class BimanualFingertipPolicy:
         single = representative.descriptor
         self.provenance = {'sides': {side: self.sides[side].provenance for side in self.sides},
                            'composition': 'independent per-arm classical executors; omitted hand holds until moved hands complete; '
-                                          'either side failing fails the action and stops the other'}
+                                          'either side failing or losing its completed objective fails the action and stops the other'}
+        composition_sources = [Path(__file__), Path(__file__).with_name('embodiment.py')]
         if arm_base_poses is not None or instances is not None:
             self.provenance['world_from_arm_base'] = {
                 side: self.geometry.sides[side].arm_base.tolist() for side in self.sides}
         if instances is not None:
-            from pathlib import Path
             self.provenance['instances'] = self.geometry.instances
-            self.provenance['composition_sources'] = {str(path.relative_to(Path(__file__).parents[2])):
-                hashlib.sha256(path.read_bytes()).hexdigest() for path in (
-                    Path(__file__), Path(__file__).with_name('instance_embodiment.py'),
+            composition_sources.extend((Path(__file__).with_name('instance_embodiment.py'),
                     Path(__file__).parents[1] / 'simulation/isaacsim_backend/robot_instances.py',
-                    Path(__file__).parents[1] / 'simulation/isaacsim_backend/instance_asset.py')}
+                    Path(__file__).parents[1] / 'simulation/isaacsim_backend/instance_asset.py'))
+        self.provenance['composition_sources'] = {str(path.relative_to(Path(__file__).parents[2])):
+            hashlib.sha256(path.read_bytes()).hexdigest() for path in composition_sources}
         digest = hashlib.sha256(json.dumps(self.provenance, sort_keys=True, separators=(',', ':'),
                                            allow_nan=False, default=str).encode()).hexdigest()
         pairs = [pair for side in self.sides for pair in self.sides[side].geometry.hand_posture_prior.describe()['joint_pairs']]
@@ -178,9 +179,12 @@ class BimanualFingertipPolicy:
         try:
             for side in self.sides:
                 self.sides[side].begin(plan[side], self._side_observation(observation, side))
-        except BaseException:
+        except BaseException as error:
+            failed_side = side
             for side in self.sides:
                 self._restore_state(self.sides[side], saved[side])
+            if isinstance(error, GeometryIKError):
+                error.public_diagnostic = error.public_diagnostic.model_copy(update={'hand': failed_side})
             raise
         self._active = {side: True for side in self.sides}
         self._moving = moving
@@ -212,6 +216,21 @@ class BimanualFingertipPolicy:
                 states[side] = results[side].robot_execution_state
             else:
                 states[side] = self.sides[side].execution_state(side_observation)
+                if side in self._moving and states[side].objective_status != 'reached':
+                    # One hand can finish before its peer. Its current objective
+                    # must still hold while the composite action is in progress;
+                    # a past completion is not evidence for the current frame.
+                    own = self.sides[side]
+                    if states[side].objective_status == 'not_checked':
+                        diagnostic = ActionDiagnostic(code='invalid_robot_state')
+                    else:
+                        diagnostic = own._convergence_diagnostic(own._measured(side_observation),
+                            float(observation.sim_time_s) - own.start_time).model_copy(
+                                update={'code': 'objective_lost'})
+                    own.cancel('completed_objective_lost')
+                    results[side] = PolicyStep(status='failed',
+                        detail='Previously completed geometry no longer holds in current feedback',
+                        diagnostic=diagnostic, robot_execution_state=states[side])
         failed = [side for side, result in results.items() if result.status == 'failed']
         if failed:
             for side in self.sides:
@@ -220,7 +239,9 @@ class BimanualFingertipPolicy:
                     self.sides[side].cancel('peer_hand_failed')
             self._active = None
             first = results[failed[0]]
-            return PolicyStep(status='failed', detail=f'{failed[0]} hand: {first.detail}', diagnostic=first.diagnostic,
+            diagnostic = (first.diagnostic.model_copy(update={'hand': failed[0]})
+                          if first.diagnostic is not None else None)
+            return PolicyStep(status='failed', detail=f'{failed[0]} hand: {first.detail}', diagnostic=diagnostic,
                               robot_execution_state=self._merged_state(observation, states))
         for side, result in results.items():
             if result.status == 'completed':

@@ -47,7 +47,7 @@ def test_rgbd_capture_rejects_physical_state_changes(key):
     env = FR3DexterousIsaacEnv.__new__(FR3DexterousIsaacEnv)
     states = iter([{key: np.array([0.])}, {key: np.array([1.])}])
     env.capture_state = lambda: next(states)
-    env._render_frames = lambda *args, **kwargs: {'rgb': np.zeros((1, 1, 3))}
+    env._render_frame = lambda *args, **kwargs: {'rgb': np.zeros((1, 1, 3))}
     with pytest.raises(RuntimeError, match='changed physical state'):
         env.render_rgbd('overview', 1, 1)
 
@@ -60,9 +60,9 @@ def test_rgbd_capture_requires_depth_and_preserves_frame():
     calls = []
     def capture(*args, **kwargs):
         calls.append((args, kwargs))
-        return {'task': frame}
-    env._render_frames = capture
+        return frame
+    env._render_frame = capture
     assert env.render_rgbd('task', 1, 1) is frame
-    assert calls == [((('task',), 1, 1), {'include_depth': True})]
+    assert calls == [(('task', 1, 1), {'include_depth': True})]
     assert env.render('task', 1, 1) is frame['rgb']
-    assert calls[-1] == ((('task',), 1, 1), {'include_depth': False})
+    assert calls[-1] == (('task', 1, 1), {'include_depth': False})

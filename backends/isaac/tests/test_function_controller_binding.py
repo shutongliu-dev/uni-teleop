@@ -41,7 +41,9 @@ def service_case(tmp_path, kind):
     return api, workers, 'card_room', task_id, ('player_0', 'player_1')
 
 
-@pytest.mark.parametrize('kind', ['ordinary', 'board', 'turn'])
+@pytest.mark.parametrize('kind,configuration', [
+    ('ordinary', 'single_arm'), ('ordinary', 'auto'), ('board', 'auto'), ('turn', 'auto'),
+])
 @pytest.mark.parametrize('field,value', [
     (None, None),
     ('implementation_sha256', 'a' * 64),
@@ -49,9 +51,11 @@ def service_case(tmp_path, kind):
     ('control_period_s', .04),
 ])
 def test_discovery_controller_is_pinned_before_session_model_and_motion(
-        tmp_path, monkeypatch, kind, field, value):
+        tmp_path, monkeypatch, kind, configuration, field, value):
     api, workers, family, task_id, keys = service_case(tmp_path, kind)
-    models = {key: ScriptedModel([{'stop': True}]) for key in keys}
+    choices = ([{'configuration_id': 'single_arm', 'reason': '使用已发布的原右手安装'}]
+               if kind == 'ordinary' and configuration == 'auto' else [])
+    models = {key: ScriptedModel([*choices, {'stop': True}]) for key in keys}
     initialized = []
     initialize = function_runner.FunctionSession.initialize
 
@@ -73,7 +77,8 @@ def test_discovery_controller_is_pinned_before_session_model_and_motion(
 
         monkeypatch.setattr(bench, 'list_policies', stale_discovery)
         report = run(RunConfig('http://testserver', task_id, tmp_path / 'run',
-                              family=family, seed=0, max_decisions=1),
+                              family=family, seed=0, configuration=configuration,
+                              max_decisions=1 + len(choices)),
                      bench=bench, models=models)
     config = load_json(tmp_path / 'run/agent_config.json')
     episode = report['result'] if kind == 'ordinary' else report['result']['episode']
@@ -84,17 +89,23 @@ def test_discovery_controller_is_pinned_before_session_model_and_motion(
     assert len(workers) == 1 and workers[0].closed
     assert not any(operation == 'step' for operation, _ in workers[0].calls)
     assert all(value == 0 for value in report['physical_attempts'].values())
+    assert report['pre_episode_model_calls'] == len(choices)
     if field is None:
         assert report['ready_validated'] and report['error_type'] is None
         assert report['run_status'] == 'completed'
         assert len(initialized) == len(keys)
-        assert sum(len(model.turns) for model in models.values()) == 1
+        assert sum(len(model.turns) for model in models.values()) == 1 + len(choices)
         assert config['controller'] == actual
     else:
         assert config['controller'][field] == value != actual[field]
         assert not report['ready_validated'] and report['run_status'] == 'infra_error'
         assert report['run_error']['error_category'] == 'invalid_response'
-        assert not initialized and all(not model.turns for model in models.values())
+        assert not initialized
+        assert sum(len(model.turns) for model in models.values()) == len(choices)
+        if choices:
+            context = json.loads(models['single'].turns[0][0]['content'][0]['text'])
+            assert 'robot_configurations' in context
+            assert not {'state', 'tools', 'spec'} & context.keys()
         assert report['decisions'] == {} and report['physical_attempts'] == {}
         assert not (tmp_path / 'run/episode_ready.json').exists()
         assert not report['result_valid_for_scoring']
@@ -138,7 +149,7 @@ def test_invalid_controller_cannot_score_a_success_received_during_cleanup(
 
         monkeypatch.setattr(bench, 'create', terminal_before_validation)
         report = run(RunConfig('http://testserver', task_id, tmp_path / 'run',
-                              family=family, seed=0, max_decisions=1),
+                              family=family, seed=0, configuration='single_arm', max_decisions=1),
                      bench=bench, models={'single': model})
     config = load_json(tmp_path / 'run/agent_config.json')
     assert config['controller']['weights_sha256'] == 'b' * 64

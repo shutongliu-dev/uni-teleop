@@ -11,8 +11,14 @@ import math
 from scenes.workrooms.living_room.tower_geometry import validate_geometry
 
 SIDES = ('front', 'rear')
-RULES_SCHEMA = 'living_tower_extraction_rules.v1'
+RULES_SCHEMA = 'living_tower_extraction_rules.v2'
 OBSERVATION_SCHEMA = 'living_tower_extraction_normalized_observation.v1'
+HOST_TERMINATIONS = {
+    'timeout': 'incomplete', 'budget': 'incomplete',
+    'time_limit': 'incomplete', 'step_limit': 'incomplete',
+    'cancelled': 'abort', 'runtime_error': 'abort',
+    'reset': 'abort', 'evidence_missing': 'abort', 'adapter_failure': 'abort',
+}
 DEFAULT_THRESHOLDS = {
     'stable_duration_s': 1., 'max_observation_gap_s': .05,
     'reset_timeout_s': 10., 'slot_position_tolerance_h': .35,
@@ -87,7 +93,10 @@ def public_rules(geometry, *, max_turns_per_player=None, protected_bottom_layers
         'abort_without_winner': ['invalid reset', 'missing/inconsistent evidence', 'unannounced reset',
                                  'physical noncurrent-player interference', 'undeclared direct block contact',
                                  'contact with a target that became protected before first touch'],
-        'incomplete_without_winner': ['timeout', 'budget'],
+        'incomplete_without_winner': ['timeout', 'budget', 'time_limit', 'step_limit'],
+        'host_termination': deepcopy(HOST_TERMINATIONS),
+        'host_termination_scope': 'Host cancellation and runtime errors abort; time and step budgets '
+                                  'are incomplete. Preserve the reason without declaring a winner or loser.',
         'qualification': {'native_adapter': None, 'native_release': None, 'native_accepted': False,
                           'scope': 'Reference CPU rules and provisional simulation thresholds only'}}
     if collection_surface == 'tray_floor':

@@ -14,7 +14,7 @@ def test_cpu_profile_is_explicit_and_does_not_change_default():
 
 
 @pytest.mark.parametrize('capability', [
-    {'cloth': {'enabled': True}}, {'soft_bodies': [{'id': 'soft'}]},
+    {'cloth': {'enabled': True}}, {'cloths': [{'id': 'cloth'}]}, {'soft_bodies': [{'id': 'soft'}]},
     {'task_layers': [{'particle_sets': {'fluid': {}}}]},
     {'native_task_bundle': {'schema': 'native-usd-task-bundle-v1', 'particle_sets': {'fluid': {}}}},
 ])

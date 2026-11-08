@@ -1,6 +1,6 @@
 # Agent 技能学习
 
-本目录归属正式模型客户端。已实现空技能库、不可变版本与来源管理、持久宿主事件、公开动作的查询与恢复；现有 runner 已接入动作账本与任务结果三态。持久 Python 执行、隔离挂载和自动练习调度尚未实现，现有 code 模式仍是有界 AST。
+本目录归属正式模型客户端。已实现空技能库、不可变版本与来源管理、持久宿主事件、公开动作的查询与恢复，以及模型自编受限技能的写改、发布和真实公开 API 执行。持久任意 Python、操作系统隔离挂载仍未实现；旧 code 模式保持原有界 AST，新技能语言也明确不等同于任意 Python。阶段调度由宿主入口负责，技能运行时不自行判定验证通过或棋局胜负。
 
 六个场景共用本目录中的学习运行时。机械装配、实验室、厨房、书房和客厅统一采用任务已知 RSI：公布任务 → 预算内多次练习和修订 skill/code → 独立验证选版 → 冻结测试。五个场景仅绑定各自的任务、公开能力、规则、初态和预算，不复制五套学习器。`task_conditioned_rsi` 是设计标识，尚无对应 CLI；详见[通用任务 RSI 与中间指标](../../../docs/agent_bench/skill_learning.md#task-rsi-mode)。
 
@@ -8,7 +8,13 @@
 
 学习权限与参与者／会话是独立维度。客厅 Task1–3 是单 agent、单臂任务；Task4 `tower_extraction` 是两个独立 agent 各控一臂的轮流对抗，保留客厅既有 RSI 权限，不套用棋牌室 task2/task3 的禁 RSI 政策。双方交替抽出木条放入己方收集区，不重新叠到塔顶，造成倒塌的一方输；`player_0`／`player_1` 分别绑定 `front`／`rear` 两套原始右手机器人。四项均为 `implemented` 工程候选；Task1–3 已接普通 `/episodes` 适配器，Task4 已接认证 `/turn-games` 适配器，按公开裁判当前玩家串行调度独立上下文。一轮可有多次动作，只有稳定交接后换手；一次函数返回不等于交接，换手不清空历史或重置成本。原生 reset 阻断与完整操控资格仍按对应发布单独记录。
 
-中间指标共用任务尝试、动作请求、实际物理交互、只读查询、模型逻辑调用/API 重试、技能修订和资源成本；重点报告首次成功成本、首个达标版本成本及冻结版本成功率/有效覆盖。分场景、任务和阶段汇总；不同任务的物理阶段进度仅消费其公开合同，不统一编造进度百分比。已有单回合计数和 journal 可复用，跨回合汇总与学习曲线仍待实现。
+中间指标共用任务尝试、动作请求、实际物理交互、只读查询、模型逻辑调用/API 重试、技能修订和资源成本。棋牌附带练习的 `runner.py`、`receipts.py` 和 `assessment.py` 已提供跨回合账本、实际成本、独立验证与冻结；其他场景的阶段调度及通用学习曲线仍待扩展。分场景、任务和阶段汇总；不同任务的物理阶段进度仅消费其公开合同，不统一编造进度百分比。
+
+2026-10-29 新增四个 `_practice` 附带任务，正式棋牌 Task4–Task7 使用冻结技能对抗。
+首轮拼板按用户选择仅使用 NVIDIA Astra，两个 learner 从各自空库自主练习、修订，
+经过新回合验证后冻结。默认只覆盖平移双手流程检查，完整四层课程须显式选择。
+没有发布候选时不补人工解法；预算冻结与验证达标分开记录。实际状态与入口见
+[四个棋牌 RSI 练习任务](../../../docs/agent_bench/card_rsi_practice.md)。
 
 棋牌室按用户 2026-10-18 的澄清区分四项任务。任务编号表示具体任务，学习权限与会话路由分别绑定：
 
@@ -27,7 +33,7 @@ task2/task3 在首局前绑定双方各自选定的 bundle、来源和兼容条�
 
 bench 已发布 task0 的普通 episode 合同，以及三个棋种的 `/board-games` 认证玩家、公开函数、状态、意图和结果路由。客户端必须按任务使用对应会话，不能把 task0 包成比赛或把三棋种送入普通 `/episodes`。Agent transport、函数工具与比赛运行入口的具体实现状态统一见[客户端说明](../README.md)；接线不代表持久 Python、运行隔离、阶段调度或模型物理操控验收已完成。详见[接入约束](constraints.md#card-room-adapter)。
 
-普通任务与比赛共用公开函数 SDK 和动作账本，分别按其会话和结果合同运行。生成代码运行与隔离、共用练习/修订/验证、冻结版本交接及跨回合指标仍待实现。机械装配等普通任务、客厅 Task1–3 及棋牌室 task0 的学习闭环不依赖比赛运行器；客厅 Task4 和棋牌室 task1/task2/task3 需要各自的玩家会话，函数接线不以完整 RSI 调度器作为前置。
+普通任务与比赛共用公开函数 SDK 和动作账本，分别按其会话和结果合同运行。受限技能源码执行已由下述 runtime 提供；共用练习／修订／验证调度、冻结版本交接及跨回合指标由宿主入口另行组织。机械装配等普通任务、客厅 Task1–3 及棋牌室 task0 的学习闭环不依赖比赛运行器；客厅 Task4 和棋牌室 task1/task2/task3 需要各自的玩家会话，函数接线不以完整 RSI 调度器作为前置。
 
 统一模式不代表物理任务已通过。机械 L1 `parts_sorting`、L2 `peg_insertion`、L3 `shaft_spacer_assembly`、L4 `fastener_assembly`、L5 `gear_train_assembly` 均注册为 `implemented` 场景候选，发布仍为 `prepared_unvalidated`，有界接触证据不等于机器人任务成功。固定初态多次 reset 只能检查复现，不能称为新初态泛化。客厅四项冻结发布保持 `prepared_unvalidated`／`physics_accepted=false`，客户端接线不等于完整操控资格；Task2 当前采用实用水耦合 profile。Task4 v8 已有 seed 0/front 先手的 canonical reset 和微动证据，旧版 reset 阻断记录保留；尚未验证完整抽取、收集、交接或 rear 先手。Agent 对 reset_pending 提供显式固定驱动保持，不能把复位未就绪当成可选块阶段。任何后续标记为 planned 的任务仍不可运行。机械和客厅的具体边界见[接入范围](../../../docs/agent_bench/skill_learning.md#mechanical-assembly-mode)及[客户端说明](../README.md)。
 
@@ -52,7 +58,7 @@ bench 已发布 task0 的普通 episode 合同，以及三个棋种的 `/board-g
 | `bench/runtime/` | bench 公开服务、原生 worker 通信与观测发布 |
 | `system0-system1/` | 独立 student／私有 RPC 工程；可参考运行时设计，不作为本目录的执行后端 |
 
-共用模块按职责命名。比赛的玩家会话、上下文与轮次由客户端运行器编排；学习调度器后续负责阶段权限、冻结版本交接和跨回合统计，复用公共库与账本，不实现第二套 RSI。不为 planned 场景预建空运行器或任务攻略目录。
+共用模块按职责命名。比赛的玩家会话、上下文与轮次由客户端运行器编排；棋牌附带任务的学习调度器负责阶段权限、冻结版本交接和跨回合统计，复用公共库与账本。其他场景尚未接入该阶段入口。不为 planned 场景预建空运行器或任务攻略目录。
 
 本目录不存放运行中生成的技能、轨迹或模型回复。自进化库默认位于 `<开发存储>/datasets/fr3_sharpa_bench/skill_learning/<experiment_id>/`，默认一个任务、一个 learner、一次独立学习 run 一个库，`author/` 保存可编辑草稿，`bundles/<hash>/` 保存已发布版本，证据与选用记录由宿主另存。场景、任务和学习者身份写入冻结合同；详情与命名约定见 [storage.md](storage.md)。项目源代码位置、开发 worktree 与学习模型看到的工作区是三个不同位置，不能直接把整个项目 checkout 挂载给被评测 agent。
 
@@ -63,6 +69,7 @@ bench 已发布 task0 的普通 episode 合同，以及三个棋种的 `/board-g
 | `skills.py` | `SkillLibrary.create`、revision 保护的 author 读写、源码静态解析、完整内容 hash、发布与恢复、验证证据、选用指针和显式导入 |
 | `journal.py` | 严格 JSON、原子写入、单写者锁、顺序与哈希链校验、事件 ID 幂等 |
 | `robot_api.py` | 提交前持久化命令、同 episode/trial/spec/服务绑定、单个 pending 动作、原 ID 查询/取消、终态与公开快照核对 |
+| `runtime.py` / `skill_language.py` | 模型自编 JSON 值技能语言、版本发布／只读 pin、公开 FunctionSession 桥、逐调用完整账本与受限执行 |
 | `../outcomes.py` | `run_status` 与 `task_outcome` 分离；缺少有效任务终局时 `task_success=null`；已有有效终局不被后续 API 故障覆盖 |
 | `../responses.py` | 显式 Micu Responses 接入，多轮文字/图片、瞬态异常等待 10 秒后同请求重试、无供应商/模型/协议回退 |
 
@@ -79,6 +86,20 @@ python -m agent.model_client.learning.skills status \
 
 宿主通过 `write_author(path, content, expected_revision=...)` 更新草稿，随后调用 `publish(revision, transaction_id=..., reason=...)`。提交返回的 candidate 事件绑定 bundle hash 与来源；丢失回执时用相同事务查询/重试，不重复生成候选。`verify(hash)` 检查完整内容，`recover()` 续接有 prepared 记录的发布，隔离无已提交事务的暂存树。未知来源和损坏版本不获得执行资格。
 
+## 受限技能执行 v1
+
+`SkillRuntime(library, session=..., phase=..., journal_path=..., limits=..., frozen_candidate_event_id=...)` 由可信宿主构造；库和 `FunctionSession` 对象不会交给生成程序。模型通过 `skill_write` 提交自己的 `def run(api, args, state)` 源码，使用当前 author revision 防止覆盖过期草稿，再通过 `skill_publish` 得到不可变 candidate。`skill_execute` 只执行已发布 candidate 的真实源码，允许模型根据公开反馈写改后再试；新库不预装抓放脚本。`skill_status` 和 `skill_read` 提供本库元数据／源码，`skill_trace` 按本 runtime 的 execution ID 和 call index 回看原始公开调用，不能输入文件路径或对手库。
+
+语言 `agent_json_skill_ast.v1` 解释整个经过白名单检查的 AST，不调用 Python `exec`／`eval`。支持 JSON 值、局部辅助函数、条件、受限 for／while、return、容器索引／更新、有限算术和明确列出的数学函数。唯一外部能力是 `api.call(name, arguments)` 与 `api.intent(intent)`，均进入现有 `FunctionSession.execute`，继续执行原权限、参数、动作预算和 `RobotAPI` 恢复合同。可调用已广告的公开观察、几何查询、运动和显式启用的几何算数；不能导入模块、读取属性／文件／环境／密钥、访问网络、修改 Bench 或调用私有物体接口。完整语法和不含机器人解法的例子由 `public_metadata().language_spec` 提供。这个 JSON 能力边界不宣称同 UID 恶意宿主进程隔离。
+
+practice 才开放写改和发布。validation／evaluation 必须在构造时固定 candidate 和 bundle hash，只读该版，不接受源码覆盖、author 文件或另一个 candidate；验证证据和选版仍由宿主 `record_validation`／`select` 提供。每次执行的 args／state 都是有界 JSON 副本，没有自动持久化 Python 栈或跨局记忆。任何公共操作 epoch 变化，包括同玩家翻牌继续，都会在保留实际回执后停止当前技能；未决动作保持未决，不重发，也不把程序停止称为物理动作已停止。
+
+`SkillRuntimeLimits` 控制累计工具／修订／发布／执行／API／动作尝试和源码／账本字节预算；`SkillLanguageLimits` 控制源码／AST、fuel、循环、函数深度、JSON 大小、活跃变量及累计临时复制量。单次技能 wall 默认 1800 秒，可显式配置有限值；所有实际 HTTP／动作等待还受原 session／episode 的更早 deadline 和函数／物理预算约束。解释器不能强杀同步宿主回调，因此桥接负责传递 deadline，超时后的 pending 必须按原动作账本收尾。
+
+公开调用的 timeout 只有在有效 deadline 确已到达时才归入 `skill_wall_deadline` 或更早的 `episode_wall_deadline`；提前的网络超时、传输和响应错误仍是 `public_transport_failure`。存在未决物理动作时优先报告 `action_pending`，不能用技能预算退出消除它。最后已完成调用的完整反馈与随后 preflight 的错误分别保留。
+
+运行 journal 绑定 phase、episode、player、库身份、候选和预算。每次执行保存 input/result；每次 API 先写 prepared，后把完整公开参数／回执写入 `skill_execution_records/<execution_id>/call_<index>.json`，journal 记录其规范 JSON SHA。结果的 `calls` 保留逐调用摘要，`last_feedback` 保留最后完整真实回执，即使之后发生计算或输出预算错误。skill `completed` 只表示程序完成，不表示动作目标、任务成功或赢棋；真实资格仍消费 Bench 结果。运行时拒绝重开同 trial 以清零预算，跨 episode 的全阶段预算由宿主调度器累计。
+
 ## 动作恢复与结果
 
 现有 runner 为一次执行保存 `host/action_journal/`。提交前记录 payload 和 hash；POST 不自动重发。查询按原 action ID 进行，只有权威终态与对应 episode、action ID、状态、时间的公开快照一致后，才解除 pending 锁。取消请求的回执本身不证明停止。
@@ -91,10 +112,10 @@ Micu 瞬态 API 故障默认等待 10 秒重试，保留同一决定的上下文
 
 ## 当前边界
 
-这些模块由可信宿主调用。文件权限与 advisory lock 约束协作写入者，不提供对同 UID 恶意进程的隔离；`status()` 明确返回 `runtime_isolation_implemented=false`。不应将库管理对象、host 路径或完整项目 checkout 交给生成代码。源码解析不会执行代码，也不证明动态依赖或运行时访问已被隔离。
+这些模块由可信宿主调用。文件权限与 advisory lock 约束协作写入者，不提供对同 UID 恶意进程的隔离；存储库 `status()` 仍返回 `runtime_isolation_implemented=false`，新运行时另行声明受限 JSON 解释能力与 `os_process_isolation=false`。不应将库管理对象、host 路径或完整项目 checkout 交给生成代码。库发布时的源码解析不会执行代码；新解释器在调用时再次校验白名单语法，只运行受限语言。
 
 发布兼容当前 CPFS：文件系统不支持 `RENAME_NOREPLACE` 时，在目标目录的协作锁内检查目标不存在并执行原子 rename；已有版本仍拒绝覆盖。当前共享盘证据覆盖同主机多进程协作，不代表跨主机锁或掉电恢复已验收。
 
 CPU 故障注入检查存储、回执和结果协议；共享存储实测检查当前文件系统操作。不把它们称为掉电一致性、真实抓放能力或完整 RSI 学习验收。对应任务仍需 bench 提供规则、冻结练习初态和物理可操控性证据。
 
-完整学习闭环仍需持久代码/文件工具与运行隔离、共用阶段调度、干净上下文验证及累计指标；它们与普通/比赛函数运行入口分开验收。本文约束不构成已完成的 RSI 或物理操控证据，也不授权新增模型或原生运行。
+完整学习闭环还需宿主绑定共用阶段调度、干净上下文验证及累计指标；它们与受限技能执行、普通／比赛函数运行入口分开验收。本文约束不构成已完成的 RSI 或物理操控证据，也不授权新增模型或原生运行。

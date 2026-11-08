@@ -15,7 +15,7 @@ from bench.control.factory import public_robot_geometry, robot_configuration
 from bench.isaacsim import release as release_api
 from bench.paths import DATA_ROOT
 from bench.protocol.schemas import RobotJointCommand
-from bench.runtime import controllers, service
+from bench.runtime import controllers, robot_configurations, service
 from bench.runtime.server import create_app
 from bench.runtime.service import AgentService
 from bench.simulation.isaacsim_backend.robot_registry import get_robot_spec
@@ -123,7 +123,10 @@ def game(tmp_path, monkeypatch, frozen_inputs):
     (root/'release_manifest.json').write_text(json.dumps(manifest))
     read = lambda release, task_id, **kwargs: deepcopy(tasks[task_id])
     validate = lambda release, **kwargs: deepcopy(manifest)
-    for module in (service, controllers, release_api):
+    # Import this lazy discovery consumer before patching: otherwise its
+    # module-level validate alias captures the first fake release permanently
+    # and later real /tasks tests stop advertising robot configurations.
+    for module in (service, controllers, release_api, robot_configurations):
         monkeypatch.setattr(module,'validate',validate)
     for module in (service, controllers):
         monkeypatch.setattr(module,'task_inputs',read)

@@ -1,8 +1,10 @@
 # Native Isaac Agent API
 
+三房间新增入口（2026-10-21）：书房 `drawer_retrieval`、厨房 `surface_wiping`、机械室 `cooperative_insertion` 均走普通 `/episodes`。前两项原单臂；当前机械 Task10 v5 由同一 Agent 控制 `dual_fr3_sharpa_w01` 的官方左右 SHARPA、共 58 DOF，使用 `hand_geometries.left/right` 在同一次动作中提交双手目标，没有玩家和轮次。历史 Task10 v1–v3 的 `fr3_sharpa_instances/front/rear` 身份仍按原发布加载。每次创建按冻结场景核对 robot ID 和原始 scene variant，可选能力以 `get_robot` 和函数目录为准。启动 release 须与场景目录路径及哈希一致；入口、预算和验证见[场景接入](../../docs/agent_bench/scene_integration.md)。
+
 唯一服务入口是 `bench.runtime.server:app`，HTTP 协议为 `agent_bench_v1`。前端负责协议和调度，Isaac/PhysX 在独立 worker 主线程执行。每个服务只允许一个活动回合。
 
-服务、客户端、worker 和控制器从显式冻结根启动，步骤见 [bench 使用说明](../../docs/agent_bench/README.md)与[快照契约](../../docs/agent_bench/source_snapshots.md)。部署时显式设置 `BENCH_TASK_RELEASE`、数据目录，并按 UUID/PCI 核对 GPU；不复制旧 runtime pins。单臂默认发布为 `v12_mount_v2_r1/sharpa_w01_right`（刚性指垫），双臂层使用 `v13_pad_compliance_r2/bimanual`（柔顺指垫）。用户于 2026-10-18 授权 task0 的 Micu 模型验证，旧矩阵队列仍停用；已有零模型脚本工程正例，单项成功不代表完整 release 验收或模型成绩。
+服务、客户端、worker 和控制器从显式冻结根启动，步骤见 [bench 使用说明](../../docs/agent_bench/README.md)与[快照契约](../../docs/agent_bench/source_snapshots.md)。部署时显式设置 `BENCH_TASK_RELEASE`、数据目录，并按 UUID/PCI 核对 GPU；不复制旧 runtime pins。单臂默认发布为 `v12_mount_v2_r1/sharpa_w01_right`（刚性指垫）；`v13_pad_compliance_r2/bimanual` 是另一个柔顺指垫发布。双臂身份本身不启用柔顺指垫，当前机械 Task10 保留其冻结的零柔顺接触设置。用户于 2026-10-18 授权 task0 的 Micu 模型验证，旧矩阵队列仍停用；已有零模型脚本工程正例，单项成功不代表完整 release 验收或模型成绩。
 
 HTTP 是公开输入边界，不是文件系统权限沙箱。参赛程序不应同时获得 private/datasets 的直接访问。MANUS 采集说明在 [docs/manus](../../docs/manus)，硬件目前未连接。
 
@@ -44,7 +46,7 @@ HTTP 是公开输入边界，不是文件系统权限沙箱。参赛程序不应
 
 `system0` 选择公开注册策略。当前单臂默认 `classical_fingertip 1.9.0` 是未训练经典控制器，按 20 ms 机器人反馈输出关节目标。geometry.wrist 是 world 中 hand-flange 位姿，fingertip_positions_m 是 right_hand_flange 局部的 thumb/index/middle/ring/little 目标；可选择手指子集，未选链遵守控制器声明的保持规则。手坐标系随所选装配固定：v12 的 SHARPA 使用绕法兰轴转 180° 的 v2 约定，不能把它与历史 v1 的 `fr3_link8` 坐标直接混用。
 
-双臂 `dual_fr3_sharpa_w01` 使用 `classical_fingertip_bimanual 1.2.0`，通过 `hand_geometries.left/right` 指定各手目标，省略的一侧保持已有目标。公开手几何与触觉也按手区分；两侧任一执行器失败会结束该动作。这不提供自动协调抓取或力控制。
+双臂 `dual_fr3_sharpa_w01` 使用 `classical_fingertip_bimanual 1.2.1`，通过 `hand_geometries.left/right` 指定各手目标，省略的一侧保持已有目标。公开手几何与触觉也按手区分；两侧任一执行器失败会结束该动作。这不提供自动协调抓取或力控制。
 
 具名多机器人 `fr3_sharpa_instances` 使用相同控制工厂，以配置声明的实例名绑定独立的原始右手装配。客厅双人抽塔的 `front/rear` 通过 `/turn-games` 绑定玩家；具名实例与真正左右手装配分别保留各自几何、关节映射和接触历史版本。
 
@@ -102,6 +104,8 @@ descriptor 固定实现摘要、技能和输入权限；trained=true 还需权�
 
 实验室五项 `sample_sorting`、`vial_racking`、`cap_placement`、`solid_weighing`、`pipette_transfer` 均通过普通 `/episodes` 和共用公开函数运行。部署者按 catalog 选择冻结发布，`get_task` 返回公开规则与粗粒度裁判状态；worker 回传自身加载的公开任务投影，host 在发布初态前核对一致性，缺失或漂移直接拒绝。真实物体位姿、接触、称量库存和液体账本仍只供私有裁判读取。原生初始化、物物验证与机器人完整任务成功分别记录，手物交互由数采验证。版本、启动命令及边界见 [Bench / Agent 检查入口](../../docs/agent_bench/scene_integration.md#bench--agent-检查入口)。
 
+当前实验室合同另公开已声明的 `object_properties`（ID、标签、名义质量和依据），并参与合同哈希；旧合同省略该字段。称量净质量显示和厨房擦拭污渍变化通过 RGB-D 观察，`get_task` 只返回声明的阶段和原因码，不额外返回私有颗粒库存、精确覆盖率或物体位姿。数值显示基于稳定名义库存，不是原生力传感器读数。
+
 ## 结果与正式评测
 
 部署者可在启动冻结服务前设置 `BENCH_DEMO_FPS=10 BENCH_DEMO_CAMERAS=task,overview`，从 reset 开始记录原回合 RTX 画面；默认关闭。采样率必须是 50 的正整数因子，相机必须属于当前场景。原始 PNG、每帧仿真时间／评分／哈希及完整性说明保存在 `private/demo_recording/`，不进入 Agent 观测。逐相机渲染验证物理状态不变及 RGB-D 时间戳一致；捕获故障会明确终止，不默默补帧。
@@ -115,6 +119,8 @@ agent/spec、events、result、artifacts 和源码摘要公开记录协议；pri
 声明连续评分的普通任务还返回 `EpisodeResult.scoring`，包含 `score`、`score_unit`、`score_valid` 和声明过的指标；运行中只公开静态 `scoring_contract`，数值在终局通过结果和 `get_task` 返回。正常取消或预算结束可以保留此前合格分数，不能仅凭 `outcome=cancelled` 将连续成绩算成二元失败；物理或证据失效时保留审计值但撤销评分资格。场景私有中间计算值不随该接口公开。
 
 双人终局也受同一预算边界约束。预算外到达的完整 native ACK 仍更新机器人观测、驱动目标和动作账本；其原始裁判终局与评分保存在 private，但不得产生公开有效输赢。服务从最后预算内裁判收据生成 board `truncated`／turn `interrupted`，移除迟到的胜负或和局，另存 `private/late_game_receipt.json` 绑定原始收据与预算。恰到墙钟上限已属超时；预算内已确认的终局先停止活动时钟，后续归档耗时或重复 finish 不撤销它。结果合同拒绝预算终止与竞争终局组合；归档或物理审计故障仍可保留已接受的原生胜负作为审计记录，但不能计入有效成绩。
+
+恰好到达仿真时间上限的最后一个 ACK 可以评分，超过上限则保留实际时间、序号、关节命令和接触历史后以 `sim_timeout` 结束；普通任务和双人任务使用同一规则。有限仿真预算的服务上限为 150 s；若要使用新任务冻结的 180/240/300 s 裁判预算，创建时显式设置 `budgets.sim_time_s=null`（Agent CLI 为 `--sim-budget none`）。这只关闭 host 仿真上限，任务自身预算和其他未关闭的限制仍生效。
 
 普通 POST 是开发模式。正式 `EvaluationPlan` 由部署者预先冻结并提供，slot 创建核对任务、机器人、源码、物理、相机、策略与资源 pins。源码路径或环境改变需重新生成。shared 资源声明不证明 GPU 独占；当前 seed 也不保证随机初态。
 

@@ -9,8 +9,9 @@ from .schemas import (ActionDiagnostic, ActionName, AgentObservation, Budgets, C
     Contract, EpisodeResult, GeometryObjective, JointMap, HandNamespace, Name, Nonnegative, Pose,
     Positive, RobotCapabilities, RobotExecutionState, System0Action, TerminationReason, Vec3)
 from .robot import IKQuery, IKQueryResult, RobotGuide
+from .motion import MotionQuery, MotionQueryResult
 from .hand_presets import HandPresetRequest, HandPresetResult, HandPresetCatalog
-from .task_referee import PublicTaskRequirements
+from .workroom_reset import PublicTaskRequirements
 from bench.sensors.contact_schema import ContactHistoryValue
 
 PROTOCOL = 'bench_functions_v1'
@@ -120,6 +121,12 @@ class ActionStatus(Contract):
     robot_execution_state: RobotExecutionState | None = None
     contact_history: ContactHistoryValue | None = None
 
+    @model_validator(mode='after')
+    def contact_history_belongs_to_action(self):
+        if self.contact_history is not None and self.contact_history.action_id != self.action_id:
+            raise ValueError('Contact history belongs to another action')
+        return self
+
 
 class CancelStatus(ActionStatus):
     cancellation_requested: bool
@@ -183,6 +190,7 @@ FUNCTION_INPUTS = {
     'project_pixel': PixelArguments,
     'transform_points': TransformArguments,
     'query_ik': IKQuery,
+    'query_motion': MotionQuery,
     'get_hand_presets': NoArguments,
     'hand_preset': HandPresetRequest,
     'move_geometry': MoveGeometryArguments,
@@ -200,6 +208,7 @@ FUNCTION_OUTPUTS = {
     'get_task': PublicTaskRequirements,
     'read_camera': CameraResult, 'project_pixel': PixelResult,
     'transform_points': TransformResult, 'query_ik': IKQueryResult,
+    'query_motion': MotionQueryResult,
     'get_hand_presets': HandPresetCatalog, 'hand_preset': HandPresetResult,
     **{name: ActionStatus for name in ('move_geometry', 'move_wrist', 'set_hand_targets',
                                       'move_joints', 'hold', 'get_action')},

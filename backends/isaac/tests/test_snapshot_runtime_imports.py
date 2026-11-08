@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from bench.paths import load_json
+from bench.paths import DATA_ROOT, load_json
 
 
 TOOLS = Path(__file__).resolve().parents[1] / 'scripts' / 'maintenance'
@@ -165,6 +165,50 @@ def launch_sources(tmp_path_factory):
     return editable, snapshot
 
 
+@pytest.mark.parametrize('foreign_late_import', [False, True])
+def test_worker_final_receipt_checks_late_task_imports(launch_sources, tmp_path, foreign_late_import):
+    editable, snapshot = launch_sources
+    output = tmp_path/'private'
+    output.mkdir()
+    probe = '''
+import json, pathlib, sys
+from bench.runtime import worker
+output, editable, foreign = sys.argv[1:]
+# A task loaded after the worker's initial source check must enter the final
+# receipt. Only Python imports and source verification run; no simulator starts.
+assert 'scenes.workrooms.card_room.expansion_referee' not in sys.modules
+from scenes.workrooms.card_room import expansion_referee
+if foreign == 'True':
+    expansion_referee.__file__ = str(pathlib.Path(editable)/'scenes/workrooms/card_room/expansion_referee.py')
+try:
+    worker.seal_final_runtime_imports(pathlib.Path(output))
+except ValueError:
+    print(json.dumps({'accepted': False}))
+else:
+    print(json.dumps({'accepted': True}))
+'''
+    result = subprocess.run([sys.executable, '-B', '-c', probe, str(output), str(editable),
+                             str(foreign_late_import)], cwd=snapshot,
+        env={**os.environ, 'PYTHONPATH': str(snapshot)}, capture_output=True, text=True, check=True)
+    assert json.loads(result.stdout)['accepted'] is not foreign_late_import, result.stderr
+    receipt = output/'runtime_imports_final.json'
+    if foreign_late_import:
+        assert not receipt.exists()
+    else:
+        evidence = load_json(receipt)
+        assert evidence['verified'] and evidence['runtime_imports_verified']
+        assert evidence['required_modules'] == ['bench.runtime.worker']
+        assert evidence['entrypoint']['path'] == str(snapshot/'bench/runtime/worker.py')
+        late = evidence['imported_project_modules']['scenes.workrooms.card_room.expansion_referee']
+        assert late['path'] == str(snapshot/'scenes/workrooms/card_room/expansion_referee.py')
+
+
+def test_editable_worker_does_not_invent_final_source_receipt(tmp_path):
+    from bench.runtime.worker import seal_final_runtime_imports
+    seal_final_runtime_imports(tmp_path)
+    assert not (tmp_path/'runtime_imports_final.json').exists()
+
+
 LAUNCH_PROBE = r'''
 import argparse, json, pathlib, runpy, socket, sys, types
 root, output, role = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
@@ -252,7 +296,9 @@ def test_actual_launch_sites_check_before_network_or_physics(launch_sources, tmp
     completed = subprocess.run([sys.executable, '-B', '-c', LAUNCH_PROBE,
                                 str(snapshot), str(output), role],
         cwd=snapshot if correct_cwd else tmp_path,
-        env={**os.environ, 'PYTHONPATH': str(snapshot)}, capture_output=True, text=True, timeout=30)
+        # The snapshot copies sources only; the server's default release reads this checkout's data.
+        env={**os.environ, 'PYTHONPATH': str(snapshot), 'DEXBENCH_DATA': DATA_ROOT},
+        capture_output=True, text=True, timeout=30)
     assert completed.returncode == 0, completed.stderr
     evidence = json.loads(completed.stdout.splitlines()[-1])
     assert evidence['accepted'] is correct_cwd, evidence

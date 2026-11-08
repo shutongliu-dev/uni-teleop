@@ -71,6 +71,7 @@ class NativeObserver:
         self.env = env
         evaluation = task['evaluation']
         self.body_paths = deepcopy(evaluation['body_paths'])
+        self.joint_paths = tuple(evaluation.get('joint_paths', ()))
         self.support_paths = deepcopy(evaluation['support_paths'])
         self.dt = float(evaluation['physics_dt_s'])
         self.configuration_sha256 = configuration_sha256(evaluation['configuration'])
@@ -128,7 +129,7 @@ class NativeObserver:
                 or int(native['native_physics_step_index']) != int(state['native_physics_step_index'])
                 or float(native['native_world_time_s']) != float(state['native_world_time_s'])):
             raise ValueError('Incomplete or mixed-tick study native readback')
-        if set(native['objects']) != set(self.body_paths) or native['joints'] or native['particle_sets']:
+        if set(native['objects']) != set(self.body_paths) or set(native['joints']) != set(self.joint_paths) or native['particle_sets']:
             raise ValueError('Study native body inventory changed')
         objects = {}
         for name, row in native['objects'].items():
@@ -143,7 +144,7 @@ class NativeObserver:
                 if key == 'quaternion_wxyz' and abs(np.linalg.norm(value) - 1.) > 1.e-4:
                     raise ValueError('Invalid native study quaternion')
                 objects[name][key] = value.tolist()
-        return {'schema': 'study_native_observation_v1',
+        frame = {'schema': 'study_native_observation_v1',
             'configuration_sha256': self.configuration_sha256,
             'episode_id': episode_id, 'step_index': step_index, 'time_s': float(time_s),
             'physics_dt_s': self.dt, 'sampling_complete': True, 'contacts_complete': True,
@@ -152,3 +153,7 @@ class NativeObserver:
             'objects': objects, 'contacts': self.contacts(rows),
             'native_physics_step_index': int(native['native_physics_step_index']),
             'native_world_time_s': float(native['native_world_time_s'])}
+
+        if self.joint_paths:
+            frame['joints'] = deepcopy(native['joints'])
+        return frame

@@ -19,6 +19,8 @@ def robot_guide(capabilities, geometry):
     hands = {}
     if geometry is not None:
         for side, model in geometry_sides(geometry).items():
+            from .pad_geometry import source_pad_geometries
+            pads = source_pad_geometries(model)
             hands[side] = {
                 'frame_id': model.frame_id,
                 'wrist_pose_frame': 'world',
@@ -26,7 +28,8 @@ def robot_guide(capabilities, geometry):
                 'mount_convention': model.embodiment.mount,
                 'tip_semantics': model.embodiment.controller_tip_semantics,
                 'fingers': {finger: {'joint_names': [joint.name for joint in chain],
-                                    'tip_link': model.fingertip_links[finger]}
+                                    'tip_link': model.fingertip_links[finger],
+                                    **({'pad_geometry': pads[finger]} if finger in pads else {})}
                             for finger, chain in model.finger_joints.items()},
                 'posture_constraint': model.hand_posture_prior.describe(),
             }

@@ -1,7 +1,7 @@
 """L2: six rigid produce items into two class trays; frozen scene candidate."""
 from bench.paths import DATA_ROOT
 from scenes.workrooms.kitchen.catalog_definition import implemented_task_definition
-
+from scenes.workrooms.kitchen.scene_qualification import rigid_scene_qualification
 
 TASK = implemented_task_definition(
     'produce_transfer',
@@ -11,10 +11,11 @@ TASK = implemented_task_definition(
                       'sorting_tray': 2},
     dynamic_count=6, fixed_fixture_count=3,
     contextual_prop_count=12,
-    manifest_sha256='dea937e736721e7f7af1972f1f325dad1b0af86e2a1fad28a527c0d72d48f1f8',
-    asset_version='v3', release_version='v3',
-    evidence_root=f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/kitchen_six_tasks_20261021',
-    canonical_run='native01_canonical', goal_support_run='native01_goal',
-    canonical_sha256='69d9ef42dbbf9577df12034941adc6ec889af951a874490e2bd136b438925ddc',
-    goal_support_sha256='5bac67fb8902a38c3af8abe277e62191aea0e1a059707f487b12a0fe7d3c3210',
+    manifest_sha256='98e0815595e337ec55ed9db9f1712fe8a40824308a6826de6a68d6f45feeaa13',
+    asset_version='household_access_v2', release_version='household_access_v2',
+    evidence_root=f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/kitchen_dynamics_repair_20261023',
 )
+
+TASK['qualification'].update(rigid_scene_qualification('produce_transfer'))
+TASK['qualification'].update({'discrete_workspace_evidence': {'path': f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/kitchen_dynamics_repair_20261023/formal_workspace01/produce_transfer.json',
+                                 'sha256': 'dc7f57f0676fd1853ff6deed40a1020b859f7b60937b970b3d1d0b5ff4b6d5b4'}})

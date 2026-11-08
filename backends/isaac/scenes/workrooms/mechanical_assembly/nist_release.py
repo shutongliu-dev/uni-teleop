@@ -52,6 +52,8 @@ def asset_inventory(scene):
         str(Path(candidate['usd_path']).with_name('metadata.json')): manifest['metadata_sha256']})
     hashes.update({p: r['sha256'] for p, r in manifest['dependencies'].items()})
     hashes.update(candidate['auxiliary_files_sha256'])
+    from .desktop_dressing import scene_dependencies
+    hashes.update(scene_dependencies(scene))
     for path, value in hashes.items(): checked(path, value)
     return {p: {'sha256': h} for p, h in sorted(hashes.items())}
 

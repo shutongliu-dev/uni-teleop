@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
-from .robot_asset import DEFAULT_ASSETS, digest, write_once
+from .robot_asset import DEFAULT_ASSETS, digest, urdf_mesh_path, write_once
 from bench.paths import load_json
 
 BIMANUAL_ID = 'dual_fr3_sharpa_w01'
@@ -35,6 +35,9 @@ def assemble_side(side, assets_root=DEFAULT_ASSETS, output=None, version=VERSION
     from .robot_registry import get_hand_spec
     if side not in SIDES:
         raise ValueError('side must be left or right')
+    from .l_mount import SUPPORTED_VERSIONS as L_MOUNT_VERSIONS, prepared_assembly
+    if version in L_MOUNT_VERSIONS:
+        return prepared_assembly(assets_root, side=side, output=output, version=version)
     spec = get_hand_spec(BIMANUAL_ID, version)
     assets_root = Path(assets_root)
     output = Path(output or assets_root / 'robots/assemblies' / BIMANUAL_ID / version)
@@ -63,7 +66,7 @@ def assemble_side(side, assets_root=DEFAULT_ASSETS, output=None, version=VERSION
                     path = (source.parent / path).resolve()
                 if not path.is_file():
                     raise FileNotFoundError(path)
-                mesh.set('filename', str(path))
+                mesh.set('filename', urdf_mesh_path(path, output))
                 meshes[str(path)] = digest(path)
             for i, material in enumerate(item.findall('.//material')):
                 if not material.get('name'):

@@ -106,6 +106,25 @@ def configuration_hash(configuration):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
 
 
+def spill_geometry_parameters(water):
+    """Bind surface interception to the authored particle/collider rest offset.
+
+    The original 3 mm profile keeps its 6 mm envelope. Coarser particles rest
+    above that envelope: their centers must not remain airborne forever after
+    actually landing. The 1 mm numerical margin is geometry, not a spill-budget
+    or settling tolerance. Unknown physical profiles fail closed.
+    """
+    spacing, rest = water.get('particle_spacing_m'), water.get('collider_rest_offset_m')
+    if any(type(v) not in (int, float) or not math.isfinite(v) for v in (spacing, rest)):
+        raise ValueError('Spill geometry requires declared finite particle spacing and collider rest offset')
+    if not .003 <= spacing <= .010 or not math.isclose(rest, spacing * (5 / 6), rel_tol=0., abs_tol=1.e-9):
+        raise ValueError('Unknown particle/collider rest-offset profile')
+    return {'schema': 'living_water_particle_surface_envelope_v1',
+        'particle_spacing_m': float(spacing), 'collider_rest_offset_m': float(rest),
+        'legacy_minimum_envelope_m': .006, 'surface_numeric_margin_m': .001,
+        'geometry_spill_envelope_m': max(.006, float(rest) + .001)}
+
+
 def evaluation_configuration(*, seed=0, physics_dt_s=.0005, asset_metadata=None, quantities=None):
     if type(seed) is not int or not 0 <= seed < 2**32:
         raise ValueError('seed must be an unsigned 32-bit integer')
@@ -122,7 +141,8 @@ def evaluation_configuration(*, seed=0, physics_dt_s=.0005, asset_metadata=None,
         'tray': {'path':'/World/LivingTask/CatchTray','bounds_xy_m':[[.385,-.175],[.915,.175]],
             'interior_floor_z_m':.786,'rim_top_z_m':.803,'wall_thickness_m':.007},
         'table_top_z_m':.78,
-        'water': {'particle_count':9259,'particle_mass_kg':.25/9259,'total_mass_kg':.25,'reference_density_kg_m3':1000.}}
+        'water': {'particle_count':9259,'particle_mass_kg':.25/9259,'total_mass_kg':.25,'reference_density_kg_m3':1000.,
+                  'particle_spacing_m':.003,'collider_rest_offset_m':.0025}}
     meta = deepcopy(defaults if asset_metadata is None else asset_metadata)
     water = meta['water']
     count = water['particle_count']
@@ -136,6 +156,7 @@ def evaluation_configuration(*, seed=0, physics_dt_s=.0005, asset_metadata=None,
     tray = {**deepcopy(defaults['tray']), **deepcopy(meta['tray'])}
     containers = {k: {n:deepcopy(meta['containers'][k][n]) for n in
         ('path','initial_position_m','initial_yaw_rad','inner_profile_z_radius_spout_m')} for k in ('kettle','cup')}
+    geometry = spill_geometry_parameters(water)
     c = {'schema': 'living_water_evaluation_v1', 'seed': seed, 'physics_dt_s':float(physics_dt_s),
         'thresholds': thresholds(), 'quantities':{k:rules['goal'][k] for k in DESIGN_QUANTITIES_ML},
         'particle_count':count, 'particle_mass_kg':float(mass),'reference_density_kg_m3':float(density),
@@ -146,6 +167,8 @@ def evaluation_configuration(*, seed=0, physics_dt_s=.0005, asset_metadata=None,
         'support_actor_prefixes':[meta['tray']['path'], '/World/Fixtures/', '/World/Environment/', '/World/ProbeTable'],
         'tray':tray,'table_top_z_m':float(meta['table_top_z_m']),
         'table_bounds_xy_m':[[.15,-.5],[1.15,.5]], 'task_domain_m':[[-2.,-2.,-.1],[3.,2.,2.]],
-        'geometry_spill_envelope_m':.006}
+        'geometry_spill_envelope_m':geometry['geometry_spill_envelope_m']}
+    if geometry['geometry_spill_envelope_m'] > .006:
+        c['geometry_spill_envelope_basis'] = geometry
     c['contract_sha256'] = configuration_hash(c)
     return c

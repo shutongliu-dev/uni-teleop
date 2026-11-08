@@ -72,6 +72,7 @@ class CameraEnv:
                 'depth_invalid_value': 0., 'depth_rgb_aligned': True,
                 'depth_statistics': {'private': True}, 'depth_source': 'test',
                 'task_visual_state': {'private': True},
+                'particle_surfaces': [{'mesh_path': '/World/PrivateSurface', 'source_indices': [0, 1]}],
                 'render_synchronization': {'private': True}, **self.capture_updates}
 
 
@@ -238,7 +239,7 @@ def test_http_serves_all_five_declared_views_and_keeps_renderer_metadata_private
             assert (frame['width'], frame['height']) == (expected['width'], expected['height'])
             assert frame['sim_time_s'] == frame['depth_sim_time_s'] == reply['observation']['sim_time_s']
             assert not {'camera_calibration', 'render_synchronization', 'depth_statistics',
-                        'task_visual_state',
+                        'task_visual_state', 'particle_surfaces',
                         'path', 'depth_path'} & set(frame)
             rgb = client.get(frame['rgb_uri'])
             depth = client.get(frame['depth_uri'])

@@ -61,7 +61,7 @@ class HandPresetValidation(Contract):
 
 class HandPresetResult(Contract):
     protocol: Literal['bench_hand_preset_v1'] = 'bench_hand_preset_v1'
-    library_version: Literal['sharpa_w01_preposes_v1'] = 'sharpa_w01_preposes_v1'
+    library_version: Literal['sharpa_w01_preposes_v1', 'sharpa_l_mount_preposes_v1'] = 'sharpa_w01_preposes_v1'
     preset: HandPresetName
     side: HandSide
     amount: Amount
@@ -106,7 +106,7 @@ class HandPresetAmountRange(Contract):
 
 class HandPresetCatalog(Contract):
     protocol: Literal['bench_hand_preset_catalog_v1'] = 'bench_hand_preset_catalog_v1'
-    library_version: Literal['sharpa_w01_preposes_v1'] = 'sharpa_w01_preposes_v1'
+    library_version: Literal['sharpa_w01_preposes_v1', 'sharpa_l_mount_preposes_v1'] = 'sharpa_w01_preposes_v1'
     available: Annotated[bool, Field(strict=True)]
     reason: str | None = None
     sides: list[HandSide]

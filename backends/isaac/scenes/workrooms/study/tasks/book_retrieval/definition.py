@@ -18,5 +18,5 @@ TASK = prepared_task(
             'recovery': 'A disturbed protected book can be restored through robot actions before '
                         'the full common stability window.'},
     release_version='v3',
-    manifest_sha256='8a385118e42561684c80dfb78ae9f0eb2333daf6035d6e119254137956e4e91d',
+    manifest_sha256='ed0a9dc880c2e9633f61276116ed03fe1e24a1cb9655fd97a455addd5f7158e1',
 )

@@ -31,7 +31,8 @@ DEFAULT_HAND = 'sharpa_w01_right'
 PAUSED_HANDS = ('allegro_v5_right', 'leap_v1_right', 'shadow_hand_e_right')
 MOUNT_CONVENTION = 'flange_axis_centred_v1'
 MOUNT_CONVENTIONS = {'flange_axis_centred_v1': {'hand_frame_yaw_rad': 0.},
-                     'flange_axis_centred_v2': {'hand_frame_yaw_rad': math.pi}}
+                     'flange_axis_centred_v2': {'hand_frame_yaw_rad': math.pi},
+                     'l_adapter_20261104_v1': {'hand_frame_yaw_rad': None}}
 ADAPTER_DISC_10MM = {'thickness_m': .010, 'radius_m': .0315, 'density_kg_m3': 2700., 'collision_clearance_m': .0005,
                      'description': 'Flange-sized (ISO 9409-1-31.5) aluminium disc; simulation adapter, not a vendor part'}
 HANDS = {
@@ -200,6 +201,13 @@ HAND_ACTUATOR_MODELS = {
 BIMANUAL = 'dual_fr3_sharpa_w01'
 SHARPA_ROBOTS = (DEFAULT_HAND, BIMANUAL, 'fr3_sharpa_instances')
 
+# New releases opt in explicitly. Historical unpinned/v1/v2 selections retain
+# their exact original sources, gains and mounting conventions.
+from .l_mount import SUPPORTED_VERSIONS as L_MOUNT_VERSIONS, registry_override as _l_mount_override
+for _l_mount_version in L_MOUNT_VERSIONS:
+    HANDS[DEFAULT_HAND]['assemblies'][_l_mount_version] = _l_mount_override()
+    HANDS[BIMANUAL]['assemblies'][_l_mount_version] = _l_mount_override(bimanual=True)
+
 
 def hand_actuator_values(hand_id, model, joint_names):
     """Per-joint calibrated values for an opt-in actuator model; never for the arm."""
@@ -240,7 +248,7 @@ def get_hand_spec(hand_id=DEFAULT_HAND, assembly_version=None, *, instances=None
     convention = spec.get('mount_convention', MOUNT_CONVENTION)
     r,p,y = [x/2 for x in spec['mount_rpy_rad']]
     cr,sr,cp,sp,cy,sy = math.cos(r),math.sin(r),math.cos(p),math.sin(p),math.cos(y),math.sin(y)
-    spec['mount_quaternion_wxyz'] = [cr*cp*cy+sr*sp*sy, sr*cp*cy-cr*sp*sy, cr*sp*cy+sr*cp*sy, cr*cp*sy-sr*sp*cy]
+    spec.setdefault('mount_quaternion_wxyz', [cr*cp*cy+sr*sp*sy, sr*cp*cy-cr*sp*sy, cr*sp*cy+sr*cp*sy, cr*cp*sy-sr*sp*cy])
     spec.setdefault('mimic_joints', {})
     spec.setdefault('adapter', None)
     arm_dof = 7 * len(spec.get('arms', {'right': None}))
@@ -302,6 +310,8 @@ def scene_with_hand(scene, hand_id, assembly_version=None):
                          'a registered assembly') from exc
     robot.update(hand_id=hand_id, mount_position_m=spec['mount_translation_m'],
                  mount_quaternion_wxyz=spec['mount_quaternion_wxyz'], hand_kp=spec['hand_kp'], hand_kd=spec['hand_kd'])
+    if 'mounts_by_side' in spec:
+        robot['mounts_by_side'] = deepcopy(spec['mounts_by_side'])
     if pinned or assembly_version or (hand_id != DEFAULT_HAND and spec.get('assembly_version')):
         robot['assembly_version'] = spec['assembly_version']
     result.setdefault('isaacsim', {}).update(robot_self_collisions=True, filter_thumb_cmc_structure=hand_id in SHARPA_ROBOTS)

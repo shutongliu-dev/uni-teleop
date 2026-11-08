@@ -6,32 +6,105 @@ double. These are integration checks, not scene or manipulation qualification.
 from copy import deepcopy
 import json
 from pathlib import Path
+import sys
 
 from fastapi.testclient import TestClient
 import pytest
 
 from bench.control.factory import public_robot_geometry, robot_configuration
-from bench.isaacsim.release import digest, task_inputs
+from bench.isaacsim.release import digest, load_evaluator, task_inputs
 from bench.paths import load_json
 from bench.protocol import PolicyRegistry
+from agent.model_client.seeded_tasks import checked_reset_case
+from bench.runtime.reset_cases import is_randomized_release
 from bench.runtime import service
 from bench.runtime.server import create_app
+from bench.runtime.task_capabilities import engineering_capabilities
 from bench.runtime.worker import public_task_projection
+from bench.simulation.isaacsim_backend.robot_registry import get_robot_spec
 from scenes.workrooms.catalog import list_tasks
 from test_agent_service import FakeWorker, PRIVATE_MARKER, join_action, publish_targets, request
 from test_bench_function_http import artifact_hashes, commands, post
 from test_scene_function_runner import reset_score
 
 
-ORDINARY = tuple(row for row in list_tasks()
-                 if row['task_id'] not in ('tic_tac_toe_3x3', 'connect_four_5x5',
+PROFILES = ('original', 'l_mount')
+CATALOG = {profile: list_tasks(robot_profile=profile) for profile in PROFILES}
+# Task kinds are profile independent; the L-mount profile wraps each original
+# release in a robot-only revision, so classify by the original release.
+ORIGINAL = {(row['family'], row['task_id']): row for row in CATALOG['original']}
+ORDINARY = tuple((profile, row) for profile in PROFILES for row in CATALOG[profile]
+                 if engineering_capabilities(row) is None
+                 and ORIGINAL[row['family'], row['task_id']]['release_schema'] not in (
+                     'card_game_expansion_release.v1', 'card_rsi_practice_release.v1')
+                 and row['task_id'] not in ('tic_tac_toe_3x3', 'connect_four_5x5',
                                            'hex7x7', 'tower_extraction'))
-NIST = tuple(row for row in ORDINARY if row['task_id'].startswith('nist_'))
+ENGINEERING = tuple(row for profile in PROFILES for row in CATALOG[profile]
+                    if engineering_capabilities(row) is not None)
+NIST = tuple(item for item in ORDINARY if item[1]['task_id'].startswith('nist_'))
 
 
-@pytest.fixture(params=ORDINARY, ids=lambda row: row['family']+'/'+row['task_id'])
+def unscored_reset(root, task):
+    """The frozen scorer's unscored reset state, as the native worker reports it.
+
+    Storage's scorer has no result before its observer's first native frame;
+    replay one closed, stationary reset frame derived from the frozen contract.
+    """
+    if task['id'] != 'storage_box':
+        return reset_score(root, task)
+    evaluator_type = load_evaluator(root)
+    observer = sys.modules[evaluator_type.__module__].NativeTaskObserver(task)
+    observer.on_frame({'time_s': 0., 'native_time_s': 0., 'native_step': 0,
+                       'physics_dt_s': .0005, 'baseline': True, 'contacts': [],
+                       'objects': {name: {'position_m': position, 'quaternion_wxyz': [1., 0., 0., 0.],
+                                          'linear_velocity_m_s': [0., 0., 0.],
+                                          'angular_velocity_rad_s': [0., 0., 0.]}
+                                   for name, position in task['evaluation']['initial_positions_m'].items()}})
+    state = observer.on_observe()
+    assert state['complete'] and not state['errors']
+    score = evaluator_type(task).update({'time_s': 0., 'task_state': state})
+    assert not score['success'] and not score['terminal']
+    assert score['reason'] == 'reset_baseline_not_scored'
+    return score
+
+
+@pytest.mark.parametrize('definition', ENGINEERING,
+                         ids=lambda row: row['family']+'/'+row['task_id'])
+def test_current_engineering_tasks_reject_ordinary_episodes_before_robot_or_worker(
+        definition, tmp_path, monkeypatch):
+    from bench.simulation.isaacsim_backend import robot_registry
+
+    root = Path(definition['source_release']['path'])
+    if not (root/'release_manifest.json').is_file():
+        pytest.skip('Requires the current immutable workroom release')
+    assert digest(root/'release_manifest.json') == definition['source_release']['manifest_sha256']
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append(True)
+        raise AssertionError('Engineering admission must precede robot or worker setup')
+
+    monkeypatch.setattr(robot_registry, 'scene_with_hand', forbidden)
+    monkeypatch.setattr(robot_registry, 'get_robot_spec', forbidden)
+    api = service.AgentService(tmp_path/'episodes', release=root, registry=PolicyRegistry(),
+                               worker_factory=forbidden)
+    payload = request(task_id=definition['task_id'], seed=71)
+    entrypoint = engineering_capabilities(definition)['engineering_entrypoint']
+    message = ('This task does not support ordinary robot /episodes. '
+               f'Use the engineering script: python -m {entrypoint}.')
+    with pytest.raises(service.ServiceError, match='does not support ordinary robot') as error:
+        api.create(payload)
+    assert error.value.status == 403
+    with TestClient(create_app(service=api)) as client:
+        response = client.post('/episodes', json=payload.model_dump(mode='json'))
+    assert response.status_code == 403 and response.json() == {'detail': message}
+    assert calls == [] and api.sessions == {}
+    assert digest(root/'release_manifest.json') == definition['source_release']['manifest_sha256']
+
+
+@pytest.fixture(params=ORDINARY, ids=lambda item: item[0]+'/'+item[1]['family']+'/'+item[1]['task_id'])
 def workroom_service(request, tmp_path):
-    definition = request.param
+    _, definition = request.param
     root = Path(definition['source_release']['path'])
     if not (root/'release_manifest.json').is_file():
         pytest.skip('Requires the current immutable workroom release')
@@ -41,23 +114,28 @@ def workroom_service(request, tmp_path):
     def factory(**kwargs):
         _, scene, task, initial = task_inputs(root, kwargs['task_id'], seed=kwargs['seed'])
         geometry = public_robot_geometry(robot_configuration(scene))
-        worker = FakeWorker(**kwargs, depth=True, acknowledged_targets=True, on_step=publish_targets)
-        worker.arm, worker.hand = list(geometry.arm.names), list(geometry.hand.names)
+        models = geometry.sides.values() if hasattr(geometry, 'sides') else (geometry,)
+        arm = [name for model in models for name in model.arm.names]
+        hand = [name for name in geometry.names if name not in arm]
+        class WorkroomWorker(FakeWorker):
+            hand_counts = {**FakeWorker.hand_counts, kwargs['hand_id']: len(hand)}
+        worker = WorkroomWorker(**kwargs, depth=True, acknowledged_targets=True, on_step=publish_targets)
+        worker.arm, worker.hand = arm, hand
         worker.active = list(geometry.names)
         worker.raw['joint_positions_rad'] = deepcopy(initial['joint_positions_rad'])
         worker.raw['joint_velocities_rad_s'] = dict.fromkeys(worker.active, 0.)
         worker.raw['robot'] = {'joint_targets_rad': deepcopy(initial['joint_positions_rad'])}
         worker.raw['task_state'] = {'private_native_geometry': PRIVATE_MARKER}
         worker.raw['native_task_bundle'] = {'private_contacts': PRIVATE_MARKER}
-        worker.score.update(reset_score(root, task))
+        worker.score.update(unscored_reset(root, task))
         worker.score['private_inventory'] = PRIVATE_MARKER
         worker.initial.update(observation=deepcopy(worker.raw), score=deepcopy(worker.score),
                               task=public_task_projection(task))
-        worker.initial['metadata'].update(scene_spec=scene, action_spec={
+        worker.initial['metadata'].update(scene_spec=scene, hand_spec=get_robot_spec(scene['robot']), action_spec={
             'joint_names': worker.active, 'arm_joint_names': worker.arm,
             'hand_joint_names': worker.hand,
-            'joint_limits_rad': {name: [float(geometry.lower[i]), float(geometry.upper[i])]
-                                 for i, name in enumerate(geometry.names)}})
+            'joint_limits_rad': {joint.name: [float(joint.lower), float(joint.upper)]
+                                 for joint in geometry.joints}})
         workers.append(worker)
         return worker
 
@@ -75,13 +153,20 @@ def test_all_current_ordinary_tasks_bind_worker_contract_replay_and_cancel(workr
     # NIST adaptations) must also work with an explicitly requested nonzero seed.
     manifest = load_json(api.release/'release_manifest.json')
     frozen_scene = load_json(api.release/manifest['tasks'][0]['scene'])
-    seed = frozen_scene.get('scenario', {}).get('seed', 71)
+    # Frozen seed-case releases, including their L-mount revisions, accept 0..9.
+    seeded = is_randomized_release(manifest)
+    seed = 7 if seeded else frozen_scene.get('scenario', {}).get('seed', 71)
+    payload = request(task_id=definition['task_id'], seed=seed,
+                      robot_id=frozen_scene['robot']['hand_id']).model_dump(mode='json')
     with TestClient(create_app(service=api)) as client:
-        listing = client.get('/tasks')
+        listing = client.get('/tasks', params={'task_id': definition['task_id'], 'seed': seed}
+                             if seeded else {})
         assert listing.status_code == 200
         assert [row['task_id'] for row in listing.json()] == [definition['task_id']]
-        created = client.post('/episodes', json=request(
-            task_id=definition['task_id'], seed=seed).model_dump(mode='json'))
+        for endpoint in ('/board-games', '/turn-games'):
+            assert client.post(endpoint, json=payload).status_code == 403
+        assert not workers
+        created = client.post('/episodes', json=payload)
         assert created.status_code == 201, created.text
         ready = created.json()
         assert ready['spec']['task_release_sha256'] == definition['source_release']['manifest_sha256']
@@ -90,16 +175,31 @@ def test_all_current_ordinary_tasks_bind_worker_contract_replay_and_cancel(workr
         endpoint = '/episodes/'+ready['episode_id']
         assert ready['task']['create_endpoint'] == 'POST /episodes'
         assert session.public_task == workers[0].initial['task']
-        assert len(session.capabilities.arm_joints) == 7
-        assert len(session.capabilities.hand_joints) == 22
+        arms = get_robot_spec(frozen_scene['robot']).get('arms')
+        arm_count = len(arms) if arms else 1
+        assert len(session.capabilities.arm_joints) == 7*arm_count
+        assert len(session.capabilities.hand_joints) == 22*arm_count
+        assert not session.player_session and 'players' not in ready
+        if definition['task_id'] == 'cooperative_insertion':
+            assert ready['capabilities']['robot_id'] == 'dual_fr3_sharpa_w01'
+            assert set(arms) == {'left', 'right'} and arm_count == 2
         if session.referee_contract is not None:
             public_task = post(client, endpoint, 'get_task', {}, 'audit/task').result.model_dump(mode='json')
         else:
             public_task = client.get(endpoint+'/task').json()
         assert public_task['task_id'] == definition['task_id']
+        if seeded:
+            selected_case = checked_reset_case(listing.json()[0]['reset_case'], seed=seed,
+                                               task_id=definition['task_id'])
+            assert checked_reset_case(ready['task']['reset_case'], seed=seed,
+                                      task_id=definition['task_id']) == selected_case
+            assert checked_reset_case(public_task['reset_case'], seed=seed,
+                                      task_id=definition['task_id']) == selected_case
         original = ready['observation']['proprioception']['commanded_joint_positions_rad']
         target = dict(original)
-        target['fr3_joint7'] += .01
+        for joint in session.capabilities.arm_joints:
+            if joint.endswith('joint7'):
+                target[joint] += .01
         movement = {
             'action_id': 'shared_move', 'observation_sequence': session.sequence,
             'duration_s': .12,
@@ -169,13 +269,17 @@ def test_all_current_ordinary_tasks_bind_worker_contract_replay_and_cancel(workr
 ])
 def test_all_current_ordinary_tasks_reject_frozen_robot_or_scene_changes(workroom_service, changes):
     api, workers, definition = workroom_service
-    with pytest.raises(service.ServiceError, match='frozen single-arm'):
-        api.create(request(task_id=definition['task_id'], seed=71, **changes))
+    manifest = load_json(api.release/'release_manifest.json')
+    scene = load_json(api.release/manifest['tasks'][0]['scene'])
+    selected = {'robot_id': scene['robot']['hand_id'], **changes}
+    with pytest.raises(service.ServiceError, match='frozen robot and original scene'):
+        api.create(request(task_id=definition['task_id'],
+                           seed=7 if is_randomized_release(manifest) else 71, **selected))
     assert workers == [] and api.sessions == {}
 
 
 @pytest.mark.parametrize('workroom_service', NIST, indirect=True,
-                         ids=lambda row: row['task_id'])
+                         ids=lambda item: item[0]+'/'+item[1]['task_id'])
 @pytest.mark.parametrize('projection', ['missing', 'different'])
 def test_nist_worker_contract_must_match_before_observations_are_published(
         workroom_service, projection):
@@ -191,9 +295,11 @@ def test_nist_worker_contract_must_match_before_observations_are_published(
         return worker
 
     api.worker_factory = mismatched_factory
+    manifest = load_json(api.release/'release_manifest.json')
     with TestClient(create_app(service=api)) as client:
         response = client.post('/episodes', json=request(
-            task_id=definition['task_id'], seed=71).model_dump(mode='json'))
+            task_id=definition['task_id'], seed=7 if is_randomized_release(manifest) else 71,
+        ).model_dump(mode='json'))
         assert response.status_code == 503
         assert response.json() == {'detail': 'Native worker episode targets differ from the public task'}
         assert PRIVATE_MARKER not in response.text

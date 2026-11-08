@@ -1,6 +1,6 @@
 """Object-only native support/fit probes for frozen NIST task bundles.
 
-The goal case changes only reset transforms before World.reset(). It cannot earn
+The goal and detached/guided tensioner cases change only reset transforms before World.reset(). They cannot earn
 benchmark credit. All subsequent states come from gravity/contact/passive links;
 there are no robots, action policies, live pose writes or external loads.
 """
@@ -32,6 +32,42 @@ PROJECT = Path(__file__).resolve().parents[2]
 TABLE_PATH = '/World/ProbeTable'
 CAPACITY = 65536
 DWELL_S = .3
+
+
+def probe_reset_poses(metadata, case):
+    """Detached drop starts above the post; guided drop starts captured. No live writes."""
+    poses = deepcopy(metadata['diagnostic_goal_poses'])
+    if case in {'tensioner_drop', 'tensioner_guided_drop'}:
+        if metadata['task_id'] != 'nist_belt_drive_assembly':
+            raise ValueError('Tensioner drop applies only to Task7')
+        poses['tensioner_idler'][0] += .00015
+        poses['tensioner_idler'][2] += .050 if case == 'tensioner_drop' else .010
+    elif case != 'goal':
+        raise ValueError('Unknown authored diagnostic reset')
+    return poses
+
+
+def tensioner_transition_check(metadata, reset_poses, final_objects, *, case='tensioner_drop'):
+    obj = next(o for o in metadata['objects'] if o['id'] == 'tensioner_idler')
+    shaft = metadata['fixture_metadata']['tensioner_idler_shaft']
+    initial = np.asarray(reset_poses['tensioner_idler'][:3])
+    final = np.asarray(final_objects['tensioner_idler']['position_m'])
+    initial_bottom = initial[2] + obj['local_bounds_m'][0][2]
+    shaft_top = shaft['initial_position_m'][2] + shaft['local_bounds_m'][1][2]
+    fully_detached = initial_bottom > shaft_top + .002
+    guided = case == 'tensioner_guided_drop'
+    start_offset = initial[2]-metadata['diagnostic_goal_poses']['tensioner_idler'][2]
+    start_valid = (.0099 < start_offset < .0101 and shaft_top-initial_bottom > .020) if guided else fully_detached
+    return {'passed': bool(start_valid and initial[2]-final[2] > (.008 if guided else .045)),
+        'case': case, 'initially_fully_detached': bool(fully_detached),
+        'initial_offset_above_seated_goal_m': float(start_offset),
+        'authored_initial_position_m': initial.tolist(), 'final_position_m': final.tolist(),
+        'initial_bottom_over_shaft_top_m': float(initial_bottom-shaft_top),
+        'vertical_travel_m': float(initial[2]-final[2]),
+        'initial_lateral_offset_m': .00015, 'post_reset_pose_writes': 0,
+        'external_force_calls': 0, 'robot_grasp_claimed': False,
+        'scope': ('Low-energy final insertion from 10 mm above the seated goal, already captured by the guide; not a fully detached drop.'
+            if guided else 'Passive gravity seating of the initially detached idler with the real closed belt present.')}
 
 
 def array(value):
@@ -407,8 +443,8 @@ def run(args):
         UsdShade.MaterialBindingAPI.Apply(cube.GetPrim()).Bind(
             material, UsdShade.Tokens.weakerThanDescendants, 'physics')
         info = add_bundle(stage, bundle, physics_scene_path=context.prim_path)
-        if args.case == 'goal':
-            poses = metadata['diagnostic_goal_poses']
+        if args.case in {'goal', 'tensioner_drop', 'tensioner_guided_drop'}:
+            poses = probe_reset_poses(metadata, args.case)
             if set(poses) != set(metadata['actors']):
                 raise ValueError('Goal probe requires an explicit reset pose for every task body')
             for name, pose in poses.items():
@@ -528,8 +564,12 @@ def run(args):
                 tail.append(row)
                 if max_penetration > .006:
                     raise ValueError('Native penetration exceeds the declared practical 6 mm bound')
-        report['checks'] = terminal_checks(tail, metadata, info['joints'], masses, goal=args.case == 'goal',
+        report['checks'] = terminal_checks(tail, metadata, info['joints'], masses, goal=args.case != 'canonical',
             mating_gap_m=task['public_rules']['referee']['thresholds'].get('maximum_mating_gap_m', .0005))
+        if args.case in {'tensioner_drop', 'tensioner_guided_drop'}:
+            report['seating_transition'] = tensioner_transition_check(
+                metadata, report['reset_only_goal_poses'], tail[-1]['objects'], case=args.case)
+            report['checks']['passed'] = bool(report['checks']['passed'] and report['seating_transition']['passed'])
         report['maximum_reported_penetration_m'] = max_penetration
         report['native_substeps'] = round(args.duration/PHYSICS_DT)
         report['source_asset_unchanged'] = digest(bundle['usd_path']) == source_hash
@@ -550,7 +590,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--release', required=True, type=Path)
     parser.add_argument('--task-id', choices=TASK_IDS, required=True)
-    parser.add_argument('--case', choices=('canonical', 'goal'), required=True)
+    parser.add_argument('--case', choices=('canonical', 'goal', 'tensioner_drop', 'tensioner_guided_drop'), required=True)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--gpu-uuid', required=True)
     parser.add_argument('--duration', type=float, default=1.)

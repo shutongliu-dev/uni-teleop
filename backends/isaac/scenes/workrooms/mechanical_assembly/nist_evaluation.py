@@ -28,7 +28,8 @@ def configuration(task):
     c = deepcopy(task['evaluation'])
     expected = evaluation_configuration(task['id'], c['metadata'], task['episode_seed'],
         c['physics_dt_s'], c['room_support_paths'])
-    if c != expected or task['public_rules'] != public_rules(task['id'], task['episode_seed']):
+    if c != expected or task['public_rules'] != public_rules(task['id'], task['episode_seed'],
+            usability_profile=c['metadata'].get('usability_profile')):
         raise ValueError('Frozen NIST rules or metadata differ')
     return c, digest(c)
 
@@ -51,6 +52,8 @@ class NativeTaskObserver:
                              for name in group['actor_ids']}
         self.twist_free_ids = self.flexible_ids-{
             goal['actor'] for goal in self.p.get('seating_goals', [])}
+        self.endpoint_matching = {group['group_id']: group for group in
+            self.c.get('harness_endpoint_matching', {}).get('groups', [])}
         self.reset()
 
     def reset(self):
@@ -147,7 +150,9 @@ class NativeTaskObserver:
         distances = np.linalg.norm(np.diff(traversed, axis=0), axis=1)
         intact = bool(np.max(distances) <= group['maximum_neighbor_distance_m']+EPS)
         route, hits = route_in_order(traversed, group.get('route_gates', []))
-        if not route and group.get('allow_reverse_route', False):
+        allow_reverse = (group.get('allow_reverse_route', False) or
+            self.endpoint_matching.get(group['id'], {}).get('route_direction') == 'either')
+        if not route and allow_reverse:
             route, hits = route_in_order(traversed[::-1], group['route_gates'])
         loop = (not group['closed'] or simple_loop(curve)) and all(
             enclosed(curve, target, group.get('plane_tolerance_m', .02))
@@ -170,6 +175,37 @@ class NativeTaskObserver:
             'supported_body_count': len(supported), 'minimum_supported_body_count': minimum,
             'support': support_ok, 'required_mating_contacts': mating}
 
+    def _matched_harness_seats(self, matching, objects, contacts, t, groups):
+        """Evaluate the two complete bijections, retaining target-specific contact.
+
+        An independent OR at each endpoint could reuse a terminal. A complete
+        assignment always binds both endpoints to different nests of this lead.
+        """
+        by_id = {goal['id']: goal for goal in self.p['seating_goals']}
+        original_goals = [by_id[name] for name in matching['seating_goal_ids']]
+        candidates = []
+        for assignment in matching['assignments']:
+            seats = {}
+            half_angle = assignment['world_z_rotation_rad']/2
+            c, s = math.cos(half_angle), math.sin(half_angle)
+            for target, actor_index in zip(original_goals, assignment['actor_indices_by_goal']):
+                goal = deepcopy(target)
+                goal['actor'] = matching['endpoint_actor_ids'][actor_index]
+                goal['actor_local_point_m'] = original_goals[actor_index].get(
+                    'actor_local_point_m', [0., 0., 0.])
+                w, x, y, z = goal['target_quaternion_wxyz']
+                # Left multiplication rotates about the fixed board/world Z,
+                # so exchanged endpoints retain their inward-facing wire exits.
+                goal['target_quaternion_wxyz'] = [c*w-s*z, c*x-s*y, c*y+s*x, c*z+s*w]
+                passed, detail = self._seat(goal, objects, contacts, t, groups)
+                seats[target['id']] = dict(complete=passed, actor=goal['actor'],
+                    terminal_id=target['contact_ids'][0], **detail)
+            candidates.append((all(row['complete'] for row in seats.values()),
+                assignment['id'], seats))
+        chosen = max(candidates, key=lambda candidate:
+            (candidate[0], sum(row['complete'] for row in candidate[2].values())))
+        return chosen
+
     def _assembly_goal(self, objects, contacts, t):
         seats, groups = {}, {}
         good = True
@@ -177,13 +213,25 @@ class NativeTaskObserver:
             passed, detail = self._group(group, objects, contacts, t)
             groups[group['id']] = dict(complete=passed, **detail)
             good &= passed
-        for goal in self.p.get('seating_goals', []):
-            passed, detail = self._seat(goal, objects, contacts, t, groups)
-            seats[goal['id']] = dict(complete=passed, **detail)
-            good &= passed
+        assignments = {}
+        if self.endpoint_matching:
+            for group_id, matching in self.endpoint_matching.items():
+                passed, assignment, matched_seats = self._matched_harness_seats(
+                    matching, objects, contacts, t, groups)
+                seats.update(matched_seats)
+                assignments[group_id] = dict(complete=passed, assignment=assignment)
+                good &= passed
+        else:
+            for goal in self.p.get('seating_goals', []):
+                passed, detail = self._seat(goal, objects, contacts, t, groups)
+                seats[goal['id']] = dict(complete=passed, **detail)
+                good &= passed
         movement = set(self.p['required_moved_ids']) <= self.moved
-        return bool(good and movement), {
+        detail = {
             'seating': seats, 'flexible_groups': groups, 'required_movement': movement}
+        if self.endpoint_matching:
+            detail['endpoint_matching'] = assignments
+        return bool(good and movement), detail
 
     def _removal_goal(self, objects, contacts, t):
         goal = self.p['removal']
@@ -325,7 +373,8 @@ class SequenceEvaluator:
     """Score authenticated native receipts; missing evidence stays unknown."""
     def __init__(self, task_spec):
         self.c, self.digest = configuration(task_spec)
-        self.rules = public_rules(self.c['task_id'], self.c['episode_seed'])['referee']
+        self.rules = public_rules(self.c['task_id'], self.c['episode_seed'],
+            usability_profile=self.c['metadata'].get('usability_profile'))['referee']
         self.reset()
 
     def reset(self):

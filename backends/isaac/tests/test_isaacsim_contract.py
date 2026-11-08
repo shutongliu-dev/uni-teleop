@@ -121,4 +121,4 @@ def test_combined_urdf_keeps_one_tree_and_manufacturer_dofs(tmp_path):
             name = parents[name]
         assert name == 'base'
     assert parents['right_hand_flange'] == 'fr3_link8'
-    assert all(Path(x.get('filename')).is_file() for x in root.findall('.//mesh'))
+    assert all((Path(path).parent / x.get('filename')).is_file() for x in root.findall('.//mesh'))

@@ -616,7 +616,7 @@ def test_four_task_spec_keeps_original_physics_thresholds_assets_and_initializat
             assert '反折' in value['steps'][0]['instruction_zh']
         if value['evaluation']['mode'] in ('lift_hold', 'pick_place'):
             assert '途中违反后不能靠最后摆正补救' in value['steps'][0]['instruction_zh']
-    assert digest(PREVIOUS_SIMPLE_RELEASE / 'release_manifest.json') == '8be901d08e8e0b677d24dcc323e12f1f4661d554280f8e4e23f17fbb8b51849a'
+    assert digest(PREVIOUS_SIMPLE_RELEASE / 'release_manifest.json') == '07c0279ed42d05b8b77ab624a0e5a906af86eabb92d05507538cbd9841de2aa2'
 
 
 def test_latched_episode_violations_are_reported_as_irrecoverable():

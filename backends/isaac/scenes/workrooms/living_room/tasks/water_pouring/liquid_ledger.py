@@ -10,6 +10,7 @@ import hashlib
 import numpy as np
 
 from .assets import cavity_contains
+from .rules import spill_geometry_parameters
 
 
 class LiquidLedger:
@@ -17,6 +18,8 @@ class LiquidLedger:
         self.metadata = metadata
         self.dt, self.previous_time = float(dt), float(initial_time)
         water = metadata['water']
+        self.spill_geometry = spill_geometry_parameters(water)
+        self.envelope = self.spill_geometry['geometry_spill_envelope_m']
         self.count = int(water['particle_count'])
         self.mass = float(water['particle_mass_kg'])
         self.density = float(water['reference_density_kg_m3'])
@@ -50,22 +53,24 @@ class LiquidLedger:
         outside = ~occupied
         tray = self.metadata['tray']
         bounds = np.asarray(tray['bounds_xy_m'])
+        envelope = self.envelope
         over_tray = ((points[:, :2] >= bounds[0]) & (points[:, :2] <= bounds[1])).all(axis=1)
-        expanded_tray = ((points[:, :2] >= bounds[0]-.006) & (points[:, :2] <= bounds[1]+.006)).all(axis=1)
+        expanded_tray = ((points[:, :2] >= bounds[0]-envelope) & (points[:, :2] <= bounds[1]+envelope)).all(axis=1)
         # v1 tray walls are 7 mm thick and rise 17 mm above the interior floor.
         # Include their top/outer surfaces: particles resting on the rim are spills.
         thickness = tray.get('wall_thickness_m', .007)
         rim_top = tray.get('rim_top_z_m', tray['interior_floor_z_m']+.017)
-        near_wall = ((points[:, :2] <= bounds[0]+thickness+.006) |
-                     (points[:, :2] >= bounds[1]-thickness-.006)).any(axis=1)
+        near_wall = ((points[:, :2] <= bounds[0]+thickness+envelope) |
+                     (points[:, :2] >= bounds[1]-thickness-envelope)).any(axis=1)
         over_table = ((points[:, :2] >= [.15, -.5]) & (points[:, :2] <= [1.15, .5])).all(axis=1)
-        # The 6 mm envelope includes the authored 2.5 mm particle rest offset.
-        # These are geometric surface interception regions, not contact reports.
+        # Bind the geometric interception envelope to the authored rest offset;
+        # otherwise 8 mm particles resting 6.667 mm up never meet the old 6 mm
+        # cutoff. This remains a geometric ledger, not particle contact reports.
         regions = {
-            'tray': over_tray & (points[:, 2] <= tray['interior_floor_z_m']+.006),
-            'tray_rim': expanded_tray & near_wall & (points[:, 2] <= rim_top+.006),
-            'table': over_table & (points[:, 2] <= self.metadata['table_top_z_m']+.006),
-            'floor': points[:, 2] <= .006,
+            'tray': over_tray & (points[:, 2] <= tray['interior_floor_z_m']+envelope),
+            'tray_rim': expanded_tray & near_wall & (points[:, 2] <= rim_top+envelope),
+            'table': over_table & (points[:, 2] <= self.metadata['table_top_z_m']+envelope),
+            'floor': points[:, 2] <= envelope,
             'escaped_domain': ((points < [-2., -2., -.1]) | (points > [3., 2., 2.])).any(axis=1),
         }
         new_hits, hit_counts = np.zeros(self.count, bool), {}

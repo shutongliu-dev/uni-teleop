@@ -30,7 +30,7 @@ def _inside_closed_mesh(mesh, point):
 @pytest.mark.parametrize('task_id,dynamic_count,fixture_count', [
     ('breakfast_serving', 5, 0), ('produce_transfer', 6, 3),
     ('utensil_sorting', 6, 2), ('pot_lid_placement', 2, 1),
-    ('pantry_stocking', 8, 4), ('table_clearing', 8, 4)])
+    ('pantry_stocking', 8, 4), ('table_clearing', 8, 4), ('surface_wiping', 1, 1)])
 def test_passive_inventory_and_mass_are_explicit(task_id, dynamic_count, fixture_count):
     stage = Usd.Stage.CreateInMemory()
     metadata = author_task(stage, task_id)

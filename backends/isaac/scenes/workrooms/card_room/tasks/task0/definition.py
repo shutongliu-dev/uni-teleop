@@ -30,7 +30,7 @@ TASK = {
         'scope': 'Actual three-piece placement; 20ms poses and complete native contact windows, 300ms release stability.'},
     'source_release': {
         'path': f'{DATA_ROOT}/datasets/fr3_sharpa_bench/isaacsim/releases/card_room/task0/v5',
-        'manifest_sha256': '9a7171a6e979ca7bbbe914df3e07a43349e74e4559a3cdf0d96b7075a30c3fbe'},
+        'manifest_sha256': '3035adc3f58924cd460f6881495e1ed283925998f7d71693585614a80768af71'},
     'qualification': {'result_source': 'external_evidence_report', 'manipulation': False,
         'native_preflight': True, 'physics_accepted': False,
         'contact_repair_regression': True, 'public_http_smoke': True,

@@ -21,7 +21,7 @@ COMMON_ROBOT = {
     'layout_id': 'mechanical_single_arm_v1',
     'configuration_module': 'scenes.workrooms.mechanical_assembly.robot_layout',
     'base_position_m': [-.23, 0., .78],
-    'constraint': 'All four study tasks use the same original robot, base and ready pose.',
+    'constraint': 'All study tasks use the same original robot, base and ready pose.',
 }
 
 
@@ -57,13 +57,13 @@ def prepared_task(*, task_id, number, title, objects, design, release_version, m
             'implementation': 'scenes.workrooms.study.evaluation.SequenceEvaluator',
             'reference_implementation': f'scenes.workrooms.study.tasks.{task_id}.evaluator.SequenceEvaluator',
             'frozen_path': 'evaluator/sequence_evaluator.py',
-            'thresholds': deepcopy(THRESHOLDS),
+            'thresholds': deepcopy(rules['thresholds']),
             'scope': 'Private complete native substeps feed the release-frozen evaluator; public claims never score.',
         },
         'source_release': {'path': path, 'manifest_sha256': manifest_sha256},
         'design': {
             'schema': 'study_task_design.v1', 'status': 'frozen_engineering_candidate',
-            'difficulty_progression': 'Task1 sorting → Task2 stacking → Task3 retrieval → Task4 shelving; design order, not measured success rates.',
+            'difficulty_progression': 'Task1 sorting → Task2 stacking → Task3 retrieval → Task4 shelving → Task5 drawer; design order, not measured success rates.',
             'physical_contract': {
                 'actions': 'Original robot joints only after reset.',
                 'forbidden_shortcuts': ['grasp_weld', 'magnetic_snap', 'object_pose_playback', 'direct_object_force_or_torque'],

@@ -7,7 +7,7 @@ from .rules import public_rules, thresholds
 
 LOOSE_BOLT_RELEASE = {
     'path': f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/mechanical_scene_delivery_20261020/l4/releases/loose_bolt_candidate_v10_pgs',
-    'manifest_sha256': 'e3fdb6d0ce747bcc0f4b4786dbe9fe4ad11cfd69ab4266919551820357e40a44',
+    'manifest_sha256': 'd468bb978a67beb9bb2a9f16aa3e0d780b9ba61a46ddbbb446ece716816d69d8',
 }
 
 
@@ -62,7 +62,7 @@ TASK = planned_task(
         'historical_preinserted': {
             'release': {
                 'path': f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/mechanical_referee_20261018/rules_v1/releases/fastener_assembly',
-                'manifest_sha256': '490a0ee47eb1132691515ff874d71cbd6ae71c02b8ccd36ebc4be4bb871456ca',
+                'manifest_sha256': '4eec5a5377e26d50c8c8974510540c9116d452a58f5b6c6e3e0670a16c007b7c',
             },
             'scope': 'Historical pre-engaged bolt and preinserted tool. Its reset/contact evidence does not qualify the current loose-bolt task.',
         },
@@ -72,7 +72,7 @@ TASK = planned_task(
             'asset_root': f'{DATA_ROOT}/assets/task_parts/mechanical_assembly/fastener_assembly/loose_bolt_v5',
             'threaded_collision_candidate': {
                 'asset_root': f'{DATA_ROOT}/assets/task_parts/threaded_sharpa/sdf1024_convex_partition_candidate02_20261018',
-                'manifest_sha256': 'b81a9ea7e4003c72f8bb0f71ef607cb10235e68fb92df7732c42c98a42fa7850',
+                'manifest_sha256': '954694841ceea00c91c98d5ea10fbda268e4eb8dd7a55d1ed67fa4dc83837b42',
                 'source_preserving': True,
                 'native_geometry_evidence': 'mechanical_task_validation_20261018/fastener/native18',
                 'scope': 'Candidate collision cooking only; loose pickup, start-thread and robot manipulation remain unqualified.',
@@ -158,3 +158,10 @@ TASK['objects']['asset_bindings'] = {
 TASK['layout']['initialization'] = 'Frozen scene.json plus complete initial_state.json; reset only.'
 TASK['design']['status'] = 'frozen_candidate_with_separate_scene_evidence'
 TASK['design']['dimensions_and_thresholds'] = 'Version-pinned engineering candidates, not native-accepted task tolerances.'
+
+
+from scenes.workrooms.mechanical_assembly.desktop_catalog import bind_desktop_release
+TASK = bind_desktop_release(TASK)
+
+from .runtime_catalog import bind_runtime_inputs
+TASK = bind_runtime_inputs(TASK)

@@ -42,14 +42,23 @@ def _positive(value, label):
     return float(value)
 
 
-def _task_query(task_id):
+def _task_query(task_id, configuration_id=None, seed=None):
     if task_id is None:
+        if configuration_id is not None or seed is not None:
+            raise BenchHTTPError('robot configuration or seed selection requires a task ID')
         return ''
     # Task IDs are public Name values, not path components. Encode separators
     # as query data so namespaced tasks retain their complete identity.
     if not isinstance(task_id, str) or not re.fullmatch(r'[A-Za-z0-9_.:/-]{1,160}', task_id):
         raise BenchHTTPError('invalid public task identifier')
-    return '?' + urlencode({'task_id': task_id})
+    values = {'task_id': task_id}
+    if configuration_id is not None:
+        values['configuration_id'] = _token(configuration_id)
+    if seed is not None:
+        if type(seed) is not int or not 0 <= seed <= 9:
+            raise BenchHTTPError('frozen seed selection requires an integer in 0..9', category='invalid_request')
+        values['seed'] = seed
+    return '?' + urlencode(values)
 
 
 class BenchHTTPClient:
@@ -121,17 +130,18 @@ class BenchHTTPClient:
             return result
         raise AssertionError("unreachable request loop")
 
-    def list_tasks(self):
-        return self._json("GET", "/tasks")
+    def list_tasks(self, task_id: str | None = None, configuration_id: str | None = None,
+                   *, seed: int | None = None):
+        return self._json("GET", "/tasks" + _task_query(task_id, configuration_id, seed))
 
     def list_robots(self):
         return self._json("GET", "/robots")
 
-    def list_policies(self, task_id: str | None = None):
-        return self._json("GET", "/policies" + _task_query(task_id))
+    def list_policies(self, task_id: str | None = None, configuration_id: str | None = None):
+        return self._json("GET", "/policies" + _task_query(task_id, configuration_id))
 
-    def list_interfaces(self, task_id: str | None = None):
-        return self._json("GET", "/interfaces" + _task_query(task_id))
+    def list_interfaces(self, task_id: str | None = None, configuration_id: str | None = None):
+        return self._json("GET", "/interfaces" + _task_query(task_id, configuration_id))
 
     def create(self, payload: dict):
         return self._json("POST", "/episodes", payload=payload)

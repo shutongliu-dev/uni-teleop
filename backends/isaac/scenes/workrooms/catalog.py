@@ -10,16 +10,26 @@ import importlib
 from pathlib import Path
 import re
 
-from .registry import FAMILIES
+from .registry import FAMILIES as LEGACY_DIAGNOSTIC_FAMILIES
 from bench.paths import load_json
 from bench.simulation.isaacsim_backend.workroom import checked, verify_reference
 
+CURRENT_FAMILIES = (*LEGACY_DIAGNOSTIC_FAMILIES, 'laundry_room')
 SCHEMA = 'workroom_task_definition.v1'
 ROOT = Path(__file__).parent
-RELEASE_SCHEMAS = frozenset({'robot_board_game_task_release.v1',
+RELEASE_SCHEMAS = frozenset({'workroom_robot_revision_release.v1',
+                           'robot_board_game_task_release.v1',
+                           'laundry_randomized_release.v1',
+                           'workroom_randomized_release.v1',
+                           'living_room_randomized_release.v1',
+                           'card_rsi_practice_release.v1',
+                           'card_game_expansion_release.v1',
+                           'workroom_robot_configuration_release.v1',
+                           'laundry_cloth_task_release.v1',
                            'study_task_release.v1',
                            'mechanical_assembly_task_release.v1',
                            'mechanical_nist_task_release.v1',
+                           'mechanical_cooperative_task_release.v1',
                            'mechanical_fastener_task_release.v1',
                            'card_room_placement_task_release.v1',
                            'living_room_task_release.v1',
@@ -29,7 +39,7 @@ RELEASE_SCHEMAS = frozenset({'robot_board_game_task_release.v1',
 
 
 def _family(family):
-    if family not in FAMILIES:
+    if family not in CURRENT_FAMILIES:
         raise ValueError(f'Unknown workroom family: {family}')
     return family
 
@@ -46,7 +56,7 @@ def scene_definition(family):
     return result
 
 
-def task_definition(family, task_id):
+def task_definition(family, task_id, configuration_id=None, *, robot_profile=None):
     """Read metadata, including planned tasks, without loading their assets."""
     family = _family(family)
     if not isinstance(task_id, str) or not re.fullmatch(r'[a-z][a-z0-9_]*', task_id):
@@ -74,34 +84,41 @@ def task_definition(family, task_id):
     elif result.get('release_schema') not in RELEASE_SCHEMAS:
         raise ValueError('Implemented task requires a supported release schema')
     result['runnable'] = result['status'] == 'implemented'
-    return result
+    from .robot_configurations import attach_robot_configurations, configured_definition
+    from .initial_randomization.catalog import bind_definition
+    from .laundry_room.randomization.catalog import bind_definition as bind_laundry
+    from .parameterized.catalog import bind_definition as bind_robot_profile
+    return configured_definition(bind_robot_profile(
+        bind_laundry(bind_definition(attach_robot_configurations(result))), robot_profile), configuration_id)
 
 
-def list_tasks(family=None, *, include_planned=False):
-    """List implemented tasks by default; opt in to unimplemented design slots."""
-    families = (_family(family),) if family is not None else FAMILIES
+def list_tasks(family=None, *, include_planned=False, include_superseded=False, robot_profile=None):
+    """List current tasks; historical canonical definitions remain loadable."""
+    families = (_family(family),) if family is not None else CURRENT_FAMILIES
     result = []
     for name in families:
         for path in sorted((ROOT / name / 'tasks').glob('*/definition.py')):
-            task = task_definition(name, path.parent.name)
+            task = task_definition(name, path.parent.name, robot_profile=robot_profile)
+            if task.get('superseded_by') and not include_superseded:
+                continue
             if include_planned or task['runnable']:
                 result.append(task)
-    return sorted(result, key=lambda task: (FAMILIES.index(task['family']),
+    return sorted(result, key=lambda task: (CURRENT_FAMILIES.index(task['family']),
                   task.get('difficulty', 99), task['task_id']))
 
 
 def list_scenes():
-    return [scene_definition(family) for family in FAMILIES]
+    return [scene_definition(family) for family in CURRENT_FAMILIES]
 
 
-def load_task(family, task_id):
+def load_task(family, task_id, configuration_id=None, *, robot_profile=None):
     """Load a verified frozen task; never turn a planned slot into a runtime.
 
     This checks frozen inputs and the canonical loader contract, not physics
     acceptance. Native task entrypoints still validate actors, contacts and
     cameras in the running simulator.
     """
-    definition = task_definition(family, task_id)
+    definition = task_definition(family, task_id, configuration_id, robot_profile=robot_profile)
     if not definition['runnable']:
         raise ValueError(f"Task {family}/{task_id} cannot run: {definition['cannot_run_reason']}")
     parent = scene_definition(family)
@@ -136,7 +153,13 @@ def load_task(family, task_id):
         from scenes.board_games.runtime_release import validate_board_game_release
         # Check inventory, geometry, ownership, reset and frozen evaluator code.
         validate_board_game_release(root, manifest, assets=False)
+    elif manifest.get('schema') in ('workroom_robot_revision_release.v1', 'laundry_randomized_release.v1', 'workroom_randomized_release.v1', 'card_game_expansion_release.v1', 'card_rsi_practice_release.v1',
+                                     'living_room_randomized_release.v1'):
+        from bench.isaacsim.release import validate
+        validate(root)
     independent = {'laboratory_manipulation_task_release.v1': 'isaacsim-laboratory-manipulation-release-v1',
+                   'workroom_robot_configuration_release.v1': 'isaacsim-workroom-robot-configuration-release-v1',
+                   'laundry_cloth_task_release.v1': 'isaacsim-laundry-cloth-release-v1',
                    'kitchen_manipulation_task_release.v1': 'isaacsim-kitchen-manipulation-release-v1',
                    'study_task_release.v1': 'isaacsim-study-release-v1',
                    'living_room_task_release.v1': 'isaacsim-living-room-release-v1',
@@ -144,6 +167,7 @@ def load_task(family, task_id):
                    'mechanical_fastener_task_release.v1': 'isaacsim-mechanical-fastener-release-v1',
                    'mechanical_assembly_task_release.v1': 'isaacsim-mechanical-assembly-release-v1',
                    'mechanical_nist_task_release.v1': 'isaacsim-mechanical-nist-release-v1',
+                   'mechanical_cooperative_task_release.v1': 'isaacsim-mechanical-cooperative-release-v1',
                    'card_room_placement_task_release.v1': 'isaacsim-card-room-placement-release-v1'}
     if manifest.get('schema') in independent:
         if manifest.get('schema_version') != independent[manifest['schema']]:

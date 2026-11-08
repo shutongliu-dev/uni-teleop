@@ -361,7 +361,9 @@
     ],
     "runtime": "floating-hand",
     "entry": "floating-hand",
-    "args": ["--video"],
+    "args": [
+      "--video"
+    ],
     "status": "native-synthetic-tested"
   },
   "mujoco-pico-manus-sharpa-hand": {
@@ -405,7 +407,7 @@
     "arm": "pico-controller",
     "hand": "trigger",
     "robot": "franka-sharpa",
-    "description": "PICO + 踏板 → Franka + SHARPA；低分辨率预览、刚体状态记录及离线补渲染",
+    "description": "PICO + 踏板 → Franka + SHARPA；独立预览、刚体状态记录及离线补渲染",
     "components": [
       "isaac",
       "pico-native",
@@ -415,10 +417,13 @@
     "args": [
       "--mode",
       "controllers",
+      "--scale",
+      "1.0",
       "--operator-view",
       "rear",
       "--operator-inset",
-      "table",
+      "wrist",
+      "--operator-hide-arm",
       "--no-task-scoring",
       "--physics-profile",
       "cpu_rigid_v1",
@@ -428,7 +433,47 @@
       "0.04",
       "--deferred-recording",
       "--preview-scale",
-      "0.75",
+      "1.0",
+      "--video-fps",
+      "20"
+    ],
+    "status": "device-verification-required"
+  },
+  "isaac-pico-manus-native-pedal-deferred": {
+    "backend": "isaac",
+    "arm": "pico-controller",
+    "hand": "manus",
+    "robot": "franka-sharpa",
+    "description": "PICO 位移 + MANUS C++ SDK 标定手指 + 踏板；状态采集",
+    "components": [
+      "isaac",
+      "pico-native",
+      "manus-native",
+      "pedal-toggle"
+    ],
+    "entry": "pico",
+    "args": [
+      "--arm-source",
+      "pico",
+      "--mode",
+      "controllers",
+      "--scale",
+      "1.0",
+      "--operator-view",
+      "rear",
+      "--operator-inset",
+      "wrist",
+      "--operator-hide-arm",
+      "--no-task-scoring",
+      "--physics-profile",
+      "cpu_rigid_v1",
+      "--physics-dt",
+      "0.004",
+      "--control-dt",
+      "0.04",
+      "--deferred-recording",
+      "--preview-scale",
+      "1.0",
       "--video-fps",
       "20"
     ],

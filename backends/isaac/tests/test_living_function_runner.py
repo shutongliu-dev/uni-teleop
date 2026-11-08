@@ -206,8 +206,15 @@ def test_tower_turns_follow_native_handoff_not_each_function_and_keep_contexts_p
             assert 'evaluation' not in value['task'] and 'initial_state' not in value['task']
             assert PRIVATE_MARKER not in json.dumps(turns)
     # A referee handoff cancels the unfinished primitive; it does not claim
-    # that the requested motion horizon or endpoint completed.
-    handoff = context(models[first].turns[-1])['last_feedback']['result']
+    # that the requested motion horizon or endpoint completed. Exact public
+    # context deduplication omits last_feedback when it repeats the
+    # immediately preceding tool_feedback message.
+    final = models[first].turns[-1]
+    if 'last_feedback' in context(final):
+        handoff = context(final)['last_feedback']['result']
+    else:
+        assert context(final)['host_contract']['input_projection']
+        handoff = json.loads(final[-2]['content'])['tool_feedback']['result']
     assert handoff['status'] == 'cancelled'
     assert handoff['termination_reason'] == 'turn_changed'
     session = next(iter(api.sessions.values()))

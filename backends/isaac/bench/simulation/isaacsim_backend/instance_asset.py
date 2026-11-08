@@ -1,12 +1,13 @@
 """Versioned identifier-only copies of pinned original robot assemblies."""
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from .robot_asset import DEFAULT_ASSETS, digest, sharpa_assembly_dir, write_once
 from .robot_instances import ASSEMBLY_VERSION, ROBOT_ID, checked_namespace, instance_name
-from bench.paths import load_json
+from bench.paths import load_json, portable
 
 
 def namespaced_tree(root, namespace):
@@ -27,6 +28,35 @@ def namespaced_tree(root, namespace):
     return tree
 
 
+def _anchored(tree, directory):
+    """dexbench: a URDF tree with relative mesh/texture file names resolved against its directory.
+
+    The data package writes these names relative to each file, so an instance copy and its
+    source name the same meshes with different relative paths.
+    """
+    tree = deepcopy(tree)
+    for element in tree.iter():
+        name = element.get('filename')
+        if name and '://' not in name and not name.startswith('/'):
+            element.set('filename', os.path.normpath(os.path.join(directory, name)))
+    return tree
+
+
+def _relocated(tree, source_directory, target_directory):
+    """dexbench: the tree's relative mesh/texture file names rewritten for a file in target_directory."""
+    tree = _anchored(tree, source_directory)
+    for element in tree.iter():
+        name = element.get('filename')
+        if name and os.path.isabs(name):
+            relative = os.path.relpath(name, target_directory)
+            element.set('filename', relative if relative.startswith('.') else './' + relative)
+    return tree
+
+
+def _canonical(tree):
+    return ET.canonicalize(ET.tostring(tree, encoding='unicode'), strip_text=True)
+
+
 def assemble_instance(namespace, assets_root=DEFAULT_ASSETS, *, source_version, output=None):
     """Read an existing pinned assembly; never rebuild or overwrite the source."""
     from .robot_registry import get_hand_spec
@@ -39,21 +69,59 @@ def assemble_instance(namespace, assets_root=DEFAULT_ASSETS, *, source_version, 
     if (original['mount']['translation_m'] != spec['mount_translation_m']
             or original['mount']['quaternion_wxyz'] != spec['mount_quaternion_wxyz']):
         raise ValueError('Frozen source assembly mount differs from its registry version')
-    hashes = {str(source_urdf): original['urdf_sha256'], **original['sources'],
-              **original['mesh_inputs'], **original['license_sha256']}
+    from .l_mount import SUPPORTED_VERSIONS as L_MOUNT_VERSIONS, runtime_source_inputs
+    hashes = (runtime_source_inputs(original, assets_root) if source_version in L_MOUNT_VERSIONS else
+              {str(source_urdf): original['urdf_sha256'], **original['sources'],
+               **original['mesh_inputs'], **original['license_sha256']})
     for path, expected in hashes.items():
         if digest(path) != expected:
             raise ValueError('Frozen source robot asset changed: ' + path)
     tree = namespaced_tree(ET.parse(source_urdf).getroot(), namespace)
     output = Path(output or assets_root / 'robots/assemblies' / ROBOT_ID /
                   ASSEMBLY_VERSION / source_version / namespace)
-    output.mkdir(parents=True, exist_ok=True)
+    if source_version in L_MOUNT_VERSIONS:
+        manifest = output / 'SOURCE.json'
+        record = load_json(manifest)
+        path = Path(record['urdf_path'])
+        expected_limits = {instance_name(namespace, name): value for name, value in original['joint_limits'].items()}
+        expected_mount = deepcopy(original['mount'])
+        for key in ('parent', 'child'):
+            expected_mount[key] = instance_name(namespace, expected_mount[key])
+        if (path.parent.resolve() != output.resolve()
+                or record['source_manifest'] != str(source_path)
+                or record['source_manifest_sha256'] != digest(source_path)
+                or record['joint_limits'] != expected_limits
+                or record['mount'] != expected_mount
+                or ET.canonicalize(ET.tostring(_anchored(ET.fromstring(path.read_bytes()), path.parent),
+                                               encoding='unicode'), strip_text=True)
+                   != ET.canonicalize(ET.tostring(_anchored(tree, source_urdf.parent), encoding='unicode'),
+                                      strip_text=True)):
+            raise ValueError('Prepared L-mount instance is not an exact source namespace projection')
+        checks = runtime_source_inputs(record, assets_root)
+        if any(digest(p) != expected for p, expected in checks.items()):
+            raise ValueError('Prepared L-mount instance input changed')
+        return path, record
     path = output / 'robot.urdf'
-    body = ET.tostring(tree, encoding='utf-8', xml_declaration=True) + b'\n'
-    write_once(path, body, f'Never overwrite a versioned instance assembly: {path}')
     mount = deepcopy(original['mount'])
     for key in ('parent', 'child'):
         mount[key] = instance_name(namespace, mount[key])
+    if (output / 'SOURCE.json').is_file():
+        # dexbench: an existing (shipped) instance is verified, never regenerated. Its provenance
+        # names the generator version that wrote it; its mesh paths are relative to the instance.
+        record = load_json(output / 'SOURCE.json')
+        expected_limits = {instance_name(namespace, name): value for name, value in original['joint_limits'].items()}
+        if (Path(record['urdf_path']) != path or record['urdf_sha256'] != digest(path)
+                or record['source_manifest'] != str(source_path)
+                or record['source_manifest_sha256'] != digest(source_path)
+                or record['namespace'] != namespace or record['source_assembly_version'] != source_version
+                or record['joint_limits'] != expected_limits or record['mount'] != mount
+                or _canonical(_anchored(ET.fromstring(path.read_bytes()), path.parent))
+                   != _canonical(_anchored(tree, source_urdf.parent))):
+            raise ValueError('Existing robot instance is not an exact namespace projection of its source')
+        return path, record
+    output.mkdir(parents=True, exist_ok=True)
+    body = ET.tostring(_relocated(tree, source_urdf.parent, output), encoding='utf-8', xml_declaration=True) + b'\n'
+    write_once(path, body, f'Never overwrite a versioned instance assembly: {path}')
     record = {'schema_version': 'fr3-source-instance-v1', 'robot_id': ROBOT_ID,
         'namespace': namespace, 'assembly_version': ASSEMBLY_VERSION,
         'source_hand_id': 'sharpa_w01_right', 'source_assembly_version': source_version,
@@ -69,7 +137,7 @@ def assemble_instance(namespace, assets_root=DEFAULT_ASSETS, *, source_version, 
             for node in ET.parse(source_urdf).getroot() if node.tag in ('link', 'joint')},
         'physical_values_changed': False,
         'generator_sha256': {'bench/simulation/isaacsim_backend/instance_asset.py': digest(__file__)}}
-    write_once(output / 'SOURCE.json', (json.dumps(record, sort_keys=True, indent=2) + '\n').encode(),
+    write_once(output / 'SOURCE.json', (json.dumps(portable(record), sort_keys=True, indent=2) + '\n').encode(),
                f'Never overwrite versioned instance provenance: {output}')
     return path, record
 
@@ -84,9 +152,11 @@ def import_instances(assets_root, instances):
     for name, item in instances.items():
         urdf, source = assemble_instance(name, assets_root, source_version=item['assembly_version'])
         manifest = urdf.parent / 'USD_IMPORT.json'
-        usds[name] = _import_side(urdf, urdf.parent / 'usd', manifest,
+        from .l_mount import SUPPORTED_VERSIONS as L_MOUNT_VERSIONS, prepared_import
+        usds[name] = (prepared_import(urdf) if item['assembly_version'] in L_MOUNT_VERSIONS else
+                     _import_side(urdf, urdf.parent / 'usd', manifest,
             {f'fr3_{name}_joint.*': 2000., f'{name}_.*': 3.},
-            {f'fr3_{name}_joint.*': 140., f'{name}_.*': .1})
+            {f'fr3_{name}_joint.*': 140., f'{name}_.*': .1}))
         imported = load_json(manifest)
         if set(imported['revolute_joint_names']) != set(source['joint_limits']):
             raise ValueError('Native instance joint inventory differs from its source assembly')

@@ -16,8 +16,8 @@ from bench.simulation.isaacsim_backend.asset_catalog import load_task_asset
 # These immutable releases supplied native18/native19's same engaged poses.
 # Their PGS acceptance is not transferred to the selected scene's solver.
 CONTACT_RESET_MANIFESTS = {
-    '924b9f4dec7eb1437b60d2292cb0ca7c454b243b5b26647086a4591642a06b5d': 'native18',
-    '94c67e82adbb4c2cb35d7522ea58df665b833b1c821d21ed76780d1ad542983a': 'native19',
+    'd62c6d6e6a27257ab2541f29556cb8f8492afecfea9d766f47f9faee5424c4e3': 'native18',
+    '6f7acabee9a385ab93ede7f6d3c6051edd153d065bbe4fa3d8eb893b93a1ef0a': 'native19',
 }
 ROLES = {'screwdriver': 'objects', 'bolt': 'objects', 'threaded_fixture': 'fixtures'}
 

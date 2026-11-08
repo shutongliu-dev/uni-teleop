@@ -34,6 +34,7 @@ TASK_OBJECTS = {
     'cap_placement': {'sample_bottle', 'cap'},
     'solid_weighing': {'scoop', 'weighing_cup', *[f'pellet_{i:02}' for i in range(24)]},
     'pipette_transfer': {'source', 'receiver_a', 'receiver_b', 'pipette', 'plunger'},
+    'tube_clamp_transfer': {'clamp_frame', 'clamp_jaw', 'tube'},
 }
 MODULES = ('scripts.validation.laboratory_task_release', 'bench.runtime.service',
     'bench.runtime.functions', 'bench.runtime.native', 'bench.protocol.task_referee',

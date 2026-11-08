@@ -24,8 +24,15 @@ def test_catalog_rooms_and_releases_are_in_the_data_manifest():
     for scene in list_scenes():
         assert listed(scene['environment']['usd_path']), scene['family']
         assert listed(scene['environment']['dependency_manifest_path']), scene['family']
-    for task in list_tasks():
-        assert listed(Path(task['source_release']['path']) / 'release_manifest.json'), task['task_id']
+    # One data package serves both robot profiles and every selectable installation.
+    for profile in ('original', 'l_mount'):
+        for task in list_tasks(robot_profile=profile):
+            for option in (task.get('robot_configurations') or {None: task}).values():
+                release = Path(option['source_release']['path'])
+                assert listed(release / 'release_manifest.json'), (profile, task['task_id'])
+                pair = option.get('physical_instance_pair')
+                if pair is not None:
+                    assert listed(pair['path']), (profile, task['task_id'])
 
 
 def test_sources_name_no_machine_paths():

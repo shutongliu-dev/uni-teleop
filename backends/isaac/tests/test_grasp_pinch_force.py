@@ -1,9 +1,12 @@
 """Load-bearing pinch for grasp_hold (v8 release); CPU contract tests, not physics acceptance."""
+import json
+
 import pytest
 
+from bench.paths import load_json
 from scenes.manipulation.contracts import make_success_contract
 from scenes.manipulation.evaluator import SimpleTaskEvaluator
-from scenes.manipulation.fidelity_release import pinch_force
+from scenes.manipulation import DEFAULT_TASK_RELEASE
 from test_simple_tasks import Trajectory, task
 
 
@@ -56,8 +59,15 @@ def press(run, forces, steps):
 
 
 def test_published_threshold_is_weight_over_twice_average_friction():
-    assert pinch_force(.05, .5, .65) == pytest.approx(.05 * 9.81 / (2 * .575))
-    assert round(pinch_force(.05, .5, .65), 4) == .4265
+    published = load_json(DEFAULT_TASK_RELEASE / 'tasks/04_cube_grasp_hold/task.json')
+    profile = load_json(DEFAULT_TASK_RELEASE / 'physics_profile.json')
+    scene = load_json(DEFAULT_TASK_RELEASE / 'tasks/04_cube_grasp_hold/scene.json')
+    target = next(item for item in scene['objects'] if item['id'] == published['evaluation']['object'])
+    mass = published['public_goal']['object_mass_kg']
+    pad_friction = profile['isaacsim_options']['robot_contact_materials']['pad_friction']
+    combined_friction = (pad_friction + target.get('friction', .65)) / 2
+    expected = round(mass * 9.81 / (2 * combined_friction), 4)
+    assert published['evaluation']['minimum_pinch_normal_force_n'] == expected == .4265
 
 
 def test_firm_pinch_succeeds_after_the_full_hold():

@@ -73,8 +73,8 @@ def chain_asset(tmp_path, *, mutation=None, closed=False):
         first.GetAttribute('physics:localRot0').Set(Gf.Quatf(0., 0., 0., 0.))
     elif mutation == 'invalid_anchor':
         first.GetAttribute('physics:localPos0').Set(Gf.Vec3f(float('nan'), 0., 0.))
-    elif mutation == 'revolute':
-        first.SetTypeName('PhysicsRevoluteJoint')
+    elif mutation == 'unsupported':
+        first.SetTypeName('PhysicsDistanceJoint')
     stage.GetRootLayer().Save()
     return {'schema': SCHEMA, 'usd_path': str(path),
         'usd_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
@@ -111,7 +111,7 @@ def test_chain_composition_preserves_source_and_joint_properties(tmp_path, close
     ('drive', 'no drives'), ('disabled', 'enabled joint'), ('self_link', 'distinct bodies'),
     ('static_endpoint', 'declared dynamic bodies'), ('world_endpoint', 'declared dynamic bodies'),
     ('external_endpoint', 'declared dynamic bodies'), ('invalid_rotation', 'unit wxyz'),
-    ('invalid_anchor', 'finite vector'), ('revolute', 'supports prismatic'),
+    ('invalid_anchor', 'finite vector'), ('unsupported', 'Unsupported native task joint type'),
 ])
 def test_passive_links_reject_active_invalid_or_external_constraints(tmp_path, mutation, reason):
     from pxr import Usd

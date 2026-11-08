@@ -7,7 +7,8 @@ from scenes.workrooms.living_room.tasks.water_pouring.liquid_ledger import Liqui
 
 def make():
     profile = [(0, .1, 0), (.1, .1, 0)]
-    metadata = {'water': {'particle_count': 2, 'particle_mass_kg': .001, 'reference_density_kg_m3': 1000},
+    metadata = {'water': {'particle_count': 2, 'particle_mass_kg': .001, 'reference_density_kg_m3': 1000,
+                          'particle_spacing_m': .003, 'collider_rest_offset_m': .0025},
         'containers': {k: {'inner_profile_z_radius_spout_m': profile} for k in ('kettle', 'cup')},
         'tray': {'bounds_xy_m': [[.385, -.175], [.915, .175]], 'interior_floor_z_m': .786}, 'table_top_z_m': .78}
     inverse = {'kettle': np.eye(4), 'cup': np.eye(4)}

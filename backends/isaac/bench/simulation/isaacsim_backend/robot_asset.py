@@ -23,6 +23,12 @@ def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def urdf_mesh_path(path, directory):
+    """A mesh path as the portable data package stores it: relative to the URDF's own directory."""
+    relative = os.path.relpath(path, directory)
+    return relative if relative.startswith('.') else './' + relative
+
+
 def write_once(path, body, changed_message):
     """Create a versioned assembly file once; never rewrite it.
 
@@ -83,6 +89,9 @@ def collision_configuration(scene):
     if filter_cmc and hand_id in ('sharpa_w01_right', 'dual_fr3_sharpa_w01'):
         for side in (('right',) if hand_id == 'sharpa_w01_right' else ('left', 'right')):
             source = Path(scene['robot'].get('assets_root', DEFAULT_ASSETS)) / f'robots/sharpa/wave_01/derived/{side}_sharpa_wave_with_flange.urdf'
+            from .l_mount import SUPPORTED_VERSIONS as L_MOUNT_VERSIONS, HAND_URDF
+            if scene['robot'].get('assembly_version') in L_MOUNT_VERSIONS:
+                source = Path(scene['robot'].get('assets_root', DEFAULT_ASSETS)) / HAND_URDF.format(side=side)
             root = ET.parse(source).getroot()
             intermediate = root.find(f"link[@name='{side}_thumb_CMC_VL']")
             edges = {(j.find('parent').get('link'), j.find('child').get('link')) for j in root.findall('joint')}
@@ -133,6 +142,32 @@ def collision_configuration(scene):
     elif pairs:
         reason = ('Selected upstream SRDF structural overlaps across multi-axis base joints.' if exclusion_source
                   else 'Adjacent physical structures across the collisionless two-axis CMC intermediate link.')
+    from .l_mount import SUPPORTED_VERSIONS as L_MOUNT_VERSIONS, prepared_assembly
+    if enabled and scene['robot'].get('assembly_version') in L_MOUNT_VERSIONS:
+        audits = {}
+        for side in (('right',) if hand_id == 'sharpa_w01_right' else ('left', 'right')):
+            path, source = prepared_assembly(scene['robot'].get('assets_root', DEFAULT_ASSETS),
+                side=side if hand_id == 'dual_fr3_sharpa_w01' else None,
+                version=scene['robot']['assembly_version'])
+            root = ET.parse(path).getroot()
+            prefix = f'fr3_{side}_' if hand_id == 'dual_fr3_sharpa_w01' else 'fr3_'
+            chain = [prefix + name for name in ('link7', 'link8', 'l_adapter')]
+            middle = root.find(f"link[@name='{chain[1]}']")
+            edges = {(j.find('parent').get('link'), j.find('child').get('link')): j
+                     for j in root.findall('joint')}
+            audit = source['structural_collision_audit']
+            if (middle is None or middle.find('collision') is not None
+                    or audit['excluded_link_pair'] != [chain[0], chain[2]]
+                    or audit['collisionless_intermediate'] != chain[1]
+                    or any((a, b) not in edges or edges[(a, b)].get('type') != 'fixed'
+                           for a, b in zip(chain, chain[1:]))
+                    or any(digest(p) != sha for p, sha in audit['source_meshes_sha256'].items())):
+                raise ValueError('L adapter structural collision chain changed')
+            pairs.append([chain[0], chain[2]])
+            audits[side] = audit
+        exclusion_source = {'kind': 'versioned_l_adapter_fixed_chain', 'sides': audits}
+        reason = ('Fixed link7/adapter neighbours across collisionless link8; existing collisionless '
+                  'two-axis thumb CMC structure only. All other adapter collision pairs stay enabled.')
     return {'enabled': enabled, 'source_scene_enabled': scene['robot'].get('self_collisions', False),
             'explicit_isaac_override': 'robot_self_collisions' in options,
             'excluded_link_pairs': pairs, 'cross_finger_exclusions': [], 'exclusion_source': exclusion_source,
@@ -150,6 +185,9 @@ def assemble_urdf(assets_root=DEFAULT_ASSETS, output=None, assembly_version=None
     """Combine pinned upstream models, resolving all mesh paths absolutely."""
     from .robot_registry import DEFAULT_HAND, get_hand_spec
     spec = get_hand_spec(DEFAULT_HAND, assembly_version)
+    from .l_mount import SUPPORTED_VERSIONS as L_MOUNT_VERSIONS, prepared_assembly
+    if spec['assembly_version'] in L_MOUNT_VERSIONS:
+        return prepared_assembly(assets_root, output=output, version=spec['assembly_version'])
     assets_root = Path(assets_root)
     output = Path(output or sharpa_assembly_dir(assets_root, spec['assembly_version']))
     output.mkdir(parents=True, exist_ok=True)
@@ -170,7 +208,7 @@ def assemble_urdf(assets_root=DEFAULT_ASSETS, output=None, assembly_version=None
                     path = (source.parent / path).resolve()
                 if not path.is_file():
                     raise FileNotFoundError(path)
-                mesh.set('filename', str(path))
+                mesh.set('filename', urdf_mesh_path(path, output))
                 mesh_inputs[str(path)] = digest(path)
             # Anonymous local visual materials must not collide by empty name.
             for i, material in enumerate(item.findall('.//material')):
@@ -250,6 +288,10 @@ def import_robot(assets_root=DEFAULT_ASSETS, output=None, *, hand_id='sharpa_w01
     if hand_id == 'dual_fr3_sharpa_w01':
         return import_bimanual(assets_root, output, assembly_version)
     if hand_id == 'sharpa_w01_right':
+        from .l_mount import SUPPORTED_VERSIONS as L_MOUNT_VERSIONS, prepared_assembly, prepared_import
+        if assembly_version in L_MOUNT_VERSIONS:
+            urdf, source = prepared_assembly(assets_root, output=output, version=assembly_version)
+            return prepared_import(urdf), source
         source_path = Path(output or sharpa_assembly_dir(assets_root, assembly_version)) / 'SOURCE.json'
         if source_path.is_file():
             source = load_json(source_path)
@@ -392,9 +434,11 @@ def import_bimanual(assets_root=DEFAULT_ASSETS, output=None, assembly_version=No
     usds, records, manifests = {}, {}, {}
     for side, (urdf, source) in assemble_bimanual(assets_root, output, assembly_version or VERSION).items():
         manifests[side] = urdf.parent / f'USD_IMPORT_{side}.json'
-        usds[side] = _import_side(urdf, urdf.parent / f'usd_{side}', manifests[side],
+        from .l_mount import SUPPORTED_VERSIONS as L_MOUNT_VERSIONS, prepared_import
+        usds[side] = (prepared_import(urdf, side=side) if assembly_version in L_MOUNT_VERSIONS else
+                     _import_side(urdf, urdf.parent / f'usd_{side}', manifests[side],
                                   {f'fr3_{side}_joint.*': 2000., f'{side}_.*': 3.},
-                                  {f'fr3_{side}_joint.*': 140., f'{side}_.*': .1})
+                                  {f'fr3_{side}_joint.*': 140., f'{side}_.*': .1}))
         records[side] = source
     combined = {'schema_version': 'fr3-bimanual-isaacsim-source-v1', 'robot_id': BIMANUAL_ID, 'sides': records,
                 'joint_limits': {**records['left']['joint_limits'], **records['right']['joint_limits']},

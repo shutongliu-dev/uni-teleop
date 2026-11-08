@@ -16,39 +16,15 @@ import time
 import traceback
 from types import SimpleNamespace
 
-from bench.paths import DATA_ROOT, data_root
+from bench.paths import DATA_ROOT
 
 PROJECT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT))
 
 from bench.isaacsim.release import digest, dump, task_inputs
-from scenes.workrooms.catalog import list_tasks, load_task
+from scenes.workrooms.catalog import list_tasks, load_task, task_definition
 from scripts.maintenance.freeze_project_sources import verify_if_snapshot
 from scripts.media.render_workroom import now
-
-
-def packaged_bimanual(assets_root, version):
-    """Read the released dual-arm USDs without regenerating portable URDFs.
-
-    This static renderer does not need a URDF import. Packaged URDF paths were
-    made relative during publishing and intentionally differ from a fresh build.
-    Validate the published assembly tree before referencing its existing USDs.
-    """
-    root = Path(assets_root) / 'robots/assemblies/dual_fr3_sharpa_w01' / version
-    prefix = root.relative_to(data_root()).as_posix() + '/'
-    files = json.loads((data_root() / 'MANIFEST.json').read_text())['files']
-    selected = {name: record for name, record in files.items() if name.startswith(prefix)}
-    if not selected:
-        raise ValueError('Dual-arm assembly is absent from the data manifest')
-    for name, record in selected.items():
-        if digest(data_root() / name) != record['sha256']:
-            raise ValueError('Published dual-arm asset changed: ' + name)
-    result = {side: root / f'usd_{side}/fr3_sharpa_{side}/fr3_sharpa_{side}.usda'
-              for side in ('left', 'right')}
-    for path in result.values():
-        if path.relative_to(data_root()).as_posix() not in selected:
-            raise ValueError('Dual-arm USD is absent from the data manifest')
-    return result
 
 
 def capture_image(stage, app, name, definition, output, args, record):
@@ -123,13 +99,13 @@ def capture_image(stage, app, name, definition, output, args, record):
         calibration = camera_calibration(parameters.get_data(), width=args.width, height=args.height)
         image_path = output / (name + ".png")
         Image.fromarray(rgb).save(image_path)
-        record["images"] = {name: {
+        record.setdefault("images", {})[name] = {
             "path": str(image_path), "sha256": digest(image_path),
             "size_px": [args.width, args.height], "native_rtx": True,
             "actual_samples_per_pixel": spp, "pending_stage_loads": pending,
             "camera": authored, "camera_calibration": calibration,
             "elapsed_s": time.monotonic() - started, "updates": update + 1,
-        }}
+        }
     finally:
         rgb_source.detach([product])
         parameters.detach([product])
@@ -185,6 +161,37 @@ def pose_robot(stage, scene, initial, physical_links):
             "maximum_world_matrix_error": maximum_error}
 
 
+def frame_robot_overview(stage, camera):
+    """Widen presentation-only optics until the actual posed robot fits."""
+    import itertools
+    import numpy as np
+    from pxr import Usd, UsdGeom
+
+    cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), ['default', 'render', 'proxy'], False)
+    bounds = cache.ComputeWorldBound(stage.GetPrimAtPath('/World/Robot')).ComputeAlignedRange()
+    low, high = np.asarray(bounds.GetMin()), np.asarray(bounds.GetMax())
+    points = np.asarray(list(itertools.product(*zip(low, high))))
+    eye, target = np.asarray(camera['eye']), np.asarray(camera['target'])
+    forward = (target - eye) / np.linalg.norm(target - eye)
+    right = np.cross(forward, [0., 0., 1.])
+    right /= np.linalg.norm(right)
+    up = np.cross(right, forward)
+    relative = points - eye
+    depth = relative @ forward
+    if np.min(depth) <= .02 or not np.isfinite(points).all():
+        raise ValueError('Robot bounds cannot fit this presentation camera')
+    ratios = np.array([np.max(np.abs(relative @ right) / depth),
+                       np.max(np.abs(relative @ up) / depth)])
+    apertures = np.array([camera['horizontal_aperture_mm'], camera['vertical_aperture_mm']])
+    old = float(camera['focal_length_mm'])
+    fitted = min(old, float(np.min(apertures / (2. * np.maximum(ratios, 1e-9))) * .90))
+    result = {**camera, 'focal_length_mm': fitted}
+    return result, {'method': 'posed_USD_robot_AABB_90_percent_frame_v1',
+        'robot_bounds_min_m': low.tolist(), 'robot_bounds_max_m': high.tolist(),
+        'original_focal_length_mm': old, 'presentation_focal_length_mm': fitted,
+        'eye_target_unchanged': True, 'frozen_episode_camera_unchanged': True}
+
+
 def render_task(args, app, index, definition, robot_cache):
     import omni.timeline
     import omni.usd
@@ -193,81 +200,130 @@ def render_task(args, app, index, definition, robot_cache):
     from bench.simulation.isaacsim_backend.scene import build_scene
 
     family, task_id = definition["family"], definition["task_id"]
-    loaded = load_task(family, task_id)
+    configuration_id = definition.get("configuration_id")
+    loaded = load_task(family, task_id, configuration_id=configuration_id)
     release = Path(definition["source_release"]["path"])
     _, scene, task, initial = task_inputs(release, task_id, seed=0)
     # The normalized loader resolves frozen observer paths and seed-owned public
     # markers. It must retain the exact parent selected by the current catalog.
     if scene["workroom"] != loaded["scene"]["workroom"]:
         raise ValueError("Normalized scene changed the frozen parent")
-    if args.workbench_only:
-        from scenes.workrooms.teleop_workbench import apply
-        scene = apply(scene, definition)
     filename = f"{index:02d}_{family}__{task_id}"
-    camera_name = "task_" + filename
-    image_path = args.output / (filename + ".png")
-    if image_path.exists():
-        raise FileExistsError(f"Preserve earlier images: {image_path}")
+    if configuration_id:
+        filename += "__" + configuration_id
+    cameras = args.cameras or [args.camera]
+    multiple = configuration_id is not None or len(cameras) > 1
+    media_dir = args.output / family / task_id / configuration_id if configuration_id else args.output / filename
+    if multiple:
+        media_dir.mkdir(parents=True, exist_ok=False)
+    elif (args.output / (filename + ".png")).exists():
+        raise FileExistsError(f"Preserve earlier images: {filename}")
     record_dir = args.run_output / filename
     record_dir.mkdir()
     record = {
         "family": family, "task_id": task_id, "title": definition["title"],
+        "configuration_id": configuration_id,
+        "robot_requirements": definition["robot_requirements"],
+        "difficulty": definition.get("difficulty"),
         "release": str(release),
         "release_manifest_sha256": digest(release / "release_manifest.json"),
-        "data_manifest_sha256": digest(data_root() / 'MANIFEST.json'),
         "environment": scene["workroom"],
         "state": "canonical authored reset with seed 0; no settling or actions",
         "physics_steps": 0, "agent_calls": 0, "source_root": str(PROJECT),
         "scope": "Static native RTX presentation; no physical task success claim",
-        "scene_variant": scene.get("teleop_scene_variant"),
     }
     robot = scene["robot"]
     key = json.dumps({k: robot.get(k) for k in
                       ("assets_root", "hand_id", "assembly_version", "instances")},
                      sort_keys=True)
     if key not in robot_cache:
-        assets = robot.get("assets_root", f"{DATA_ROOT}/assets")
-        if robot["hand_id"] == 'dual_fr3_sharpa_w01':
-            robot_cache[key] = packaged_bimanual(assets, robot['assembly_version'])
-        else:
-            robot_cache[key] = import_robot(assets, hand_id=robot["hand_id"],
-                assembly_version=robot.get("assembly_version"), instances=robot.get("instances"))[0]
+        robot_cache[key] = import_robot(
+            robot.get("assets_root", f"{DATA_ROOT}/assets"),
+            hand_id=robot["hand_id"], assembly_version=robot.get("assembly_version"),
+            instances=robot.get("instances"),
+        )[0]
     omni.usd.get_context().new_stage()
     stage = omni.usd.get_context().get_stage()
     # Task bundles and particle layers require a declared owner, even when the
     # timeline stays stopped. This scene is never advanced by the renderer.
     UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")
     info = build_scene(stage, scene, robot_cache[key])
+    from bench.simulation.isaacsim_backend.particle_surfaces import ParticleSurfaceRenderer
+    surfaces = ParticleSurfaceRenderer(stage, device='cuda:0')
+    import carb
+    liquid_bundle = scene.get('native_task_bundle', {})
+    surfaces.configure_refraction(carb.settings.get_settings(),
+        volume_visual_bindings=liquid_bundle.get('volume_visual_bindings'),
+        packet_visual_bindings=liquid_bundle.get('packet_visual_bindings'))
+    record['particle_surfaces'] = surfaces.sync()
+    if liquid_bundle.get('volume_visual_bindings') or liquid_bundle.get('packet_visual_bindings'):
+        record['liquid_refraction_settings'] = dict(surfaces.refraction_settings)
     record["robot_pose"] = pose_robot(stage, scene, initial, info["robot_link_paths"])
     record["object_count"] = len(info["objects"])
     record["fixture_count"] = len(info["fixtures"])
-    camera = deepcopy(scene["cameras"][args.camera])
-    if camera.get("kind", "world") != "world":
-        raise ValueError("Gallery requires a world camera")
-    camera["resolution"] = [args.width, args.height]
-    # Preserve authored vertical framing when the requested aspect changes.
-    vertical = float(camera.get("vertical_aperture_mm", 27.0))
-    camera["vertical_aperture_mm"] = vertical
-    camera["horizontal_aperture_mm"] = vertical * args.width / args.height
-    settings = SimpleNamespace(
-        task=task_id, cameras=[camera_name], width=args.width, height=args.height,
-        samples=args.samples, render_updates=args.render_updates,
-    )
     timeline = omni.timeline.get_timeline_interface()
     if timeline.is_playing():
         raise RuntimeError("Presentation must not start physics")
     before = timeline.get_current_time()
-    capture_image(stage, app, camera_name, camera, record_dir, settings, record)
-    if timeline.is_playing() or timeline.get_current_time() != before:
-        raise RuntimeError("Rendering advanced the physics timeline")
-    captured = record_dir / (camera_name + ".png")
-    captured.rename(image_path)
-    record["images"][camera_name]["path"] = str(image_path)
+    for view in cameras:
+        camera_name = view if multiple else "task_" + filename
+        camera = deepcopy(scene["cameras"][view])
+        if camera.get("kind", "world") != "world":
+            raise ValueError("Gallery requires a world camera")
+        camera["resolution"] = [args.width, args.height]
+        # Preserve authored vertical framing when the requested aspect changes.
+        vertical = float(camera.get("vertical_aperture_mm", 27.0))
+        camera["vertical_aperture_mm"] = vertical
+        camera["horizontal_aperture_mm"] = vertical * args.width / args.height
+        if args.frame_robots and view == 'overview':
+            camera, framing = frame_robot_overview(stage, camera)
+            record.setdefault('presentation_framing', {})[view] = framing
+        settings = SimpleNamespace(
+            task=task_id, cameras=[camera_name], width=args.width, height=args.height,
+            samples=args.samples, render_updates=args.render_updates,
+        )
+        capture_image(stage, app, camera_name, camera, record_dir, settings, record)
+        if timeline.is_playing() or timeline.get_current_time() != before:
+            raise RuntimeError("Rendering advanced the physics timeline")
+        image_path = (media_dir / (view + ".png") if multiple
+                      else args.output / (filename + ".png"))
+        (record_dir / (camera_name + ".png")).rename(image_path)
+        record["images"][camera_name]["path"] = str(image_path)
     record["status"] = "rendered"
+    if multiple:
+        dump(media_dir / "provenance.json", record)
     dump(record_dir / "provenance.json", record)
     print(json.dumps({"event": "task_complete", "task": task_id,
-                      "image": str(image_path)}, ensure_ascii=False), flush=True)
+                      "configuration_id": configuration_id,
+                      "images": [image["path"] for image in record["images"].values()]}, ensure_ascii=False), flush=True)
     return record
+
+
+def selected_definitions(catalog, *, family=None, task_ids=(), excluded_tasks=(),
+                         configurations=(), shard_index=0, shard_count=1):
+    """Expand only explicitly requested, catalog-pinned configurations."""
+    known = {task["task_id"] for task in catalog}
+    if (set(task_ids) | set(excluded_tasks)) - known:
+        raise ValueError("Unknown canonical task IDs in inclusion/exclusion")
+    result = []
+    for index, definition in enumerate(catalog, 1):
+        if ((family and definition["family"] != family)
+                or (task_ids and definition["task_id"] not in task_ids)
+                or definition["task_id"] in excluded_tasks
+                or (index - 1) % shard_count != shard_index):
+            continue
+        if configurations:
+            options = definition.get("robot_configurations", {})
+            if not options:
+                continue
+            if set(configurations) - set(options):
+                raise ValueError("Requested configuration is not published by this task")
+            for configuration_id in configurations:
+                result.append((index, task_definition(definition["family"],
+                    definition["task_id"], configuration_id=configuration_id)))
+        else:
+            result.append((index, definition))
+    return result
 
 
 def main():
@@ -284,8 +340,12 @@ def main():
     parser.add_argument("--samples", type=int, default=128)
     parser.add_argument("--render-updates", type=int, default=240)
     parser.add_argument("--camera", default="task")
-    parser.add_argument("--workbench-only", action="store_true",
-                        help="Render the same workbench-only variant used for PICO practice")
+    parser.add_argument("--cameras", nargs="+", help="Multiple frozen world camera names")
+    parser.add_argument("--configuration", action="append",
+                        choices=("single_arm", "dual_same_side", "dual_opposed"))
+    parser.add_argument("--exclude-task", action="append", default=[])
+    parser.add_argument("--frame-robots", action="store_true",
+                        help="Widen presentation overview optics to include complete robot bounds")
     args = parser.parse_args()
     if min(args.width, args.height, args.samples, args.render_updates, args.shard_count) <= 0:
         parser.error("Dimensions, sample counts and shard count must be positive")
@@ -299,13 +359,13 @@ def main():
     if source is None:
         parser.error("Run from a complete frozen source snapshot")
     catalog = list_tasks()
-    unknown = set(args.task or ()) - {task["task_id"] for task in catalog}
-    if unknown:
-        parser.error(f"Unknown canonical task IDs: {sorted(unknown)}")
-    selected = [(i, task) for i, task in enumerate(catalog, 1)
-                if (not args.family or task["family"] == args.family)
-                and (not args.task or task["task_id"] in args.task)
-                and (i - 1) % args.shard_count == args.shard_index]
+    try:
+        selected = selected_definitions(catalog, family=args.family,
+            task_ids=args.task or (), excluded_tasks=args.exclude_task,
+            configurations=args.configuration or (), shard_index=args.shard_index,
+            shard_count=args.shard_count)
+    except ValueError as error:
+        parser.error(str(error))
     if not selected:
         parser.error("No catalog task matches the requested selection")
     args.output.mkdir(parents=True, exist_ok=True)
@@ -316,8 +376,10 @@ def main():
         "runtime": "Isaac Sim 6.1.0 native RTX PathTracing",
         "physics_steps": 0, "agent_calls": 0,
         "width": args.width, "height": args.height, "samples": args.samples,
-        "workbench_only": args.workbench_only,
-        "selected_tasks": [task["task_id"] for _, task in selected],
+        "selected_tasks": [{"family": task["family"], "task_id": task["task_id"],
+                            "configuration_id": task.get("configuration_id")}
+                           for _, task in selected],
+        "cameras": args.cameras or [args.camera],
         "tasks": [], "errors": [],
     }
     app = None
@@ -349,7 +411,9 @@ def main():
                 report["tasks"].append(render_task(args, app, index, definition, robot_cache))
             except Exception:
                 report["errors"].append({"family": definition["family"],
-                    "task_id": definition["task_id"], "traceback": traceback.format_exc()})
+                    "task_id": definition["task_id"],
+                    "configuration_id": definition.get("configuration_id"),
+                    "traceback": traceback.format_exc()})
                 traceback.print_exc()
             dump(args.run_output / "report.json", report)
         exit_code = int(bool(report["errors"]))

@@ -17,7 +17,7 @@ from bench.paths import DATA_ROOT
 SCHEMA = 'kitchen_task_assets.v1'
 ASSET_ROOT = f'{DATA_ROOT}/assets/task_parts/kitchen'
 TASK_IDS = ('breakfast_serving', 'produce_transfer', 'utensil_sorting', 'pot_lid_placement',
-            'pantry_stocking', 'table_clearing')
+            'pantry_stocking', 'table_clearing', 'surface_wiping')
 SURFACE_Z = .90
 BAR_SUPPORT = '/World/Geometry/worktop/Collider'
 PREP_SUPPORT = '/World/Geometry/kitchen_counter_middle/Collider'
@@ -318,7 +318,7 @@ def _produce(a, presentation):
     a.meta['layout_revision'] = 'Source board compacted and moved toward aisle; tomato/carrot columns X=0.20/0.34, Y=-0.925/-0.815/-0.705, horizontal carrots. Candidate points passed read-only original-robot IK screening; no grasp or swept-path qualification.'
 
 
-def _utensil(kind):
+def _utensil(kind, *, resting=False):
     # Handle points +Y, food-contact end points -Y. Edges are rounded in silhouette.
     handle = [(-.007, -.015), (-.008, .045), (-.010, .068), (-.008, .078),
               (-.004, .081), (.004, .081), (.008, .078), (.010, .068), (.008, .045), (.007, -.015)]
@@ -348,10 +348,17 @@ def _utensil(kind):
     details = []
     for i, y in enumerate((.025, .031, .037)):
         details.append((f'handle_engraving_{i}', g.box((.009, .0005, .0001), (0, y, .0061 if kind != 'spoon' else .0081)), 'brass'))
+    if resting and kind == 'spoon':
+        from .utensil_rest import spoon_rest_transform
+        transform, receipt = spoon_rest_transform(mesh)
+        mesh.apply_transform(transform)
+        for _, detail, _ in details:
+            detail.apply_transform(transform)
+        mesh.metadata['natural_rest'] = receipt
     return mesh, details
 
 
-def _utensils(a, presentation):
+def _utensils(a, presentation, *, rest_profile='legacy'):
     a.body('source_pad', 'source_pad', _pose(.33, -.805, .9001),
         [('pad', g.board((.42, .40, .004), bevel=.0008), 'rubber', 'none')], 0,
         floor_top_local_z_m=.004, interior_bounds_xy_m=[[-.206, -.196], [.206, .196]])
@@ -369,11 +376,19 @@ def _utensils(a, presentation):
             name = f'{kind}_{i}'
             target = _pose(.80+(k-1)*.110+(i-.5)*.044, -.90, .9054)
             source = _pose(.20+k*.13, -.70-i*.21, .9051, 180. if i == 0 else 0.)
-            mesh, details = _utensil(kind)
+            resting = kind == 'spoon' and rest_profile == 'household_v1'
+            mesh, details = _utensil(kind, resting=resting)
+            handle_axis, food_axis = [0., 1., 0.], [0., -1., 0.]
+            if resting:
+                rotation = np.asarray(mesh.metadata['natural_rest'][
+                    'source_to_rest_transform'])[:3, :3]
+                handle_axis = (rotation@handle_axis).tolist()
+                food_axis = (rotation@food_axis).tolist()
             a.body(name, kind, target if presentation else source,
                 [('utensil', mesh, 'steel', 'sdf')], {'spoon': .032, 'fork': .030, 'knife': .038}[kind],
                 details=details, category=kind, assigned_fixture='cutlery_tray', assigned_channel=kind,
-                handle_axis_local=[0., 1., 0.], food_contact_axis_local=[0., -1., 0.])
+                handle_axis_local=handle_axis, food_contact_axis_local=food_axis,
+                **({'natural_rest': mesh.metadata['natural_rest']} if resting else {}))
             goal_poses[name], supports[name] = target, 'cutlery_tray'
     # Matching silhouettes at the far end are visible visual-only engravings.
     for k, kind in enumerate(('spoon', 'fork', 'knife')):
@@ -441,7 +456,9 @@ def _pot(a, presentation):
 
 
 def author_task(stage, task_id, root_path='/World/KitchenTask', *, presentation=False,
-                texture_assets=None, dressing_profile='legacy'):
+                texture_assets=None, dressing_profile='legacy', prop_profile='legacy',
+                sponge_physics_profile='rigid', source_access_profile='legacy',
+                utensil_contact_profile='legacy', utensil_grip_profile='legacy'):
     """Author one candidate task into an existing stage and return JSON metadata.
 
     No asset is written to disk here. A release builder must freeze source,
@@ -453,12 +470,89 @@ def author_task(stage, task_id, root_path='/World/KitchenTask', *, presentation=
         raise ValueError('Task root already exists: '+root_path)
     if dressing_profile not in ('legacy', 'enriched_v1'):
         raise ValueError('Unknown kitchen dressing profile: '+str(dressing_profile))
+    if prop_profile not in ('legacy', 'household_v1'):
+        raise ValueError('Unknown kitchen prop profile: '+str(prop_profile))
+    if utensil_grip_profile not in ('legacy', 'thick_handle_v1'):
+        raise ValueError('Unknown utensil grip profile: '+str(utensil_grip_profile))
+    if utensil_grip_profile != 'legacy' and (task_id not in ('utensil_sorting', 'table_clearing')
+            or prop_profile != 'household_v1'
+            or utensil_contact_profile != 'floor_grid_2mm_splitbowl_sdf768_v7'):
+        raise ValueError('Thicker handles require household sorting/clearing with split-bowl contacts')
+    if utensil_contact_profile not in ('legacy', 'floor_grid_2mm_v1', 'floor_grid_2mm_convex_v1',
+                                     'floor_grid_2mm_convex_v2', 'source_grid_1mm_convex_v3',
+                                     'floor_grid_2mm_convex_sdf768_v4', 'floor_grid_2mm_fullconvex_v5', 'floor_grid_2mm_fullconvex_v6',
+                                     'floor_grid_2mm_splitbowl_sdf768_v7'):
+        raise ValueError('Unknown utensil contact profile: '+str(utensil_contact_profile))
+    if utensil_contact_profile != 'legacy' and (task_id not in ('utensil_sorting', 'table_clearing')
+                                              or prop_profile != 'household_v1'):
+        raise ValueError('Utensil contact profile requires household sorting or clearing')
+    if source_access_profile not in ('legacy', 'source_access_v1'):
+        raise ValueError('Unknown kitchen source access profile: '+str(source_access_profile))
+    if source_access_profile != 'legacy' and (task_id not in ('produce_transfer', 'pot_lid_placement')
+                                             or prop_profile != 'household_v1'):
+        raise ValueError('Source access profile requires household produce or pot task')
+    if sponge_physics_profile not in ('rigid', 'bonded_fem_v1', 'bonded_fem_coarse_v1', 'elastic_cell_lattice_v1'):
+        raise ValueError('Unknown sponge physics profile: '+str(sponge_physics_profile))
+    if sponge_physics_profile != 'rigid' and (task_id != 'surface_wiping' or prop_profile != 'household_v1'):
+        raise ValueError('Bonded FEM profile requires household_v1 surface_wiping')
     from .expanded_assets import pantry_stocking, table_clearing, enrich_context, enrich_public_goal
+    from .wiping_assets import surface_wiping
     author = _Author(stage, task_id, root_path, presentation, texture_assets)
-    {'breakfast_serving': _breakfast, 'produce_transfer': _produce,
-     'utensil_sorting': _utensils, 'pot_lid_placement': _pot,
-     'pantry_stocking': pantry_stocking, 'table_clearing': table_clearing}[task_id](author, presentation)
+    if task_id == 'utensil_sorting':
+        _utensils(author, presentation, rest_profile=prop_profile)
+    else:
+        {'breakfast_serving': _breakfast, 'produce_transfer': _produce,
+         'pot_lid_placement': _pot, 'pantry_stocking': pantry_stocking,
+         'table_clearing': table_clearing,
+         'surface_wiping': surface_wiping}[task_id](author, presentation)
+    if prop_profile == 'household_v1':
+        from .prop_scale import apply_household_profile
+        from .prop_finish import refine_visuals
+        refine_visuals(author)
+        apply_household_profile(author)
+        if task_id == 'utensil_sorting' or utensil_contact_profile != 'legacy':
+            from .utensil_floor import refine_sorting_tray_floor
+            refine_sorting_tray_floor(author, spacing=(.002 if utensil_contact_profile != 'legacy' else .020))
+        if utensil_contact_profile != 'legacy':
+            author.meta['utensil_contact_profile'] = utensil_contact_profile
+        if utensil_contact_profile in ('floor_grid_2mm_convex_v1', 'floor_grid_2mm_convex_v2',
+                                       'source_grid_1mm_convex_v3', 'floor_grid_2mm_convex_sdf768_v4', 'floor_grid_2mm_fullconvex_v5', 'floor_grid_2mm_fullconvex_v6',
+                                     'floor_grid_2mm_splitbowl_sdf768_v7'):
+            from .utensil_convex import apply_prismatic_colliders
+            apply_prismatic_colliders(author)
+        if utensil_contact_profile in ('floor_grid_2mm_convex_v2', 'source_grid_1mm_convex_v3',
+                                       'floor_grid_2mm_convex_sdf768_v4', 'floor_grid_2mm_fullconvex_v5', 'floor_grid_2mm_fullconvex_v6',
+                                     'floor_grid_2mm_splitbowl_sdf768_v7'):
+            from .utensil_floor import refine_source_pad_top
+            refine_source_pad_top(author, spacing=(.001 if utensil_contact_profile == 'source_grid_1mm_convex_v3' else .002))
+        if utensil_contact_profile in ('floor_grid_2mm_fullconvex_v5', 'floor_grid_2mm_fullconvex_v6'):
+            from .utensil_spoon_convex import apply_spoon_convex_colliders
+            apply_spoon_convex_colliders(author)
+        if utensil_contact_profile == 'floor_grid_2mm_fullconvex_v6':
+            from .utensil_cooking import condition_spoon_convex_coordinates
+            condition_spoon_convex_coordinates(author)
+        if utensil_contact_profile == 'floor_grid_2mm_splitbowl_sdf768_v7':
+            from .utensil_spoon_hybrid import apply_spoon_split_bowl_colliders
+            apply_spoon_split_bowl_colliders(author, sdf_resolution=768)
+        if utensil_contact_profile in ('floor_grid_2mm_fullconvex_v6', 'floor_grid_2mm_splitbowl_sdf768_v7'):
+            from .utensil_convex import deactivate_replaced_colliders
+            deactivate_replaced_colliders(author)
+        if utensil_contact_profile == 'floor_grid_2mm_convex_sdf768_v4':
+            from .utensil_sdf import refine_spoon_sdf
+            refine_spoon_sdf(author)
     if dressing_profile == 'enriched_v1':
         enrich_context(author)
         enrich_public_goal(author)
+    if sponge_physics_profile == 'elastic_cell_lattice_v1':
+        from .sponge_lattice import author_lattice_sponge
+        author_lattice_sponge(stage, author.meta)
+    elif sponge_physics_profile != 'rigid':
+        from .sponge_deformable import apply_bonded_fem_profile
+        apply_bonded_fem_profile(author, sponge_physics_profile)
+    if source_access_profile == 'source_access_v1':
+        from .source_access import apply_source_access
+        apply_source_access(author)
+    if utensil_grip_profile == 'thick_handle_v1':
+        from .utensil_grip import apply_thick_handles
+        apply_thick_handles(author)
     return author.meta

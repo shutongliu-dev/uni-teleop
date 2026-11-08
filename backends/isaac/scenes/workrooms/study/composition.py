@@ -12,7 +12,7 @@ from scenes.workrooms.mechanical_assembly.task_scene import DEFAULT_STAND_ROOT, 
 from .scene import environment_reference
 
 
-TASK_IDS = ('stationery_sorting', 'book_stacking', 'book_retrieval', 'book_shelving')
+TASK_IDS = ('stationery_sorting', 'book_stacking', 'book_retrieval', 'book_shelving', 'drawer_retrieval', 'reading_stand')
 SUPPORT_PATHS = {
     'table': '/World/Room/Geometry/worktop/Collider',
     'shelf_lower': '/World/Room/Geometry/rear_shelf_level_1/Collider',
@@ -20,7 +20,17 @@ SUPPORT_PATHS = {
     'floor': '/World/Room/Geometry/room_floor/Collider',
 }
 TITLES = {'stationery_sorting': '文具分类', 'book_stacking': '叠放书本',
-          'book_retrieval': '取出指定书本', 'book_shelving': '按类别归还书本'}
+          'book_retrieval': '取出指定书本', 'book_shelving': '按类别归还书本', 'drawer_retrieval': '开抽屉取出笔记本并关回', 'reading_stand': '展开锁定阅读支架并放书'}
+
+
+def support_paths(task_id):
+    if task_id == 'reading_stand':
+        from .reading_stand_rules import SUPPORT_PATHS as stand_supports
+        return deepcopy(stand_supports)
+    if task_id == 'drawer_retrieval':
+        from .drawer_rules import SUPPORT_PATHS as drawer_supports
+        return deepcopy(drawer_supports)
+    return deepcopy(SUPPORT_PATHS)
 
 
 def candidate_inputs(task_id):
@@ -38,10 +48,11 @@ def build_task_inputs(task_id, *, seed=0, stand_path=None):
         raise ValueError('Study tasks require the reviewed original robot stand; overrides are unsupported')
     candidate, manifest, metadata, dependencies = candidate_inputs(task_id)
     configuration = validate_configuration(metadata['configuration'])
+    supports = support_paths(task_id)
     bodies = deepcopy(manifest['bodies'])
     if (configuration['task_id'] != task_id or set(bodies) != set(configuration['objects'])
             or any(path != '/World/StudyTask/Objects/' + name for name, path in bodies.items())
-            or not set(configuration['supports']) <= set(SUPPORT_PATHS) - {'floor'}):
+            or not set(configuration['supports']) <= set(supports) - {'floor'}):
         raise ValueError('Study candidate body or support identities differ from its rules')
     checked(candidate['initial_usd'], candidate['initial_usd_sha256'])
     checked(candidate['manifest_path'], candidate['manifest_sha256'])
@@ -64,6 +75,11 @@ def build_task_inputs(task_id, *, seed=0, stand_path=None):
         description='Study task candidate; original robot and fixed parent environment.')
     scene['isaacsim'].update(deepcopy(PHYSICS_OVERRIDES))
     scene['isaacsim']['physics_dt_s'] = .0005
+    if task_id == 'drawer_retrieval':
+        # The old desk camera faces the case back. Show the real opening and
+        # bar handle from the accessible near side; keep the other three views.
+        scene['cameras']['task'].update(eye=[.05,-1.00,1.55], target=[.48,.02,.82],
+            focal_length_mm=27., title_zh='抽屉把手与取物托盘')
     scene['task_layers'] = [{'id': 'task', 'usd_path': candidate['initial_usd'],
         'sha256': candidate['initial_usd_sha256'], 'source_prim_path': '/World/StudyTask',
         'target_prim_path': '/World/StudyTask', 'dependencies_sha256': deepcopy(dependencies),
@@ -80,11 +96,13 @@ def build_task_inputs(task_id, *, seed=0, stand_path=None):
         'public_rules_file': 'rules.json', 'public_goal': {'operation': task_id},
         'steps': [{'id': task_id, 'instruction_zh': rules['referee']['instruction_zh']}],
         'evaluation': {'configuration': configuration, 'body_paths': deepcopy(bodies),
-            'support_paths': deepcopy(SUPPORT_PATHS), 'physics_dt_s': .0005},
+            'support_paths': deepcopy(supports), 'physics_dt_s': .0005},
         'runtime_adapter': 'study_native_v1', 'physics_accepted': False,
         'task_policy_success_claimed': False, 'recommended_budgets': {
             'sim_time_s': configuration['budget']['max_sim_time_s'],
             'max_actions': configuration['budget']['max_robot_actions'], 'wall_time_s': 1800.}}
+    if task_id in ('drawer_retrieval', 'reading_stand'):
+        task['evaluation']['joint_paths'] = list(manifest['joint_paths'])
     scene['study_task_provenance'] = {'candidate': deepcopy(candidate),
         'original_assets_modified': False, 'original_robot_dynamics_and_gains_preserved': True,
         'ready_design': ready, 'task_layer_scope': 'Task subtree only; static preview robots excluded',

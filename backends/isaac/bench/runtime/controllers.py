@@ -4,7 +4,9 @@ import json
 
 from bench.protocol.policies import PolicyRegistry
 from bench.control.factory import configured_policy, public_robot_geometry, robot_configuration
-from bench.isaacsim.release import task_inputs, validate
+# Startup validation also primes the server's request-path release cache.
+from .release_cache import task_inputs_cached as task_inputs, validate_cached as validate
+from .task_capabilities import engineering_capabilities
 
 
 def _configured_policy(configuration_json, board_game=False):
@@ -32,8 +34,11 @@ def default_registry(release):
     descriptors = {}
     for entry in manifest['tasks']:
         _, scene, task, _ = task_inputs(release, entry['id'])
+        if engineering_capabilities(task) is not None:
+            continue
         configuration = robot_configuration(scene)
-        board_game = task.get('schema') == 'robot_board_game_task.v1' or entry.get('task_kind', manifest.get('task_kind')) == 'turn_game'
+        board_game = (task.get('schema') in ('robot_board_game_task.v1', 'card_game_expansion_task.v1', 'card_rsi_practice_task.v1')
+                      or entry.get('task_kind', manifest.get('task_kind')) == 'turn_game')
         captured = json.dumps(configuration, sort_keys=True, separators=(',', ':'), allow_nan=False)
         factory = partial(_configured_policy, captured, board_game)
         key = (captured, board_game)

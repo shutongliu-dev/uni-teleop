@@ -20,9 +20,15 @@ def _error(status, message, code=None):
 
 
 class BoardGameSession(PlayerActionSession):
+    state_model = BoardGameState
+    result_model = BoardGameResult
+    intent_adapter = INTENT_ADAPTER
+    static_fields = ('rules', 'geometry', 'public_rules', 'public_rules_sha256')
+    invalid_intent_message = 'Placement intent violates the advertised schema'
+
     def __init__(self, session, initial, scene, task):
         self.session = session
-        self.state = BoardGameState.model_validate(initial)
+        self.state = self.state_model.model_validate(initial)
         self._check_score(self.state, session.score)
         if self.state.task_id != task['task_id'] or self.state.turn_index != 0 or self.state.terminal:
             raise ValueError('Invalid initial board referee receipt')
@@ -45,8 +51,7 @@ class BoardGameSession(PlayerActionSession):
         self.last_targets = session._acknowledged_drive_targets()
         if self.last_targets is None:
             raise ValueError('Board runtime requires acknowledged drive targets')
-        self.static = {key: deepcopy(task[key]) for key in
-                       ('rules', 'geometry', 'public_rules', 'public_rules_sha256')}
+        self.static = {key: deepcopy(task[key]) for key in self.static_fields}
         self.commit_budget_state()
 
     def credentials(self):
@@ -73,7 +78,7 @@ class BoardGameSession(PlayerActionSession):
                     'reference': None}
 
     def acknowledge(self, reply, command=None):
-        state = BoardGameState.model_validate(reply['board_game'])
+        state = self.state_model.model_validate(reply['board_game'])
         self._check_score(state, reply['score'])
         if state.task_id != self.state.task_id or state.turn_index not in (self.state.turn_index, self.state.turn_index + 1):
             raise RuntimeError('Invalid board referee progression')
@@ -107,9 +112,9 @@ class BoardGameSession(PlayerActionSession):
         with self.session.lock:
             self._current(player_id)
             try:
-                command = INTENT_ADAPTER.validate_python(payload).model_dump(mode='json')
+                command = self.intent_adapter.validate_python(payload).model_dump(mode='json')
             except (ValueError, TypeError) as exc:
-                raise _error(422, 'Placement intent violates the advertised schema') from exc
+                raise _error(422, self.invalid_intent_message) from exc
             if self.session.life.active_action_id is not None or (self.session.thread and self.session.thread.is_alive()):
                 raise _error(409, 'Wait for the current action ACK before changing placement intent')
             try:
@@ -148,7 +153,7 @@ class BoardGameSession(PlayerActionSession):
                                  pending_move=None, settlement_dwell_s=0.)
                     value['status'].update(outcome='truncated', end_reason='time_limit',
                         retryable=False, recovery_required=False, evidence_unavailable=False, reason='time_limit')
-                    self.state = BoardGameState.model_validate(value)
+                    self.state = self.state_model.model_validate(value)
             return
         try:
             if getattr(self.session.worker, 'broken', False):
@@ -165,11 +170,11 @@ class BoardGameSession(PlayerActionSession):
             state.update(terminal=True, current_player=None, settlement_dwell_s=0.)
             state['status'].update(outcome='aborted', end_reason='runtime_error', retryable=False,
                                    evidence_unavailable=True, reason='runtime_error')
-            self.state = BoardGameState.model_validate(state)
+            self.state = self.state_model.model_validate(state)
             raise
 
     def result(self, player_id):
         with self.session.lock:
             if self.session.result is None:
                 raise _error(409, 'Board game is still running', 'result_pending')
-            return BoardGameResult(board_game=self.state, episode=self.session.result).model_dump(mode='json')
+            return self.result_model(board_game=self.state, episode=self.session.result).model_dump(mode='json')

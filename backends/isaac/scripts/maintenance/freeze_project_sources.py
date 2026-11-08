@@ -33,9 +33,13 @@ MODE_POLICY = "exact_or_write_bits_removed_v1"
 DEFAULT_EXTRAS = (
     "scripts/isaac_python.sh",
     "bench/apps/fr3_sharpa.headless.kit",
+    "bench/apps/workroom.headless.kit",
     "scripts/assets/manipulation_scene_layouts.json",
-    "scenes/catalog.json",
     "scenes/workrooms/current_release.json",
+    "scenes/workrooms/robot_revision/catalog_pins.json",
+    "scenes/workrooms/parameterized/catalog_pins.json",
+    "scenes/workrooms/initial_randomization/catalog_pins.json",
+    "scenes/workrooms/laundry_room/randomization/catalog_pins.json",
     "pyproject.toml",
 )
 

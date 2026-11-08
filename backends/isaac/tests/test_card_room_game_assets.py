@@ -8,10 +8,9 @@ import pytest
 import trimesh
 
 from bench.paths import load_json
-from scenes.board_games.hex import HexGeometry
 from scenes.board_games.tabletop.geometry import GAME_IDS, geometry_for
 from scenes.workrooms.card_room import game_assets as assets
-from scenes.workrooms.card_room.tasks.hex7x7 import assets as heritage
+from scenes.workrooms.card_room import asset_primitives as primitives
 from bench.simulation.assets.task_parts import load_task_asset
 
 
@@ -21,18 +20,24 @@ def _luminance(color):
     return np.dot(color, [.2126, .7152, .0722])
 
 
+@pytest.fixture(scope='module')
+def piece_prior():
+    return load_json(Path(__file__).parent/'fixtures/card_room_piece_prior.json')
+
+
 @pytest.mark.parametrize('game_id', GAME_IDS)
-@pytest.mark.parametrize('color,old_color', [('black', 'red'), ('white', 'blue')])
-def test_piece_physics_is_exactly_the_existing_analytic_prior(game_id, color, old_color):
+@pytest.mark.parametrize('color', ['black', 'white'])
+def test_piece_physics_is_exactly_the_existing_analytic_prior(game_id, color, piece_prior):
     g = geometry_for(game_id)
-    current, original = assets.token(color, g), heritage.token(old_color, HexGeometry())
-    assert current.collision == original.collision
-    assert current.mass_kg == original.mass_kg == .060
-    assert current.friction == original.friction == .65
-    assert current.center_of_mass_m == original.center_of_mass_m
+    current = assets.token(color, g)
+    assert all(mesh is None for _, mesh, _ in current.collision)
+    assert [dict(label=label, **part) for label, _, part in current.collision] == piece_prior['collision_parts']
+    assert current.mass_kg == piece_prior['mass_kg'] == .060
+    assert current.friction == piece_prior['friction'] == .65
+    assert current.center_of_mass_m == piece_prior['center_of_mass_m']
     for field in ('inertia_diag_kg_m2', 'inertia_method', 'design_density_kg_m3',
                   'mass_status', 'origin', 'design_dimensions'):
-        assert current.data[field] == original.data[field]
+        assert current.data[field] == piece_prior['data'][field]
     # Independent integration of the actual collision dimensions, rather than
     # assuming that a visual mesh or a bounding-box mass tensor is equivalent.
     cylinders = []
@@ -49,19 +54,18 @@ def test_piece_physics_is_exactly_the_existing_analytic_prior(game_id, color, ol
 
 
 @pytest.mark.parametrize('color', ['black', 'white'])
-def test_grain_partitions_a_closed_token_surface_inside_the_original_envelope(color):
+def test_grain_partitions_a_closed_token_surface_inside_the_original_envelope(color, piece_prior):
     current = assets.token(color, geometry_for('hex7x7'))
-    original = heritage.token('red', HexGeometry())
     assert len(current.visual) == 6
     assert sum(len(mesh.faces) for _, mesh, _ in current.visual) < 20000
-    for label, original_mesh, _ in original.visual:
+    for label, original in piece_prior['visual_envelopes'].items():
         parts = [mesh for name, mesh, _ in current.visual if name.startswith(label+'_')]
         surface = trimesh.util.concatenate(parts)
         surface.merge_vertices()
         assert surface.is_watertight
         assert surface.is_winding_consistent
-        assert surface.volume == pytest.approx(original_mesh.volume, abs=1.e-14)
-        np.testing.assert_allclose(surface.bounds, original_mesh.bounds, atol=1.e-12)
+        assert surface.volume == pytest.approx(original['volume_m3'], abs=1.e-14)
+        np.testing.assert_allclose(surface.bounds, original['bounds_m'], atol=1.e-12)
         collider = next(part for name, _, part in current.collision if name == label)
         local = surface.vertices-np.asarray(collider['position_m'])
         radii = np.linalg.norm(local[:, :2], axis=1)
@@ -78,10 +82,10 @@ def test_grain_partitions_a_closed_token_surface_inside_the_original_envelope(co
 @pytest.mark.parametrize('sign', [-1, 1])
 def test_pedestals_match_retreated_lowered_base_and_preserve_original_factory(sign):
     from scenes.workrooms.card_room.robot_layout import ROBOT_BASE_DISTANCE_M, ROBOT_BASE_HEIGHT_M
-    before = heritage.stand(sign)
+    before = primitives.stand(sign)
     current = assets.stand(sign)
-    after = heritage.stand(sign)
-    lowered = heritage.stand(sign, ROBOT_BASE_HEIGHT_M)
+    after = primitives.stand(sign)
+    lowered = primitives.stand(sign, ROBOT_BASE_HEIGHT_M)
     offset = np.array([0., sign*(ROBOT_BASE_DISTANCE_M-.52), 0.])
     assert current.asset_id == ('stand_left' if sign < 0 else 'stand_right')
     assert before.collision == after.collision
@@ -240,9 +244,9 @@ def test_all_generated_assets_load_with_verified_hashes_and_prior_physics(librar
         assets.build_assets(root, geometry_for(game_id))
 
 
-def test_building_new_styles_is_deterministic_and_preserves_old_palette():
-    old_palette = dict(heritage.COLORS)
-    old_version = heritage.APPEARANCE
+def test_building_new_styles_is_deterministic_and_preserves_palette():
+    palette = dict(assets.COLORS)
+    template_version = primitives.APPEARANCE
     g = geometry_for('tic_tac_toe_3x3')
     for factory in (assets.board, lambda geometry: assets.token('white', geometry)):
         first, second = factory(g), factory(g)
@@ -251,8 +255,8 @@ def test_building_new_styles_is_deterministic_and_preserves_old_palette():
             assert color == other_color
             np.testing.assert_array_equal(mesh.vertices, other_mesh.vertices)
             np.testing.assert_array_equal(mesh.faces, other_mesh.faces)
-    assert heritage.COLORS == old_palette
-    assert heritage.APPEARANCE == old_version
+    assert assets.COLORS == palette
+    assert primitives.APPEARANCE == template_version
 
 
 def _convex_footprint_gap(a, b):

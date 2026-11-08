@@ -24,9 +24,15 @@ from bench.protocol.schemas import (ActionDiagnostic, Contract, Hash, Name, Obse
 from bench.protocol.policies import PolicyStep
 from bench.protocol.allocations import (MAX_EPISODE_SIM_TIME_S, MAX_EPISODE_WALL_TIME_S,
                                         MAX_EPISODE_ACTIONS)
-from bench.isaacsim.release import DEFAULT, digest, task_inputs, validate
+from bench.isaacsim.release import DEFAULT, digest
+# Request paths reuse an unchanged validated release within this process
+# (release_cache); native workers still run validate() themselves.
+from .release_cache import task_inputs_cached as task_inputs, validate_cached as validate
+from bench.runtime.reset_cases import (is_randomized_release, effective_release_schema,
+                                       effective_release_version)
 from .native import NativeWorker, PROJECT
 from .free_track import AcknowledgedDriveLedger, NativeAcknowledgementError, supports_free_track
+from .task_capabilities import TaskCapabilityError, require_robot_episode_capability
 from bench.evaluation.physics import audit_native_episode, audit_source_paths, physics_profile_sha256
 from bench.evaluation.rigid_safety import RigidContactSafetyGuard
 from bench.sensors.tactile import tactile_configuration, project_tactile
@@ -34,6 +40,7 @@ from bench.sensors.contact_history import ContactHistory, configure_contact_hist
 from bench.sensors.contact_schema import parse_contact_history
 from bench.protocol.task_referee import project_task_rules, project_referee_state
 from bench.protocol.task_scoring import project_terminal_scoring
+from bench.protocol.practice import PracticeSelection, PracticeProgress
 
 DEPENDENCIES=('bench/paths.py','bench/isaacsim/release.py','bench/simulation/assets/task_parts.py',
               'scenes/manipulation/__init__.py',
@@ -52,11 +59,11 @@ DEPENDENCIES=('bench/paths.py','bench/isaacsim/release.py','bench/simulation/ass
 
 def frontend_sources():
     paths=[p for folder in [PROJECT/'bench/runtime',PROJECT/'bench/protocol',PROJECT/'bench/control',PROJECT/'bench/sdk'] for p in folder.glob('*.py')]
-    paths.extend((PROJECT/'scenes/board_games/tabletop').glob('*.py'))
-    paths.extend((PROJECT/'scenes/workrooms/living_room').rglob('*.py'))
-    paths.extend((PROJECT/'scenes/workrooms/study').rglob('*.py'))
-    paths.extend((PROJECT/'scenes/workrooms/laboratory').rglob('*.py'))
-    paths.extend((PROJECT/'scenes/workrooms/mechanical_assembly').rglob('*.py'))
+    paths.extend((PROJECT/'scenes/board_games').rglob('*.py'))
+    # Release loaders and public contracts share family and catalog modules.
+    # Inventory the whole source namespace so new rooms/tasks cannot silently
+    # escape startup drift checks or the episode's source archive.
+    paths.extend((PROJECT/'scenes/workrooms').rglob('*.py'))
     paths.append(PROJECT/'scenes/runtime.py')
     paths.extend(PROJECT/p for p in DEPENDENCIES)
     paths.extend(audit_source_paths())
@@ -182,6 +189,8 @@ class PolicyExecutionError(RuntimeError):
 
 class CreateEpisodeRequest(Contract):
     task_id: Name
+    configuration_id: Name | None = None
+    practice: PracticeSelection | None = None
     robot_id: Name = 'sharpa_w01_right'
     scene_variant: Name = 'original_v1'
     agent_id: Name
@@ -245,6 +254,8 @@ class EpisodeSession:
         self.free_handoff=None
         self.player_session=None
         self.board_game=None
+        self.practice_side=None
+        self._practice_acknowledged_targets=None
         self.turn_game=None
         self.robot_geometry=None
         self.worker=None
@@ -263,6 +274,17 @@ class EpisodeSession:
             if request.scene_variant not in VARIANTS:
                 raise ServiceError(422,'Unknown scene variant')
             manifest=validate(release)
+            semantic_schema = effective_release_schema(manifest)
+            semantic_version = effective_release_version(manifest)
+            robot_revision = manifest.get('schema') == 'workroom_robot_revision_release.v1'
+            practice = semantic_schema == 'card_rsi_practice_release.v1'
+            if practice != (request.practice is not None):
+                raise ServiceError(422, 'Practice tasks require a finite practice selection; other tasks reject it')
+            if practice:
+                if (request.configuration_id is not None or request.robot_id != 'dual_fr3_sharpa_w01'
+                        or request.scene_variant != 'original_v1' or request.observation_profile != 'vision_proprio'):
+                    raise ServiceError(422, 'Practice retains the original dual robots, room and public RGB-D profile')
+                self.practice_side = request.practice.active_side
             selected = next((entry for entry in manifest['tasks'] if entry['id'] == request.task_id), None)
             if selected is None:
                 raise ServiceError(422,'Unknown task ID')
@@ -272,25 +294,44 @@ class EpisodeSession:
             if board_game and (request.robot_id != 'dual_fr3_sharpa_w01' or
                                request.scene_variant != 'original_v1' or request.observation_profile != 'vision_proprio'):
                 raise ServiceError(422, 'Board games require the frozen dual robot, original scene and public RGB-D profile')
-            placement = manifest.get('schema_version') == 'isaacsim-card-room-placement-release-v1'
-            manipulation = manifest.get('schema_version') == 'isaacsim-living-room-manipulation-release-v1'
-            kitchen = manifest.get('schema_version') == 'isaacsim-kitchen-manipulation-release-v1'
-            laboratory = manifest.get('schema_version') == 'isaacsim-laboratory-manipulation-release-v1'
-            study = manifest.get('schema') == 'study_task_release.v1'
-            living_single = (manifest.get('schema') == 'living_room_task_release.v1'
+            robot_variant = semantic_schema == 'workroom_robot_configuration_release.v1'
+            randomized = is_randomized_release(manifest)
+            if randomized and request.seed not in manifest['seed_values']:
+                raise ServiceError(422, 'Reset seed must select one frozen case from 0 through 9')
+            placement = semantic_version == 'isaacsim-card-room-placement-release-v1'
+            manipulation = semantic_version == 'isaacsim-living-room-manipulation-release-v1'
+            kitchen = semantic_version == 'isaacsim-kitchen-manipulation-release-v1'
+            laboratory = semantic_version == 'isaacsim-laboratory-manipulation-release-v1'
+            study = semantic_schema == 'study_task_release.v1'
+            laundry = semantic_schema == 'laundry_cloth_task_release.v1'
+            living_single = (semantic_schema == 'living_room_task_release.v1'
                              and kind != 'turn_game')
-            mechanical = manifest.get('schema_version') in {
+            mechanical = semantic_version in {
                 'isaacsim-mechanical-fastener-release-v1',
                 'isaacsim-mechanical-assembly-release-v1',
                 'isaacsim-mechanical-nist-release-v1',
+                'isaacsim-mechanical-cooperative-release-v1',
             }
-            mechanical_nist = manifest.get('schema') == 'mechanical_nist_task_release.v1'
-            if (placement or manipulation or kitchen or laboratory or study or mechanical or living_single) and (
-                    request.robot_id != 'sharpa_w01_right'
-                    or request.scene_variant != 'original_v1'):
-                raise ServiceError(422,'This task requires its frozen single-arm robot and original scene')
+            mechanical_nist = semantic_schema == 'mechanical_nist_task_release.v1'
+            mechanical_cooperative = semantic_schema == 'mechanical_cooperative_task_release.v1'
+            if practice:
+                from scenes.workrooms.card_room.practice.cases import selections
+                if request.practice.model_dump() not in selections(request.task_id):
+                    raise ServiceError(422, 'Practice selection is absent from the frozen finite curriculum')
             entry,scene,task,_=task_inputs(release,request.task_id,
-                **({'seed':request.seed} if placement or manipulation or kitchen or laboratory or study or mechanical_nist or manifest.get('schema') == 'living_room_task_release.v1' else {}))
+                **({'seed':request.seed} if randomized or robot_variant or placement or manipulation or kitchen or laboratory or study or mechanical_nist or mechanical_cooperative or practice or semantic_schema == 'living_room_task_release.v1' else {}),
+                **({'practice': request.practice.model_dump()} if practice else {}))
+            if robot_variant or randomized:
+                placement = task.get('schema_version') == 'card-room-placement-task-v1'
+                manipulation = task.get('schema_version') == 'living-room-manipulation-task-v1'
+            try:
+                require_robot_episode_capability(task)
+            except TaskCapabilityError as exc:
+                raise ServiceError(403, str(exc)) from exc
+            if (robot_revision or randomized or robot_variant or placement or manipulation or kitchen or laboratory or study or laundry or mechanical or living_single) and (
+                    request.robot_id != scene.get('robot', {}).get('hand_id')
+                    or request.scene_variant != 'original_v1'):
+                raise ServiceError(422,'This task requires its frozen robot and original scene')
             if turn_game and (request.robot_id != scene.get('robot',{}).get('hand_id')
                               or request.scene_variant != 'original_v1'
                               or request.observation_profile != 'vision_proprio'):
@@ -316,6 +357,9 @@ class EpisodeSession:
                 if self.public_task != referee_task:
                     raise ValueError('Public task projection differs from its frozen referee contract')
                 self.referee_contract = referee_task['public_rules']
+            if randomized:
+                from bench.runtime.reset_cases import project_reset_case
+                self.public_task = project_reset_case(task, self.public_task)
             if 'scenario' in scene:
                 frozen_seed = scene['scenario'].get('seed')
                 if type(frozen_seed) is not int or not 0 <= frozen_seed < 2**32:
@@ -341,9 +385,16 @@ class EpisodeSession:
                     from .controllers import robot_configuration
                     if self.policy.robot_configuration != robot_configuration(scene):
                         raise ServiceError(422,'Controller robot configuration differs from this task')
+            handoff={}
+            if getattr(worker_factory,'accepts_release_validation',False):
+                # This server's validations of the exact release, bound to the
+                # sources checked at create(); the worker re-proves before reuse.
+                from .release_cache import worker_handoff
+                handoff['release_validation']=worker_handoff(release,sources=IMPORTED_FRONTEND_SOURCES)
             self.worker=worker_factory(output=self.directory/'private',task_id=entry['id'],hand_id=request.robot_id,
                 seed=request.seed,release=release,device=device,scene_variant=request.scene_variant,
-                **({'startup_timeout_s':None} if request.budgets.wall_time_s is None else {}))
+                **({'practice': request.practice.model_dump()} if practice else {}),
+                **({'startup_timeout_s':None} if request.budgets.wall_time_s is None else {}),**handoff)
             if request.budgets.wall_time_s is None and hasattr(self.worker,'set_deadline'):
                 self.worker.set_deadline(None)
             initial=self.worker.initial
@@ -366,6 +417,8 @@ class EpisodeSession:
                 if self.policy else 'decision_only')
             self.raw=initial['observation']
             self.score=initial['score']
+            from .practice import check_receipt
+            check_receipt(self, self.score, initial=True)
             self.terminal_score_receipt = self.score
             if (self.public_task or {}).get('scoring_contract') is not None:
                 json.dumps(self.score, allow_nan=False)
@@ -437,6 +490,8 @@ class EpisodeSession:
                 # Explicit compatibility for old non-native workers. A measured
                 # position is never substituted for an acknowledged drive target.
                 self.capabilities.direct_joint_execution='step_target_v1'
+            if self.practice_side is not None:
+                self._practice_acknowledged_targets=self._acknowledged_drive_targets()
             instruction=(entry['title_zh']+'。通过机器人实际抓放棋子，按公开规则轮流对弈；落子由原生接触稳定性裁判确认。'
                          if board_game else task['title_zh']+'。'+'；'.join(s['instruction_zh'] for s in task['steps']))
             identity=manifest.get('runtime_identity', {})
@@ -457,6 +512,11 @@ class EpisodeSession:
                 seed=request.seed,track=request.track,
                 observation_profile=request.observation_profile,instruction=instruction,budgets=request.budgets,
                 system0=policy,split=expected_spec.split if expected_spec is not None else 'development')
+            if request.configuration_id is not None:
+                spec['configuration_id'] = request.configuration_id
+            if practice:
+                spec['practice'] = request.practice.model_dump()
+                spec['practice_case_sha256'] = task['practice_case']['public']['case_sha256']
             sources=frontend_sources()
             if sources!=IMPORTED_FRONTEND_SOURCES:
                 raise ServiceError(503,'Runner source changed after import; restart the service before evaluation')
@@ -477,7 +537,10 @@ class EpisodeSession:
             self.recorder=EpisodeRecorder(self.directory/'agent',self.spec)
             if board_game:
                 from .board_games import BoardGameSession
-                self.board_game=BoardGameSession(self,initial['board_game'],scene,task)
+                from .card_games import CardGameSession
+                session_type = (CardGameSession if task.get('schema') == 'card_game_expansion_task.v1'
+                                else BoardGameSession)
+                self.board_game=session_type(self,initial['board_game'],scene,task)
                 self.player_session=self.board_game
             elif turn_game:
                 from .turn_games import TurnGameSession
@@ -535,6 +598,7 @@ class EpisodeSession:
             data.pop('camera_calibration',None)
             data.pop('render_synchronization',None)
             data.pop('task_visual_state',None)
+            data.pop('particle_surfaces',None)
             data['rgb_uri']=f'/episodes/{self.directory.name}/images/{revision}/{data["camera_id"]}'
             if depth_path is not None:
                 if data.get('depth_sha256') is None:
@@ -658,6 +722,12 @@ class EpisodeSession:
             return ActionDiagnostic(code=default) if default else None
         try:
             diagnostic=ActionDiagnostic.model_validate(value)
+            if diagnostic.hand is not None:
+                models = getattr(self.robot_geometry, 'sides', {})
+                model = models.get(diagnostic.hand)
+                if model is None or not ({diagnostic.joint_name} - {None}
+                        | set(diagnostic.limiting_joint_names)) <= set(model.names):
+                    return ActionDiagnostic(code=diagnostic.code)
             if diagnostic.joint_name is not None and diagnostic.joint_name not in self.capabilities.joint_limits:
                 return ActionDiagnostic(code=diagnostic.code)
             if not set(diagnostic.fingertip_errors_m) <= set(self.capabilities.finger_names):
@@ -763,9 +833,22 @@ class EpisodeSession:
 
     def _objective_in_contact(self, diagnostic):
         """Whether every unreached objective has ongoing contact in its own public regions."""
+        diagnostic = self._safe_diagnostic(diagnostic)
+        if diagnostic is None:
+            return False
         history=self.contact_history.snapshot()
-        regions=history.get('regions') or {}
         if history.get('status')!='available':
+            return False
+        if history.get('protocol') in ('robot_rigid_contact_history_v2', 'robot_rigid_contact_history_v3'):
+            # Never let the other hand's contact explain this objective, or
+            # guess a side for an old ambiguous composite diagnostic.
+            own = (history.get('hands') or {}).get(diagnostic.hand)
+            if own is None:
+                return False
+            regions = own.get('regions') or {}
+        elif history.get('protocol') == 'robot_rigid_contact_history_v1' and diagnostic.hand is None:
+            regions = history.get('regions') or {}
+        else:
             return False
         touching=lambda names: any(regions.get(name,{}).get('current_contact_substeps',0)>0 for name in names)
         tolerances=diagnostic.geometry_tolerances
@@ -774,7 +857,9 @@ class EpisodeSession:
         wrist=(tolerances is not None and tolerances.wrist_position_m is not None
                and ((diagnostic.wrist_position_error_m or 0.)>tolerances.wrist_position_m
                     or (diagnostic.wrist_orientation_error_rad or 0.)>tolerances.wrist_orientation_rad))
-        if diagnostic.joint_name is not None and tolerances is not None and tolerances.joint_posture_rad is not None:
+        if (diagnostic.joint_name is not None and tolerances is not None
+                and tolerances.joint_posture_rad is not None
+                and diagnostic.joint_error_rad > tolerances.joint_posture_rad):
             finger=next((f for f in self.capabilities.finger_names
                          if f'_{"pinky" if f=="little" else f}_' in diagnostic.joint_name),None)
             if finger is not None and finger not in unreached:
@@ -811,6 +896,9 @@ class EpisodeSession:
                 # episode independently of its last valid physical verdict.
                 result['episode'] = {'terminal': self.result is not None,
                     'outcome': self.result.outcome if self.result is not None else None}
+                if getattr(self, 'practice_side', None) is not None:
+                    result['practice_progress'] = PracticeProgress.model_validate(
+                        self.score['practice_progress']).model_dump()
                 if self.result is not None and self.result.scoring is not None:
                     result['scoring'] = self.result.scoring.model_dump(mode='json', by_alias=True)
             return result
@@ -832,6 +920,8 @@ class EpisodeSession:
         from .robot_support import query_ik
         from bench.protocol.robot import IKQueryResult
         with self.lock:
+            from .practice import check_geometry
+            check_geometry(self, query)
             if self.result is not None:
                 raise ServiceError(409, 'IK queries require an active episode', code='episode_finished')
             if self.life.active_action_id is not None or (
@@ -857,6 +947,55 @@ class EpisodeSession:
                     self.life.active_action_id is not None or (self.thread is not None and self.thread.is_alive())):
                 raise ServiceError(409, 'Episode changed while the IK query was evaluated', code='stale_observation')
         return IKQueryResult.model_validate({**result, 'sim_time_s': sample_time}).model_dump(mode='json', exclude_unset=True)
+
+    def query_motion(self, query):
+        """Preview an isolated executor from public robot/ACK state only."""
+        from .motion_support import query_motion, supports_motion_query
+        with self.lock:
+            from .practice import check_geometry
+            check_geometry(self, query)
+            if self.result is not None:
+                raise ServiceError(409, 'Motion queries require an active episode', code='episode_finished')
+            if self.life.active_action_id is not None or (self.thread is not None and self.thread.is_alive()):
+                raise ServiceError(409, 'Motion queries require an idle active episode', code='episode_busy')
+            if query.observation_sequence != self.snapshot.sequence:
+                raise ServiceError(409, 'Motion query references a stale observation', code='stale_observation')
+            if self.robot_geometry is None or not supports_motion_query(self.policy):
+                raise ServiceError(422, 'Read-only motion planning is unavailable', code='unsupported_capability')
+            player = getattr(self, 'player_session', None)
+            actor, hand, targets, epoch = None, None, None, None
+            if getattr(self, 'practice_side', None) is not None:
+                from .practice import policy_targets
+                hand, targets = self.practice_side, policy_targets(self)
+            if player is not None:
+                actor = getattr(player, '_admitting_player', None)
+                if actor not in player.bindings:
+                    raise ServiceError(403, 'Player motion preview requires an authenticated player')
+                player._current(actor)
+                binding = player.bindings[actor]
+                if query.geometry is not None or set(query.hand_geometries or {}) != {binding.hand}:
+                    raise ServiceError(403, 'Motion preview may select only the player-owned hand')
+                if not set(query.hand_geometries[binding.hand].hand_posture_rad or {}) <= set(binding.joint_names):
+                    raise ServiceError(403, 'Motion preview includes unowned hand joints')
+                hand, targets, epoch = binding.hand, dict(player.last_targets), player.state.turn_index
+            observation = self.snapshot.model_copy(deep=True)
+            isolated = deepcopy(self.policy)
+            cap = self.spec.budgets.max_action_sim_s
+            attempts = self.clock.action_attempts
+        try:
+            result = query_motion(isolated, observation, query, max_action_sim_s=cap,
+                                 player_hand=hand, acknowledged_targets=targets, turn_index=epoch)
+        except ValueError as error:
+            raise ServiceError(422, 'Unsupported or invalid robot motion query', code='invalid_arguments') from error
+        with self.lock:
+            if (self.result is not None or self.snapshot.sequence != query.observation_sequence
+                    or self.life.active_action_id is not None
+                    or (self.thread is not None and self.thread.is_alive())
+                    or self.clock.action_attempts != attempts
+                    or (player is not None and (player.state.turn_index != epoch
+                        or player.state.current_player != actor or player.last_targets != targets))):
+                raise ServiceError(409, 'Episode changed during motion preview', code='stale_observation')
+        return result.model_dump(mode='json')
 
     def status(self, action_id):
         with self.lock:
@@ -909,6 +1048,8 @@ class EpisodeSession:
                 if action.observation_sequence != self.sequence:
                     raise ServiceError(422,'Action references a stale observation',code='stale_observation')
                 validate_action(action,self.capabilities,self.spec,observation_sequence=self.sequence)
+                from .practice import check_action
+                check_action(self, action)
             except BudgetExceeded as exc:
                 self._finish(exc.outcome)
                 raise ServiceError(409,exc.outcome,code='budget_exhausted') from exc
@@ -977,6 +1118,9 @@ class EpisodeSession:
                         actor=self.player_session.actions[action.action_id]['player_id']
                         self.policy.set_player_hand(self.player_session.bindings[actor].hand,
                                                     self.player_session.last_targets)
+                    elif getattr(self, 'practice_side', None) is not None:
+                        from .practice import policy_targets
+                        self.policy.set_player_hand(self.practice_side, policy_targets(self))
                     self.policy.begin(action.model_copy(deep=True),project_policy_observation(self._raw_proprio(),self.spec,self.sequence,cameras=self.cameras))
                 except Exception as exc:
                     from bench.control.fingertip import GeometryIKError
@@ -1083,6 +1227,9 @@ class EpisodeSession:
                     # the controller reference or the public ACK snapshot.
                     referee_state = (project_referee_state(reply['score'], self.referee_contract)
                         if self.referee_contract is not None else None)
+                    from .practice import check_receipt, checked_acknowledgement
+                    check_receipt(self, reply['score'])
+                    practice_targets=checked_acknowledgement(self, reply, command)
                     if (self.public_task or {}).get('scoring_contract') is not None:
                         json.dumps(reply['score'], allow_nan=False)
                     # Only an acknowledged native step may advance a stateful
@@ -1111,11 +1258,22 @@ class EpisodeSession:
                     # this ACK. A corrupt referee packet must leave public
                     # robot time/sequence at the last acknowledged snapshot.
                     turn_changed=(self.player_session.acknowledge(reply,command) if self.player_session is not None else False)
+                    if practice_targets is not None:
+                        self._practice_acknowledged_targets=practice_targets
                     self._previous_public_q=(self.raw['sim_time_s'],
                         {n:self.raw['joint_positions_rad'][n] for n in self.capabilities.joint_limits})
                     self.raw,self.score=reply['observation'],reply['score']
                     self.referee_state = referee_state
-                    self.clock.record_step(float(self.raw['sim_time_s']))
+                    sim_budget_overshot = False
+                    try:
+                        self.clock.record_step(float(self.raw['sim_time_s']))
+                    except BudgetExceeded as exc:
+                        if exc.outcome != 'sim_timeout':
+                            raise
+                        # record_step retains the real native endpoint before
+                        # raising. Finish committing this executed ACK just as
+                        # for a late wall-time reply; it cannot earn task credit.
+                        sim_budget_overshot = True
                     # A late physical ACK can update observations, but cannot
                     # earn a numeric record beyond either declared horizon.
                     budgets = self.spec.budgets
@@ -1137,6 +1295,8 @@ class EpisodeSession:
                     # Never turn a late completion into success after wall timeout.
                     if self.clock.wall_expired:
                         self._finish('wall_timeout');return
+                    if sim_budget_overshot:
+                        self._finish('sim_timeout');return
                     if self.player_session is not None:
                         self.player_session.commit_budget_state()
                     if not self.raw['metrics']['state_finite'] or self.raw.get('terminated'):
@@ -1167,6 +1327,10 @@ class EpisodeSession:
                         (self.directory/'private/evaluator_invalid.json').write_text(json.dumps({
                             'reason':reason,'sim_time_s':self.raw['sim_time_s']},indent=2)+'\n')
                         self._finish('evaluator_invalid',physics_valid=False);return
+                    if self.board_game is not None and hasattr(self.board_game, 'execution_termination'):
+                        terminal_game = self.board_game.execution_termination()
+                        if terminal_game is not None:
+                            self._finish(terminal_game[0], physics_valid=terminal_game[1]);return
                     if self.score['success']:
                         self._finish('success');return
                     if (self.score.get('irrecoverable_reason') or
@@ -1405,12 +1569,41 @@ class AgentService:
             from .controllers import default_registry
             registry=default_registry(self.release)
         self.registry=registry or PolicyRegistry()
+        self._configuration_bindings = None
+        self._configuration_registries = {}
         self.worker_factory=worker_factory
         self.allow_privileged=allow_privileged
         self.lock=threading.RLock()
         self.sessions={}
         self.evaluation_plan=evaluation_plan.model_copy(deep=True) if evaluation_plan else None
         self.plan_slots={s.episode_id:s for s in self.evaluation_plan.episodes} if self.evaluation_plan else {}
+
+    def configuration_bindings(self):
+        if self._configuration_bindings is None:
+            from .robot_configurations import discover_configuration_bindings
+            self._configuration_bindings = discover_configuration_bindings(self.release)
+        return self._configuration_bindings
+
+    def configuration_release(self, task_id, configuration_id=None):
+        if configuration_id is None:
+            return self.release
+        from .robot_configurations import checked_configuration_release
+        binding = self.configuration_bindings().get(task_id)
+        if binding is None:
+            raise ServiceError(422, 'This task does not offer robot configuration selection')
+        try:
+            return checked_configuration_release(binding, configuration_id)
+        except (KeyError, ValueError, OSError) as exc:
+            raise ServiceError(422, 'Unknown or changed frozen robot configuration') from exc
+
+    def configuration_registry(self, task_id, configuration_id=None):
+        root = self.configuration_release(task_id, configuration_id)
+        if root.resolve() == self.release.resolve():
+            return self.registry
+        if root not in self._configuration_registries:
+            from .controllers import default_registry
+            self._configuration_registries[root] = default_registry(root)
+        return self._configuration_registries[root]
 
     def create(self,request,*,board_game=False,turn_game=False):
         with self.lock:
@@ -1420,6 +1613,10 @@ class AgentService:
                 raise ServiceError(409,'This server owns one active native episode')
             if any(s.thread is not None and s.thread.is_alive() for s in self.sessions.values()):
                 raise ServiceError(409,'The previous policy is still stopping; wait for its worker thread to return')
+            if (board_game or turn_game) and request.configuration_id is not None:
+                raise ServiceError(403, 'Competitive sessions do not offer robot configuration selection')
+            selected_release = self.configuration_release(request.task_id, request.configuration_id)
+            selected_registry = self.configuration_registry(request.task_id, request.configuration_id)
             expected=None
             if self.evaluation_plan:
                 if request.plan_slot_id not in self.plan_slots:
@@ -1435,12 +1632,12 @@ class AgentService:
                     raise ServiceError(422,'This server has no registered evaluation plan')
                 episode_id=uuid.uuid4().hex
             if (request.task_id == 'task0' and 'seed' not in request.model_fields_set
-                    and validate(self.release,assets=False).get('schema_version') ==
-                    'isaacsim-card-room-placement-release-v1'):
+                    and task_inputs(selected_release, request.task_id)[2].get('schema_version') ==
+                    'card-room-placement-task-v1'):
                 request=request.model_copy(update={'seed':expected.seed if expected is not None
                                                   else secrets.randbelow(2**32)})
-            session=EpisodeSession(request,self.directory/episode_id,release=self.release,device=self.device,
-                registry=self.registry,worker_factory=self.worker_factory,allow_privileged=self.allow_privileged,
+            session=EpisodeSession(request,self.directory/episode_id,release=selected_release,device=self.device,
+                registry=selected_registry,worker_factory=self.worker_factory,allow_privileged=self.allow_privileged,
                 expected_spec=expected,board_game=board_game,turn_game=turn_game)
             self.sessions[episode_id]=session
             result={'episode_id':episode_id,'spec':session.spec.model_dump(mode='json'),

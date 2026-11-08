@@ -11,6 +11,10 @@ from uni_teleop.mapping.franka.retarget import Retargeter
 
 
 def run(args, *, receiver=None, source_kind='xr_sdk', mapper_factory=Retargeter, feedback=None):
+    if getattr(args, 'operator_hide_arm', False):
+        raise ValueError('--operator-hide-arm is supported only by Isaac')
+    if getattr(args, 'no_recording', False):
+        raise ValueError('--no-recording is currently supported by the Isaac teleop runtime only')
     if getattr(args, 'deferred_recording', False) or getattr(args, 'preview_scale', 1.) != 1.:
         raise ValueError('Deferred recording and scaled preview require Isaac')
     if getattr(args, 'physics_dt', None) is not None or getattr(args, 'control_dt', None) is not None:

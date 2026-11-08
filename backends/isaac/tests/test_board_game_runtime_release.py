@@ -13,8 +13,10 @@ from scenes.workrooms.catalog import task_definition
 GAMES = ('tic_tac_toe_3x3', 'connect_four_5x5', 'hex7x7')
 
 
-def release_path(game='tic_tac_toe_3x3'):
-    return Path(task_definition('card_room', game)['source_release']['path'])
+def release_path(game='tic_tac_toe_3x3', robot_profile='original'):
+    # The format checks below read the frozen original release; the L-mount
+    # profile is a robot-only revision wrapping it.
+    return Path(task_definition('card_room', game, robot_profile=robot_profile)['source_release']['path'])
 
 
 @pytest.fixture
@@ -56,6 +58,16 @@ def test_current_releases_load_without_rewriting_or_converting_frozen_inputs(gam
     assert len(scene['objects']) == count and len(initial['joint_positions_rad']) == 58
     assert task['public_rules']['revision'] == 'recoverable_physical_moves_v2'
     assert entry['title_zh'] and 'steps' not in task
+    revised = release_path(game, 'l_mount')
+    revision = validate(revised, assets=False)
+    assert revision['schema'] == 'workroom_robot_revision_release.v1'
+    assert revision['base_release'] == {'path': str(root), 'manifest_sha256': before, 'schema': original['schema']}
+    _, revised_scene, revised_task, revised_initial = task_inputs(revised, game)
+    assert revised_scene['objects'] == scene['objects']
+    assert revised_scene['board_game_task'] == scene['board_game_task']
+    assert revised_task == task and len(revised_initial['joint_positions_rad']) == 58
+    assert (scene['robot']['assembly_version'], revised_scene['robot']['assembly_version']) == (
+        'isaacsim_6_1_v2', 'isaacsim_6_1_l_mount_v3')
 
 
 def test_native_substep_evaluator_is_required_and_goal_reset_is_unavailable():
@@ -66,10 +78,16 @@ def test_native_substep_evaluator_is_required_and_goal_reset_is_unavailable():
         task_inputs(root, 'tic_tac_toe_3x3', 'qualification_probe')
     with pytest.raises(ValueError, match='Unknown board-game task'):
         task_inputs(root, 'hex7x7')
+    revised = release_path(robot_profile='l_mount')
+    with pytest.raises(ValueError, match='nominal task'):
+        task_inputs(revised, 'tic_tac_toe_3x3', 'qualification_probe')
+    with pytest.raises(ValueError):
+        task_inputs(revised, 'hex7x7')
 
 
-def test_board_game_default_controller_uses_frozen_dual_robot_positions():
-    root = release_path()
+@pytest.mark.parametrize('robot_profile', ['original', 'l_mount'])
+def test_board_game_default_controller_uses_frozen_dual_robot_positions(robot_profile):
+    root = release_path(robot_profile=robot_profile)
     registry = default_registry(root)
     descriptor, = registry.descriptors(task_id='tic_tac_toe_3x3')
     policy = registry.resolve(descriptor.policy_id, descriptor.version, task_id='tic_tac_toe_3x3')

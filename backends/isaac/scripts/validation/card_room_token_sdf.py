@@ -2,7 +2,7 @@
 from pathlib import Path
 import numpy as np
 
-from scripts.validation.gear_sdf_checks import calibrate_layout
+from scripts.validation.sdf_calibration import calibrate_layout
 from scripts.validation.mechanical_ring_sdf import surface_witnesses
 
 TOLERANCE_M = 20.e-6

@@ -6,6 +6,7 @@ from bench.isaacsim.release import digest, dump, load_evaluator, task_inputs, va
 from bench.paths import load_json
 from bench.protocol.task_referee import project_task_rules
 from scenes.workrooms.study import composition, release
+from scenes.workrooms.study.rules import TASK_IDS as PLACEMENT_TASK_IDS
 
 
 def configuration(task_id):
@@ -46,7 +47,7 @@ def configuration(task_id):
     return build_configuration(task_id, objects, targets, supports, **extra)
 
 
-@pytest.fixture(params=composition.TASK_IDS)
+@pytest.fixture(params=PLACEMENT_TASK_IDS)
 def authored(tmp_path, monkeypatch, request):
     from pxr import Usd, UsdGeom, UsdPhysics
     ident = request.param

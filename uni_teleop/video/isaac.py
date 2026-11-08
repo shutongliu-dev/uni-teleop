@@ -99,7 +99,7 @@ class _CameraMount:
 class StereoView:
     def __init__(self, env, camera='wrist', *, width=640, height=480, ipd=.064,
                  head_tracked=False, robot_poses=None, inset_camera=None, rear_camera=False,
-                 operator_view='scene', operator_inset='none', preview_scale=1.):
+                 operator_view='scene', operator_inset='none', preview_scale=1., operator_hide_arm=False):
         from pxr import Gf
         spec = env.cameras[camera]
         if head_tracked and spec['kind'] != 'world':
@@ -116,24 +116,43 @@ class StereoView:
         self.operator_ops = {}
         self.operator_base = None
         self.operator_inset_op = None
-        if operator_inset not in ('none', 'table') or (operator_inset != 'none' and operator_view != 'rear'):
-            raise ValueError('The table operator inset requires the rear operator view')
+        self.operator_wrist = operator_inset in ('wrist', 'table-wrist')
+        from uni_teleop.video.wrist_orientation import WristDisplayRotation
+        self.wrist_display_rotation = WristDisplayRotation()
+        if operator_inset not in ('none', 'table', 'table-wrist', 'wrist') or (operator_inset != 'none' and operator_view != 'rear'):
+            raise ValueError('Operator insets require the rear operator view')
         if operator_view not in ('scene', 'rear'):
             raise ValueError('Unknown operator view')
         preview_width, preview_height = int(width*preview_scale), int(height*preview_scale)
         if operator_view == 'rear':
-            from uni_teleop.video.isaac_camera import rear_camera_pose
-            eye, target = rear_camera_pose(env.scene_spec, lateral_m=.65, height_m=1.40)
+            from uni_teleop.video.isaac_camera import operator_rear_pose
+            eye, target = operator_rear_pose(env.scene_spec)
             world = Gf.Matrix4d().SetLookAt(Gf.Vec3d(*eye), Gf.Vec3d(*target), Gf.Vec3d(0, 0, 1)).GetInverse()
             self.operator_base = np.array(world).T
             self.operator_ops = {side: self.mount.camera('pico_operator_'+side, preview_width, preview_height)
                                  for side in ('left', 'right')}
-        if operator_inset == 'table':
+            from uni_teleop.video.isaac_camera import operator_workspace_pose
+            if operator_workspace_pose(env.scene_spec) is not None:
+                from pxr import UsdGeom
+                # Uniform preview optics; recording cameras retain their optics.
+                for side in ('left', 'right'):
+                    camera = UsdGeom.Camera(env.stage.GetPrimAtPath(env.camera_paths['pico_operator_'+side]))
+                    camera.GetFocalLengthAttr().Set(24.)
+                    camera.GetHorizontalApertureAttr().Set(36.)
+                    camera.GetVerticalApertureAttr().Set(36.*preview_height/preview_width)
+
+        if operator_inset in ('table', 'table-wrist'):
             from uni_teleop.video.isaac_camera import table_closeup_pose
             self.operator_inset_op = self.mount.camera('pico_operator_table', preview_width//2, preview_height//2)
             eye, target = table_closeup_pose(env.scene_spec)
             world = Gf.Matrix4d().SetLookAt(Gf.Vec3d(*eye), Gf.Vec3d(*target), Gf.Vec3d(0, 0, 1)).GetInverse()
             self.operator_inset_op.Set(world)
+        self.arm_visibility = None
+        if operator_hide_arm:
+            if operator_view != 'rear':
+                raise ValueError('Arm hiding requires a separate rear operator view')
+            from uni_teleop.backends.isaac.visibility import ArmVisibility
+            self.arm_visibility = ArmVisibility(env)
         self.inset = None
         self.rear_op = None
         if inset_camera and inset_camera != camera:
@@ -141,6 +160,8 @@ class StereoView:
             inset_width, inset_height = width*2//5, height*2//5
             self.inset_op = self.inset.camera('pico_inset', inset_width, inset_height)
             self.inset_label = inset_camera.upper()
+        if self.operator_wrist and (inset_camera != 'wrist' or self.inset is None):
+            raise ValueError('Wrist operator inset requires --inset-camera wrist and a separate main camera')
         if rear_camera:
             from pxr import UsdGeom
             from uni_teleop.video.isaac_camera import rear_camera_pose
@@ -193,8 +214,29 @@ class StereoView:
             cameras += ('pico_operator_left', 'pico_operator_right')
         if self.operator_inset_op is not None:
             cameras += ('pico_operator_table',)
-        # Render all views at their own resolution in one non-physics update.
-        frames = self.env.render_many(cameras)
+        if self.operator_wrist and 'pico_inset' not in cameras:
+            cameras += ('pico_inset',)
+        visibility = self.arm_visibility
+        wrist_preview = None
+        if visibility is None:
+            frames = self.env.render_many(cameras)
+        else:
+            headset = tuple(name for name in cameras if name.startswith('pico_operator_'))
+            if self.operator_wrist:
+                headset += ('pico_inset',)
+            visible = tuple(name for name in cameras if name not in headset or
+                            (name == 'pico_inset' and original))
+            frames = self.env.render_many(visible) if visible else {}
+            # Preserve full-robot recording pixels when reusing the wrist product.
+            if 'pico_inset' in frames:
+                frames['pico_inset'] = frames['pico_inset'].copy()
+            with visibility.hidden():
+                preview = self.env.render_many(headset)
+            wrist_preview = preview.get('pico_inset')
+            frames.update({name: pixels for name, pixels in preview.items()
+                           if name != 'pico_inset' or not original})
+        if self.operator_wrist and wrist_preview is None:
+            wrist_preview = frames['pico_inset']
         if markers:
             for side, op in self.ops.items():
                 name = 'pico_'+side
@@ -216,14 +258,21 @@ class StereoView:
             if not self.operator_ops:
                 operator_eyes = eyes
         self.operator_eyes = operator_eyes
+        if self.operator_wrist:
+            wrist_preview = self.wrist_display_rotation.render(
+                wrist_preview, np.array(self.inset_op.Get()).T, self.control_base)
         if self.operator_inset_op is not None:
-            self.operator_eyes = tuple(operator_panels(eye, frames['pico_operator_table'], 'TABLE DETAIL')
+            panels = {'second': wrist_preview} if self.operator_wrist else {}
+            self.operator_eyes = tuple(operator_panels(eye, frames['pico_operator_table'], 'TABLE DETAIL', **panels)
+                                       for eye in operator_eyes)
+        elif self.operator_wrist:
+            self.operator_eyes = tuple(operator_panels(eye, wrist_preview, 'WRIST')
                                        for eye in operator_eyes)
         return eyes
 
 
-def operator_panels(main, detail, label):
-    """Fit the full stereo image above a separate mono detail panel; no overlay."""
+def operator_panels(main, detail, label, *, second=None):
+    """Fit the full stereo image above one or two mono panels; no overlay."""
     from PIL import Image, ImageDraw, ImageOps
     height, width = main.shape[:2]
     canvas = Image.new('RGB', (width, height), (18, 22, 26))
@@ -231,10 +280,13 @@ def operator_panels(main, detail, label):
     full = ImageOps.contain(Image.fromarray(main), (width, main_height), Image.Resampling.LANCZOS)
     canvas.paste(full, ((width-full.width)//2, 0))
     y = main_height + 20
-    closeup = ImageOps.contain(Image.fromarray(detail), (width, height-y-4), Image.Resampling.LANCZOS)
-    x = (width-closeup.width)//2
-    ImageDraw.Draw(canvas).text((x, main_height+4), label, fill=(230, 235, 240))
-    canvas.paste(closeup, (x, y))
+    panels = [(detail, label)] if second is None else [(detail, label), (second, 'WRIST')]
+    cell_width = width // len(panels)
+    for index, (pixels, title) in enumerate(panels):
+        closeup = ImageOps.contain(Image.fromarray(pixels), (cell_width-8, max(1, height-y-4)), Image.Resampling.LANCZOS)
+        x = index*cell_width + (cell_width-closeup.width)//2
+        ImageDraw.Draw(canvas).text((x, main_height+4), title, fill=(230, 235, 240))
+        canvas.paste(closeup, (x, y))
     return np.asarray(canvas).copy()
 
 

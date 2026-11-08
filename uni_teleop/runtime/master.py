@@ -36,6 +36,7 @@ def main():
     cli.add_argument('--manus-retarget-root', type=Path, help='External official SHARPA retargeting_alg_release_V4.0')
     cli.add_argument('--manus-retarget-python', type=Path, help='Isolated Python 3.10 for the official optimizer')
     cli.add_argument('--manus-hand-only', action='store_true', help='Test glove fingers with the arm held; no leader serial access')
+    cli.add_argument('--manus-native-reader', type=Path, help='Isolated compiled C++ SDK reader for .mcal calibration')
     cli.add_argument('--manus-sdk-python', type=Path)
     cli.add_argument('--manus-python', type=Path)
     cli.add_argument('--manus-sdk-version', choices=['3.2.0', '3.2.1'], default='3.2.1')
@@ -69,11 +70,11 @@ def main():
         cli.error('--leader-feedback requires FACTR arm and --fixed-reference')
     if not pico_arm:
         args.mode = 'controllers'
-    if pico_arm and (args.manus_hand_only or args.manus_sdk_python is None):
+    if pico_arm and (args.manus_hand_only or (args.manus_sdk_python is None and args.manus_native_reader is None)):
         cli.error('PICO+MANUS requires MANUS configuration and an enabled PICO arm')
     if args.head_tracked and not pico_arm:
         cli.error('Master/slave mode uses fixed overview and wrist cameras')
-    if args.manus_hand_only and args.manus_sdk_python is None:
+    if args.manus_hand_only and (args.manus_sdk_python is None and args.manus_native_reader is None):
         cli.error('--manus-hand-only requires the MANUS SDK configuration')
     if not pico_arm and not args.manus_hand_only and not args.leader_port:
         cli.error('--leader-port is required for master/slave control')
@@ -116,7 +117,7 @@ def main():
             **({'gravity_calibration':gravity_calibration} if gravity else {}))
     feedback=receiver if args.leader_feedback else None
     calibration_output=args.output.parent if args.output else None
-    if args.manus_sdk_python:
+    if args.manus_sdk_python or args.manus_native_reader:
         from uni_teleop.devices.manus.process_source import ManusProcessSource, ManusSourceConfig
         from uni_teleop.mapping.factr_manus import CombinedReceiver, ManusJointRetargeter
         glove=optimizer=None
@@ -124,19 +125,21 @@ def main():
             if args.manus_python is None or args.manus_glove_id is None or args.manus_calibration is None:
                 cli.error('MANUS requires Python, glove ID and saved official calibration file')
             calibration = args.manus_calibration.read_bytes()
-            text = calibration.decode()
-            profile = json.loads(text[text.index('{'):])['gloveProfiles'][f'0x{args.manus_glove_id:08X}']
-            if profile['side'] != 'right' or not profile['calibrationProfile']:
-                raise ValueError('Require a saved calibration for the selected right glove')
+            if not args.manus_native_reader:
+                text = calibration.decode()
+                profile = json.loads(text[text.index('{'):])['gloveProfiles'][f'0x{args.manus_glove_id:08X}']
+                if profile['side'] != 'right' or not profile['calibrationProfile']:
+                    raise ValueError('Require a saved calibration for the selected right glove')
             calibration_id = 'official/'+hashlib.sha256(calibration).hexdigest()
             if args.output is None:
                 cli.error('MANUS requires an explicit --output session directory')
             args.output.parent.mkdir(parents=True, exist_ok=True)
             # run() creates the session directory; keep SDK diagnostics beside it.
             sdk_log = args.output.parent/'manus_sdk.log'
-            glove = ManusProcessSource(ManusSourceConfig(args.manus_sdk_python,
+            glove = ManusProcessSource(ManusSourceConfig(args.manus_sdk_python or args.manus_native_reader.parent,
                 args.manus_python, args.manus_glove_id, calibration_id,
-                sdk_version=args.manus_sdk_version, stderr_log=sdk_log))
+                sdk_version=args.manus_sdk_version, stderr_log=sdk_log,
+                native_reader=args.manus_native_reader, calibration_file=args.manus_calibration))
             glove.start()
             if args.manus_retarget_root:
                 import time

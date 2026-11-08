@@ -13,6 +13,7 @@ import socket
 import traceback
 
 from .transport import receive, send
+from .task_capabilities import require_robot_episode_capability
 from bench.paths import load_json
 from scripts.maintenance.freeze_project_sources import verify_if_snapshot
 from bench.evaluation.rigid_safety import RigidContactSafetyGuard
@@ -22,13 +23,21 @@ def public_task_projection(task):
     """Bind the worker's loaded rules to the same public identity as the host."""
     if task.get('schema_version') == 'living-room-manipulation-task-v1':
         from .manipulation_tasks import project_manipulation_task
-        return project_manipulation_task(task)
+        result = project_manipulation_task(task)
+        if 'reset_case' in task:
+            from bench.runtime.reset_cases import project_reset_case
+            result = project_reset_case(task, result)
+        return result
     if task.get('schema_version') == 'card-room-placement-task-v1':
         from .placement_tasks import project_placement_task
         return project_placement_task(task)
     from bench.protocol.task_referee import project_task_rules
     from scenes.runtime import terminal_scoring_contract
-    return project_task_rules(task, scoring_contract=terminal_scoring_contract(task))
+    result = project_task_rules(task, scoring_contract=terminal_scoring_contract(task))
+    if 'reset_case' in task:
+        from bench.runtime.reset_cases import project_reset_case
+        result = project_reset_case(task, result)
+    return result
 
 
 def guarded_native_step(env, command, guard):
@@ -119,6 +128,20 @@ def seal_native_recording(output, states, triangles, score, *, reason):
         'source':'captured_native_states','state_reconstruction':False})
 
 
+def seal_final_runtime_imports(output):
+    """Verify all currently loaded project sources after normal runtime closure.
+
+    Task construction and close() may import modules after the startup receipt.
+    This private source receipt adds no physical or task-success qualification.
+    Editable launches retain verify_if_snapshot's explicit absence of evidence.
+    """
+    from bench.isaacsim.release import dump
+    verification = verify_if_snapshot(Path(__file__).absolute().parents[2],
+        required_modules=("bench.runtime.worker",), entrypoint_file=Path(__file__))
+    if verification is not None:
+        dump(Path(output)/'runtime_imports_final.json', verification)
+
+
 def main(*, observer_factory=None):
     """Run the canonical worker, optionally with trusted read-only instrumentation.
 
@@ -146,14 +169,17 @@ def main(*, observer_factory=None):
     task_runtime = None
     runtime_key = None
     demo_recorder = None
+    volume_archive = None
+    elastic_archive = None
     safety_guard = RigidContactSafetyGuard()
     try:
         import numpy as np
-        from bench.isaacsim.release import task_inputs, load_evaluator, dump
+        from bench.isaacsim.release import (task_inputs, load_evaluator, dump,
+                                            validated_task_inputs, validated_evaluator)
         from bench.simulation.isaacsim_backend.env import FR3DexterousIsaacEnv
         from bench.simulation.isaacsim_backend.robot_registry import scene_with_hand
         from bench.simulation.isaacsim_backend.scene_variants import apply_scene_variant
-        from .board_game_worker import BoardGameWorker
+        from .board_game_worker import build_board_game_worker
         from scenes.runtime import build_task_runtime
         from .demo_recording import NativeDemoRecorder
         source_verification = verify_if_snapshot(Path(__file__).absolute().parents[2],
@@ -163,19 +189,41 @@ def main(*, observer_factory=None):
             entrypoint_file=Path(__file__))
         if source_verification is not None:
             dump(output/'runtime_imports.json', source_verification)
-        entry, scene, task, initial = task_inputs(Path(config['release']), config['task_id'], seed=config['seed'])
+        release = Path(config['release'])
+        validated = {}  # assets flag -> (result, parents) re-proved in this process
+        if 'release_validation_handoff' in config:
+            from .release_cache import adopt_worker_handoff
+            validated, reuse = adopt_worker_handoff(config['release_validation_handoff'], release)
+            dump(output/'release_validation_reuse.json', reuse)
+        selection = {'seed': config['seed'], **({'practice': config['practice']} if 'practice' in config else {})}
+        entry, scene, task, initial = (
+            validated_task_inputs(release, validated[True][0], config['task_id'],
+                                  parents=validated[True][1], **selection)
+            if True in validated else task_inputs(release, config['task_id'], **selection))
+
+        def evaluator_factory():
+            return (validated_evaluator(release, validated[False][0]) if False in validated
+                    else load_evaluator(release))
+        require_robot_episode_capability(task)
         scene = scene_with_hand(scene, config['hand_id'])
         scene = apply_scene_variant(scene, config.get('scene_variant','original_v1'))
         env = FR3DexterousIsaacEnv(scene, device=config['device'], render_width=640, render_height=480)
         obs = env.reset(seed=config['seed'], initial_state=initial)
+        reader = getattr(env, '_task_reader', None)
+        if reader is not None and reader.volumes.info:
+            from .native_volume_archive import NativeVolumeArchive
+            volume_archive = NativeVolumeArchive(output/'native_volumes', reader)
+        if reader is not None and reader.elastic_info:
+            from .native_elastic_archive import NativeElasticArchive
+            elastic_archive = NativeElasticArchive(output/'native_elastic', reader)
         if scene.get('board_game_task') is not None:
             if observer_factory is not None or scene.get('cloth', {}).get('enabled') is True:
                 raise ValueError('The trusted board-game observer exclusively owns native adjudication')
-            task_runtime = BoardGameWorker(env, scene, task, output=output/'board_game')
+            task_runtime = build_board_game_worker(env, scene, task, output=output/'board_game')
             runtime_key = 'board_game'
         else:
             task_runtime = build_task_runtime(env, scene, task, output/'task_runtime',
-                                              evaluator_factory=load_evaluator(Path(config['release'])))
+                                              evaluator_factory=evaluator_factory())
             if task_runtime is not None and task_runtime.public_state() is not None:
                 runtime_key = 'turn_game'
         if task_runtime is not None:
@@ -184,7 +232,7 @@ def main(*, observer_factory=None):
             evaluator = None
             score = task_runtime.score()
         else:
-            evaluator = load_evaluator(Path(config['release']))(task)
+            evaluator = evaluator_factory()(task)
             score = evaluator.update(obs)
         states.append(env.capture_state())
         metadata = env.metadata()
@@ -210,6 +258,8 @@ def main(*, observer_factory=None):
         if demo_recorder is not None:
             demo_recorder.record(obs, score)
         send(connection, {'ok': True, 'metadata': metadata, 'observation': obs, 'score': score, **public_task,
+                          **({'card_game_events': task_runtime.events_for_reply()}
+                             if hasattr(task_runtime, 'events_for_reply') else {}),
                           **({runtime_key: task_runtime.public_state()} if runtime_key else {})})
         with (output/'physics.jsonl').open('x') as log:
             log.write(json.dumps({'kind': 'reset', 'observation': obs, 'score': score}, allow_nan=False)+'\n')
@@ -252,7 +302,7 @@ def main(*, observer_factory=None):
                         score = reply['score']
                         send(connection, reply)
                     elif operation == 'hold':
-                        if runtime_key is not None:
+                        if runtime_key is not None or scene.get('card_practice_task') is not None:
                             # Board games cancel the future controller queue at
                             # the service boundary. Their admitted drive targets
                             # must remain unchanged for the other player's turn.
@@ -288,9 +338,18 @@ def main(*, observer_factory=None):
                             seal_observer(cloth_observer)
                         if demo_recorder is not None:
                             demo_recorder.close(score=score, reason='finish_request', completed=True)
+                        if volume_archive is not None:
+                            volume_archive.close(actual_native_step=env.world.current_time_step_index,
+                                                 reason='finish_request')
+                        if elastic_archive is not None:
+                            elastic_archive.close(actual_native_step=env.world.current_time_step_index,
+                                                  reason='finish_request')
                         seal_native_recording(output, states, env.triangles, score, reason='finish_request')
+                        seal_final_runtime_imports(output)
                         sealed = True
                         send(connection, {'ok':True,'score':score,'state_count':len(states),
+                                          **({'card_game_events': task_runtime.events_for_reply()}
+                                             if hasattr(task_runtime, 'events_for_reply') else {}),
                                           **({runtime_key: task_runtime.public_state()} if runtime_key else {})})
                         break
                     else:
@@ -326,6 +385,18 @@ def main(*, observer_factory=None):
             pass
         raise
     finally:
+        if elastic_archive is not None:
+            try:
+                elastic_archive.close(actual_native_step=env.world.current_time_step_index,
+                                      reason='worker_exit_without_finish')
+            except BaseException:
+                traceback.print_exc()
+        if volume_archive is not None:
+            try:
+                volume_archive.close(actual_native_step=env.world.current_time_step_index,
+                                     reason='worker_exit_without_finish')
+            except BaseException:
+                traceback.print_exc()
         if demo_recorder is not None:
             try:
                 demo_recorder.close(score=score, reason='worker_exit_without_finish')

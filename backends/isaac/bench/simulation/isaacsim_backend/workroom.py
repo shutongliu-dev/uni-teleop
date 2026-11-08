@@ -5,11 +5,10 @@ physics stepping, source-asset edits or scene-authoring builder is used here.
 """
 from __future__ import annotations
 
-import hashlib
 from fnmatch import fnmatchcase
 from pathlib import Path
 
-from bench.paths import load_json
+from bench.paths import load_json, undistributed
 
 SCHEMA = 'isaacsim-workroom-reference-v1'
 ROOM_PATH = '/World/Room'
@@ -21,15 +20,14 @@ BUILTIN_MDL = {'OmniGlass.mdl', 'OmniPBR.mdl'}
 
 
 def digest(path):
-    value = hashlib.sha256()
-    with Path(path).open('rb') as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b''):
-            value.update(block)
-    return value.hexdigest()
+    from bench.isaacsim.validation_epoch import file_sha256
+    return file_sha256(path)
 
 
 def checked(path, expected):
     path = Path(path)
+    if undistributed(path):
+        return expected  # recorded provenance; see bench.paths.undistributed
     if not path.is_absolute() or not path.is_file():
         raise ValueError(f'Workroom dependency must be an existing absolute file: {path}')
     actual = digest(path)

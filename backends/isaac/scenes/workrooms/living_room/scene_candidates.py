@@ -7,19 +7,17 @@ from copy import deepcopy
 
 from bench.paths import DATA_ROOT
 
-_CANDIDATES = {'remote_operation': {'asset_version': 'v5',
-                      'manifest_path': f'{DATA_ROOT}/assets/task_parts/living_room/remote_operation/v5/manifest.json',
-                      'manifest_sha256': '05dbd52e71293446128ba1e67dbae83e1205fc3ac803a46db5fcdb965726da77',
-                      'initial_usd': f'{DATA_ROOT}/assets/task_parts/living_room/remote_operation/v5/initial.usda',
-                      'initial_usd_sha256': '674410c0295a1ab8c8cdb7f90770af985d45337ee72918d7f2da6b96d66988d1',
+_CANDIDATES = {'remote_operation': {'asset_version': 'v6',
+                      'manifest_path': f'{DATA_ROOT}/assets/task_parts/living_room/remote_operation/v6/manifest.json',
+                      'manifest_sha256': 'a12d35757e30c38e2371d0c4d132a7544d422b34b0f9f9f11ae6f0d2032920dd',
+                      'initial_usd': f'{DATA_ROOT}/assets/task_parts/living_room/remote_operation/v6/initial.usda',
+                      'initial_usd_sha256': '50680f3bd2d0624fb820e70868a4c46072ee57f591c1c3b094a6b65cc14ccd15',
                       'reference_prim_path': '/World/LivingTask',
-                      'native_evidence_directory': f'{DATA_ROOT}/datasets/fr3_sharpa_bench/development/living_task_scenes_20261018/task1_native05',
-                      'media_directory': f'{DATA_ROOT}/demo/interface/scenes/living_task_scenes_20261018/task1_v5',
-                      'evidence_scope': 'Face-up presentation settling; face-down reset is authored '
-                                        'separately'},
+                      'evidence_scope': 'Face-up remote reset with visible physical buttons and render-only '
+                                        'TV countdown segments; validation is recorded separately.'},
  'water_pouring': {'asset_version': 'v2',
                    'manifest_path': f'{DATA_ROOT}/assets/task_parts/living_room/water_pouring/v2/manifest.json',
-                   'manifest_sha256': 'baa82eef7725e4e64edd4e17dd73a3373e3fc8a867429bf7b2c5dd45c2a364ba',
+                   'manifest_sha256': '4855c3cdaaebbbf5d4e8a6c20e185201d93aa68eaf6f8400cd2fd1f293f22f71',
                    'initial_usd': f'{DATA_ROOT}/assets/task_parts/living_room/water_pouring/v2/initial.usda',
                    'initial_usd_sha256': 'e7703b2565efe0063127dd986160f1657cac55524c046f2cea1a185f89d00371',
                    'reference_prim_path': '/World/LivingTask',
@@ -33,7 +31,7 @@ _CANDIDATES = {'remote_operation': {'asset_version': 'v5',
                        'Native pouring evidence uses a separate 75-degree torque fixture; full robot manipulation remains unverified.']},
  'tower_building': {'asset_version': 'v6',
                     'manifest_path': f'{DATA_ROOT}/assets/task_parts/living_room/tower_building/v6/manifest.json',
-                    'manifest_sha256': '98985b7a031f218a70b5e93be776a4f602228334e4d84e5bdcd3f0ed3e5f013b',
+                    'manifest_sha256': 'dbf1f59dbfb648247ece0ebe821e7b8edf7aea91b933a9971006f59a08f721f8',
                     'initial_usd': f'{DATA_ROOT}/assets/task_parts/living_room/tower_building/v6/initial.usda',
                     'initial_usd_sha256': '457b96a5787d41a5353b667c986e5b7e30092e5ea621ac3f09af5b79f03c102c',
                     'reference_prim_path': '/World/LivingTask',
@@ -44,7 +42,7 @@ _CANDIDATES = {'remote_operation': {'asset_version': 'v5',
                                       'separate from robot manipulation qualification.'},
  'tower_extraction': {'asset_version': 'v3',
                       'manifest_path': f'{DATA_ROOT}/assets/task_parts/living_room/tower_extraction/v3/manifest.json',
-                      'manifest_sha256': '50de959c11f307f73644b16a09aa82aab13da9111cd06d1258551ae4628e22b0',
+                      'manifest_sha256': 'bde8223a805d5f6d822fb3da1b6a22726e43694e0d489957cb76ace9ee1c38d8',
                       'initial_usd': f'{DATA_ROOT}/assets/task_parts/living_room/tower_extraction/v3/initial.usda',
                       'initial_usd_sha256': 'a88592c07cfe5a89fb31bb6d7c7b5ee5dccf30a21066f29bcfcb49bc8c5fb273',
                       'reference_prim_path': '/World/LivingTask',
@@ -53,6 +51,18 @@ _CANDIDATES = {'remote_operation': {'asset_version': 'v5',
                       'evidence_scope': '12-layer tabletop tower with 36 blocks, 10 mm gaps and two physical '
                                         'collection trays. Native settling/rendering are separate from robot '
                                         'manipulation qualification.'}}
+
+
+_CANDIDATES['storage_box'] = {
+    'asset_version': 'v2',
+    'manifest_path': f'{DATA_ROOT}/assets/task_parts/living_room/storage_box/v2/manifest.json',
+    'manifest_sha256': 'b7a4c13e0808831e6e1d64e4a3fb35cc2d34c00ca91e2983b0fd7e6cf90d6907',
+    'initial_usd': f'{DATA_ROOT}/assets/task_parts/living_room/storage_box/v2/initial.usda',
+    'initial_usd_sha256': '97b2df8adecae6c910ae192a756e6ffa7cbda32988353511644aed07e47f8823',
+    'reference_prim_path': '/World/LivingTask',
+    'known_limitations': ['Passive rigid-body hinge/catch engineering model; no calibrated latch-force or material claims.'],
+    'evidence_scope': 'Physical rotary catches obstruct a hinged lid; native object interaction evidence is separate from robot grasp strategy.',
+}
 
 
 def scene_candidate(task_id):

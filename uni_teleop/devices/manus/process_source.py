@@ -19,6 +19,8 @@ class ManusSourceConfig:
     mode: str = "integrated"
     duration_s: float = 86400.0
     max_line_bytes: int = 2 * 1024 * 1024
+    native_reader: Path | None = None
+    calibration_file: Path | None = None
 
 class ManusProcessSource:
     def __init__(self, config: ManusSourceConfig):
@@ -47,14 +49,22 @@ class ManusProcessSource:
         env["PYTHONPATH"] = sdk_root + os.pathsep + env.get("PYTHONPATH", "")
         env["LD_LIBRARY_PATH"] = str(self.config.sdk_python / "manus_sdk" / "linux" / "amd64") + os.pathsep + env.get("LD_LIBRARY_PATH", "")
         self._stderr = self.config.stderr_log.open("a") if self.config.stderr_log else None
-        self.process = subprocess.Popen([
+        command = [
             str(self.config.python_executable), "-m", "uni_teleop.devices.manus.sdk_process",
             "--sdk-python", sdk_root, "--sdk-version", self.config.sdk_version, "--mode", self.config.mode,
             "--glove-id", str(self.config.glove_id),
             "--calibration-id", self.config.calibration_id,
             "--duration", str(self.config.duration_s),
             "--parent-pid", str(os.getpid()),
-        ], stdout=subprocess.PIPE, stderr=self._stderr or subprocess.DEVNULL, text=True, env=env, bufsize=1)
+        ]
+        if self.config.native_reader is not None:
+            if self.config.calibration_file is None:
+                raise ValueError('Native MANUS reader requires an explicit .mcal file')
+            command = [str(self.config.python_executable), '-m', 'uni_teleop.devices.manus.native_process',
+                       '--reader', str(self.config.native_reader), '--calibration', str(self.config.calibration_file),
+                       '--glove-id', str(self.config.glove_id), '--parent-pid', str(os.getpid())]
+        self.process = subprocess.Popen(command, stdout=subprocess.PIPE,
+            stderr=self._stderr or subprocess.DEVNULL, text=True, env=env, bufsize=1)
         self._thread = threading.Thread(target=self._read, name="manus-jsonl", daemon=True)
         self._thread.start()
 

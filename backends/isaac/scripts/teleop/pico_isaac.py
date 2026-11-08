@@ -28,7 +28,7 @@ from scripts.maintenance.freeze_project_sources import verify_if_snapshot
 
 class Controls:
     def __init__(self, mapper, *, inset=False, rear=False, joint_control=False, feedback=None,
-                 capture_on_start=False):
+                 capture_on_start=False, deferred_recording=False):
         import omni.ui as ui
         import carb.input
         import carb.settings
@@ -54,6 +54,7 @@ class Controls:
             with self.rear_window.frame:
                 ui.ImageWithProvider(self.rear_image, fill_policy=ui.IwpFillPolicy.IWP_PRESERVE_ASPECT_FIT)
         self.mapper, self.reset_requested = mapper, False
+        self.deferred_recording = deferred_recording
         self.feedback=feedback
         self.capture_on_start=capture_on_start
         self.reference_request=None
@@ -77,6 +78,9 @@ class Controls:
                         ui.Button('Recenter', clicked_fn=self.recenter)
                     ui.Button('重置场景' if joint_control else 'Reset scene', clicked_fn=self.reset,
                               tooltip='物品和仿真机械臂回到初始状态，暂停遥操并关闭托举' if joint_control else '')
+                if deferred_recording:
+                    ui.Button('Save episode / Next (F8)', clicked_fn=self.reset,
+                              tooltip='Save states, reset scene and pause; render separately')
                 if (joint_control and getattr(getattr(mapper,'leader',mapper),'fixed_reference',False)
                         and not getattr(getattr(mapper,'leader',mapper),'follow_on_start',False)):
                     ui.Button('Read leader -> align simulation (resets scene)',clicked_fn=self.align_from_leader)
@@ -207,6 +211,9 @@ class Controls:
         if event.type == carb.input.KeyboardEventType.KEY_PRESS:
             if self.joint_control and event.input.name in ('L', 'C'):
                 return True
+            if event.input.name == 'F8' and self.deferred_recording:
+                self.reset()
+                return True
             action = {'SPACE': self.toggle, 'C': self.recenter, 'R': self.reset, 'L': self.orientation}.get(event.input.name)
             if action:
                 action()
@@ -237,6 +244,22 @@ def update_control_view(view, mapper, frame, robot_poses):
 
 
 def load_inputs(args):
+    """Validate shared releases once for this load, including revision parents."""
+    from bench.isaacsim.validation_epoch import FullByteOnceValidation, active_validation_scope
+    if active_validation_scope() is not None:
+        return _load_inputs(args)
+    started = time.perf_counter()
+    print('Loading task: validating assets once for this startup...', flush=True)
+    with FullByteOnceValidation('teleop_load_inputs') as validation:
+        result = _load_inputs(args)
+    summary = validation.summary()
+    print(f'Task ready in {time.perf_counter() - started:.1f}s '
+          f'(release validation reuses: {summary["derivation_reuses"]}, '
+          f'hash reuses: {summary["hash_reuses"]}).', flush=True)
+    return result
+
+
+def _load_inputs(args):
     if args.practice_contact_warnings and not (args.no_task_scoring or args.sandbox):
         raise ValueError('--practice-contact-warnings requires --no-task-scoring or --sandbox')
     from bench.isaacsim.release import task_inputs
@@ -247,7 +270,8 @@ def load_inputs(args):
         from scenes.teleop_sandbox import inputs
         scene, initial, release = inputs()
     else:
-        loaded = load_task(args.family, args.task)
+        loaded = load_task(args.family, args.task, configuration_id=getattr(args, 'robot_configuration', None),
+                           robot_profile=getattr(args, 'robot_profile', 'original'))
         release = Path(loaded['definition']['source_release']['path'])
         _, scene, _, initial = task_inputs(release, args.task, seed=args.seed)
         if args.workbench_only:
@@ -306,13 +330,15 @@ def load_inputs(args):
 
 
 def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_factory=Retargeter, feedback=None):
-    if getattr(args, 'pedal_device', None) and (source_kind != 'xr_sdk' or args.mode != 'controllers' or args.start_active):
+    from uni_teleop.recording.options import configure_recording
+    recording_enabled = configure_recording(args)
+    if getattr(args, 'pedal_device', None) and (source_kind not in ('xr_sdk', 'pico_manus_hardware') or args.mode != 'controllers' or args.start_active):
         raise ValueError('Pedal requires paused-start Isaac PICO controllers')
     if not 0.25 <= args.preview_scale <= 1 or (args.preview_scale != 1 and args.operator_view != 'rear'):
         raise ValueError('Scaled preview requires rear operator view and scale in [0.25, 1]')
     if args.deferred_recording and args.operator_view != 'rear':
         raise ValueError('Deferred recording currently requires the separate rear operator view')
-    if args.control_dt is not None and mapper_factory is not Retargeter:
+    if args.control_dt is not None and mapper_factory is not Retargeter and source_kind != 'pico_manus_hardware':
         raise ValueError('Custom control timing currently supports the PICO retargeter only')
     from bench.simulation.isaacsim_backend.env import FR3DexterousIsaacEnv
     if not 0 < args.video_fps <= 50 or args.steps < 0 or min(args.width, args.height) < 64:
@@ -351,7 +377,7 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
                          '--/app/font/customRegionFiles='+json.dumps([str(glyphs)]),
                          '--/app/font/overresolutionSize=32'])
     root = Path(__file__).resolve().parents[2]
-    report = {'kind': 'human_teleoperation', 'source_kind': source_kind, 'formal_evaluation': False,
+    report = {'kind': 'human_teleoperation', 'source_kind': source_kind, 'formal_evaluation': False, 'recording_enabled': recording_enabled,
               'task_success': None, 'physics_valid': None, 'family': None if args.sandbox else args.family,
               'task': None if args.sandbox else args.task, 'release': str(release) if release else None,
               'scene_kind': ('teleop_sandbox' if args.sandbox else
@@ -387,7 +413,6 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
     (output/'initial_state.json').write_text(json.dumps(initial, indent=2)+'\n')
     write_report()
     env = writer = controls = recorder = pedal = archive = None
-    archive_closed = False
     timing_totals = dict(render_s=0., mapping_s=0., step_s=0.)
     rendered_frames = 0
     stop_requested, signal_handlers = False, {}
@@ -429,7 +454,7 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
         mapper = mapper_factory(geometry, initial_targets, bindings, mode=args.mode, scale=args.scale,
                             tracking_grace_s=.3, hands_recovery=True,
                             control_point=args.control_point, lock_orientation=args.lock_orientation)
-        if isinstance(mapper, Retargeter):
+        if isinstance(mapper, Retargeter) or source_kind == 'pico_manus_hardware':
             mapper.control_dt = control_dt
         report['control_timing'] = {'physics_dt_s': physics_dt, 'control_dt_s': control_dt,
                                     'input_policy': 'latest_available_no_action_queue'}
@@ -446,13 +471,14 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
                           inset_camera=None if args.inset_camera == 'none' else args.inset_camera,
                           rear_camera=args.rear_camera,
                           operator_view=getattr(args, 'operator_view', 'scene'),
-                          operator_inset=getattr(args, 'operator_inset', 'none'), preview_scale=args.preview_scale)
+                          operator_inset=getattr(args, 'operator_inset', 'none'), preview_scale=args.preview_scale,
+                          operator_hide_arm=getattr(args, 'operator_hide_arm', False))
         if args.deferred_recording:
-            from uni_teleop.recording.deferred import StateArchive
+            from uni_teleop.recording.deferred import EpisodeArchives
             from bench.simulation.isaacsim_backend.visual_replay import manifest, capture
             replay_cameras = ['pico_left', 'pico_right'] + (['pico_inset'] if view.inset else [])
             replay_manifest = manifest(env, replay_cameras)
-            archive = StateArchive(output, replay_manifest)
+            archive = EpisodeArchives(output, replay_manifest, report['settings'])
             report['deferred_recording'] = {'schema': replay_manifest['schema'], 'status': 'recording',
                                            'cameras': replay_cameras, 'sampling': 'each_control_step'}
         if not args.no_video:
@@ -460,7 +486,8 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
         if not args.headless:
             controls = Controls(mapper, inset=view.inset is not None and not view.operator_ops, rear=args.rear_camera,
                                 joint_control=getattr(mapper, 'control_space', None) == 'joint',feedback=feedback,
-                                capture_on_start=getattr(args,'capture_reference_on_start',False))
+                                capture_on_start=getattr(args,'capture_reference_on_start',False),
+                                deferred_recording=args.deferred_recording)
         guard = TeleopContactGuard(practice=args.practice_contact_warnings, control_dt=control_dt)
         reporter = HoldReporter()
         episode, next_video, armed_once = 0, 0., False
@@ -472,8 +499,10 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
         report['status'] = 'running'
         write_report()
         print(f'PICO ready: {args.mode}; evidence: {output}', flush=True)
+        if not recording_enabled:
+            print('TEST MODE: no state, action or image recordings; configuration and diagnostics only', flush=True)
         started = time.monotonic()
-        with (output/'frames.jsonl').open('x') as log:
+        with ((output/'frames.jsonl').open('x') if recording_enabled else open(os.devnull, 'w')) as log:
             while not stop_requested and env.app.is_running() and (not args.steps or report['steps'] < args.steps):
                 tick = time.monotonic()
                 timings = dict(render_s=0., mapping_s=0., step_s=0.)
@@ -483,6 +512,10 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
                         archive.append(capture(env, replay_cameras), {'host_ns': time.monotonic_ns(),
                             'sim_time_s': observation['sim_time_s'], 'episode': episode,
                             'action': None, 'event': 'terminal_before_reset'})
+                    mapper.set_active(False)
+                    if archive:
+                        report['deferred_recording'].update(frames=archive.count, episodes=archive.episodes)
+                        write_report()
                     if feedback:feedback.request_feedback(False)
                     observation = env.reset(seed=args.seed, initial_state=initial)
                     mapper.acknowledge(initial_targets)
@@ -568,7 +601,7 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
                             f'trigger: {frame.tracking["controllers"][side]["trigger"]:.0%}'
                             for side in mapper.bindings.values() if side in frame.tracking['controllers'])
                     input_name = 'master/slave' if getattr(mapper, 'control_space', None) == 'joint' else mapper.mode
-                    controls.label.text = f'{input_name}: {mapper.status}{grips}\nSimulation: {observation["sim_time_s"]:.2f} s'
+                    controls.label.text = ('TEST MODE - NOT RECORDING\n' if not recording_enabled else '') + f'{input_name}: {mapper.status}{grips}\nSimulation: {observation["sim_time_s"]:.2f} s'
                     if args.no_task_scoring:
                         controls.label.text += '\nPractice: task scoring off'
                     contact_message = guard.message(observation['sim_time_s'])
@@ -653,17 +686,18 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
                 report['steps'] += 1
                 if recorder:
                     recorder.state(observation, episode)
-                log.write(json.dumps({'episode': episode, 'host_ns': time.monotonic_ns(),
-                    'input': asdict(frame) if frame else None, 'mode': mapper.mode, 'armed': mapper.armed,
-                    'input_health': receiver.health(),
-                    'controller_mapping': {'control_point': mapper.control_point, 'lock_orientation': mapper.lock_orientation, 'scale': mapper.scale},
-                    'status': mapper.status, 'diagnostics': mapper.diagnostics, 'control_issues': issues,
-                    **({'leader_feedback':feedback.feedback_state} if feedback else {}),
-                    **({'arm_alignment': mapper.alignment} if hasattr(mapper, 'alignment') else {}), 'finger_target_errors_m': mapper.finger_errors, 'action': action,
-                    'sim_time_s': observation['sim_time_s'], 'measured_joints': observation['joint_positions_rad'],
-                    'safety_trigger': trigger, 'contact_warning': guard.warning,
-                    **({'timing': timings, 'contact_sampling': observation['contacts']['sampling']}
-                       if args.profile else {})}, allow_nan=False)+'\n')
+                if recording_enabled:
+                    log.write(json.dumps({'episode': episode, 'host_ns': time.monotonic_ns(),
+                        'input': asdict(frame) if frame else None, 'mode': mapper.mode, 'armed': mapper.armed,
+                        'input_health': receiver.health(),
+                        'controller_mapping': {'control_point': mapper.control_point, 'lock_orientation': mapper.lock_orientation, 'scale': mapper.scale},
+                        'status': mapper.status, 'diagnostics': mapper.diagnostics, 'control_issues': issues,
+                        **({'leader_feedback':feedback.feedback_state} if feedback else {}),
+                        **({'arm_alignment': mapper.alignment} if hasattr(mapper, 'alignment') else {}), 'finger_target_errors_m': mapper.finger_errors, 'action': action,
+                        'sim_time_s': observation['sim_time_s'], 'measured_joints': observation['joint_positions_rad'],
+                        'safety_trigger': trigger, 'contact_warning': guard.warning,
+                        **({'timing': timings, 'contact_sampling': observation['contacts']['sampling']}
+                           if args.profile else {})}, allow_nan=False)+'\n')
                 if guard.warning or trigger or observation['truncated']:
                     log.flush()
                 time.sleep(max(0., control_dt-(time.monotonic()-tick)))
@@ -683,10 +717,10 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
             report['timing'] = {**timing_totals, 'rendered_frames': rendered_frames,
                                 'scope': 'Main-loop wall time; excludes startup and shutdown'}
         from PIL import Image
-        if left is not None:
+        if recording_enabled and left is not None:
             Image.fromarray(left).save(output/'left.png')
             Image.fromarray(right).save(output/'right.png')
-        if on_finish:
+        if recording_enabled and on_finish:
             on_finish(output)
     except KeyboardInterrupt:
         report['status'] = 'interrupted'
@@ -706,8 +740,7 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
         if archive:
             try:
                 archive.close()
-                archive_closed = True
-                report['deferred_recording'].update(status='saved', frames=archive.count)
+                report['deferred_recording'].update(status='saved', frames=archive.count, episodes=archive.episodes)
             except Exception as error:
                 report['deferred_recording'].update(status='error', error=str(error))
         # Kit fast shutdown exits the interpreter: seal receipts before close().
@@ -721,17 +754,6 @@ def run(args, *, receiver=None, source_kind='xr_sdk', on_finish=None, mapper_fac
             if writer:
                 writer.close()
             receiver.close()
-            if archive_closed and report['status'] in ('stopped', 'interrupted'):
-                from scripts.teleop.render_recording import render_archive
-                report['deferred_recording']['status'] = 'rendering'
-                write_report()
-                try:
-                    report['deferred_recording']['render'] = render_archive(env, output)
-                    report['deferred_recording']['status'] = 'complete'
-                except Exception as error:
-                    report['deferred_recording'].update(status='render_error', error=str(error))
-                    print('Deferred render failed; state archive retained:', error, flush=True)
-                write_report()
         finally:
             if env:
                 env.close()

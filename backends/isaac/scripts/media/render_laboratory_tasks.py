@@ -45,11 +45,20 @@ def photograph(args, app, task_id, release, robot_cache):
     stage = omni.usd.get_context().get_stage()
     UsdPhysics.Scene.Define(stage, '/World/PhysicsScene')
     info = build_scene(stage, scene, robot_cache[key])
+    from bench.simulation.isaacsim_backend.particle_surfaces import ParticleSurfaceRenderer
+    import carb
+    liquid_bundle = scene.get('native_task_bundle', {})
+    surfaces = ParticleSurfaceRenderer(stage, device='cuda:0')
+    surfaces.configure_refraction(carb.settings.get_settings(),
+        volume_visual_bindings=liquid_bundle.get('volume_visual_bindings'),
+        packet_visual_bindings=liquid_bundle.get('packet_visual_bindings'))
     record = {'task_id': task_id, 'release': release, 'environment': scene['workroom'],
         'robot_pose': pose_robot(stage, scene, initial, info['robot_link_paths']),
         'physics_steps': 0, 'model_calls': 0, 'images': {},
         'state': 'Canonical authored reset, no settling or object pose changes',
         'scope': 'Static RTX appearance only; no physical operation qualification'}
+    if liquid_bundle.get('volume_visual_bindings') or liquid_bundle.get('packet_visual_bindings'):
+        record['liquid_refraction_settings'] = dict(surfaces.refraction_settings)
     cameras = {'task': deepcopy(scene['cameras']['task']),
         'desktop': {'eye': [1.55, 1.15, 2.60], 'target': [.65, .08, .91],
                     'focal_length_mm': 27.},

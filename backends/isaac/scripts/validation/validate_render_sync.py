@@ -153,8 +153,6 @@ def run(args):
                 or os.environ.get('ISAAC_BENCH_SINGLE_CUDA_DEVICE') != '1'):
             raise ValueError('Use one physical GPU UUID, single CUDA mode and --device cuda:0')
         spec = scene(args.family, diagnostic=True)
-        if args.cpu_rigid:
-            spec['native_readback_profile'] = 'cpu_rigid_v1'
         name = 'cube_table'
         spec['objects'] = [o for o in spec['objects'] if o['id'] == name]
         spec['cameras'] = {'probe': {'kind': 'world', 'eye': [.8, -1.3, 1.4],
@@ -250,7 +248,6 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--device', default='cuda:0')
     parser.add_argument('--family', default='mechanical_assembly')
-    parser.add_argument('--cpu-rigid', action='store_true', help='Validate explicit CPU rigid physics with GPU rendering')
     args = parser.parse_args()
     if not run(args)['passed']:
         raise SystemExit(1)

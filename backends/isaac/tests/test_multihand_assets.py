@@ -36,7 +36,7 @@ def test_assemblies_preserve_tree_meshes_and_valid_physical_limits(hand_id,tmp_p
         while node in parents:
             assert node not in seen;seen.add(node);node=parents[node]
         assert node=='base'
-    assert all(Path(m.get('filename')).is_file() for m in root.findall('.//mesh'))
+    assert all((Path(path).parent/m.get('filename')).is_file() for m in root.findall('.//mesh'))
     assert len(root.findall('.//mimic'))==(4 if hand_id=='shadow_hand_e_right' else 0)
     for v in source['joint_limits'].values():assert v['lower']<v['upper'] and v['effort']>0 and v['velocity']>0
 
@@ -138,19 +138,18 @@ def test_leap_thumb_pip_palm_exclusion_is_an_audited_release_opt_in(tmp_path):
             collision_configuration(bad)
 
 
-def test_leap_exclusion_reaches_the_runtime_scene_through_the_release_profile(tmp_path):
+def test_leap_exclusion_reaches_the_runtime_scene_through_the_frozen_release_profile():
     # task_inputs() replaces scene['isaacsim'] with the release physics profile, and the
     # worker then applies scene_with_hand: the opt-in must survive that exact path.
     from bench.isaacsim.release import task_inputs
-    from scenes.manipulation.embodiment_release import SOURCE, prepare
-    if not SOURCE.is_dir():
-        pytest.skip('v8 source release not present')
-    prepare('leap_v1_right', output=tmp_path / 'leap')
-    _, scene, _, _ = task_inputs(tmp_path / 'leap', '02_cube_lift_hold')
+    from scenes.manipulation import DEFAULT_TASK_RELEASE
+    releases = DEFAULT_TASK_RELEASE.parent
+    if not (releases / 'leap_v1_right').is_dir():
+        pytest.skip('Frozen LEAP task release not present')
+    _, scene, _, _ = task_inputs(releases / 'leap_v1_right', '02_cube_lift_hold')
     runtime = scene_with_hand(scene, 'leap_v1_right')
     assert collision_configuration(runtime)['excluded_link_pairs'] == [['leap_palm_lower', 'leap_thumb_pip']]
-    prepare('allegro_v5_right', output=tmp_path / 'allegro')
-    _, scene, _, _ = task_inputs(tmp_path / 'allegro', '02_cube_lift_hold')
+    _, scene, _, _ = task_inputs(releases / 'allegro_v5_right', '02_cube_lift_hold')
     assert 'filter_leap_thumb_pip_palm' not in scene['isaacsim']
     old = Path(f'{DATA_ROOT}/datasets/fr3_sharpa_bench/isaacsim/releases/simple_manipulation/v9_embodiments_r2/leap_v1_right')
     if old.is_dir():                                   # frozen r2 keeps its physics

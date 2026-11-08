@@ -18,17 +18,20 @@ from pydantic import Field
 
 from bench.protocol.board_games import (BoardGameResult, BoardGameState,
                                        INTENT_ADAPTER, PlayerBinding, PlayerSession)
+from bench.protocol.card_games import (CardGameState, CardGameResult, CardGameEventPage,
+                                       INTENT_ADAPTER as CARD_INTENT_ADAPTER)
 from bench.protocol.functions import (ACTION_FUNCTIONS, CALL_ADAPTER,
                                       RESPONSE_ADAPTER, FunctionCatalog)
 from bench.protocol.schemas import (AgentObservation, Contract, EpisodeSpec,
                                     Hash, Name, RobotCapabilities)
-from bench.protocol.task_referee import PublicTaskRequirements
+from bench.protocol.workroom_reset import PublicTaskRequirements
 from bench.protocol.turn_games import (PlayerBinding as TurnPlayerBinding,
                                        PlayerSession as TurnPlayerSession,
                                        TurnGameResult, TurnGameState, TurnIntent)
 from .actions import ActionValidationError, public_observation
 from .bench_http import BenchHTTPClient, BenchHTTPError, _token
 from .time_limits import minimum_limit
+from .card_games import CARD_PROTOCOL, CARD_TASKS, CARD_INTENTS
 
 
 _NO_ACTION_CODES = frozenset({
@@ -111,6 +114,31 @@ class _BoardCatalog(Contract):
     reference: None = None
 
 
+class _CardPublic(Contract):
+    board_game: CardGameState
+    public_rules: dict
+    public_rules_sha256: Hash
+    observation: AgentObservation
+
+
+class _CardState(_CardPublic):
+    player: PlayerBinding
+
+
+class _CardCreated(_CardPublic):
+    episode_id: Name
+    spec: EpisodeSpec
+    capabilities: RobotCapabilities
+    players: list[PlayerSession] = Field(min_length=2, max_length=2, repr=False)
+    reference: None = None
+
+
+class _CardCatalog(_BoardCatalog):
+    events_endpoint: Literal['GET /board-games/{episode_id}/players/{player_id}/events']
+    game_protocol: Literal['bench_card_game_state_v1']
+    intent_schema_endpoint: Literal['GET /board-games/schema?protocol=bench_card_game_state_v1']
+
+
 class _TurnPublic(Contract):
     turn_game: TurnGameState
     observation: AgentObservation
@@ -171,9 +199,10 @@ def _validate_board_public(parsed, episode_id):
         raise _invalid() from None
     if (digest != value['public_rules_sha256']
             or value['public_rules'].get('task_id') != parsed.board_game.task_id
-            or value['geometry'].get('game_id') != parsed.board_game.task_id
-            or value['public_rules'].get('rules') != value['rules']
-            or value['public_rules'].get('geometry') != value['geometry']):
+            or (not isinstance(parsed, _CardPublic) and (
+                value['geometry'].get('game_id') != parsed.board_game.task_id
+                or value['public_rules'].get('rules') != value['rules']
+                or value['public_rules'].get('geometry') != value['geometry']))):
         raise _invalid()
     return value
 
@@ -188,12 +217,12 @@ def create_board_game(bench: BenchHTTPClient, payload: dict, *, on_created=None)
     and credentials itself and must not archive the raw response.
     """
     if not isinstance(payload, dict) or payload.get('task_id') not in (
-            'tic_tac_toe_3x3', 'connect_four_5x5', 'hex7x7'):
+            'tic_tac_toe_3x3', 'connect_four_5x5', 'hex7x7', *CARD_TASKS):
         raise BenchHTTPError('board-game creation requires a supported game task', category='invalid_request')
     raw = bench._json('POST', '/board-games', payload=payload)
     if on_created is not None:
         on_created(raw)
-    parsed = _validated(_BoardCreated, raw)
+    parsed = _validated(_CardCreated if payload['task_id'] in CARD_TASKS else _BoardCreated, raw)
     episode_id = _token(parsed.episode_id)
     value = _validate_board_public(parsed, episode_id)
     bindings = [row.binding for row in parsed.players]
@@ -260,7 +289,7 @@ class FunctionHTTPClient(BenchHTTPClient):
     """One ordinary episode or one authenticated player; never a host credential pool."""
 
     def __init__(self, base_url, episode_id, *, player=None, client=None,
-                 timeout_s=30., get_retries=2, session_kind=None, spec=None):
+                 timeout_s=30., get_retries=2, session_kind=None, spec=None, game_protocol=None):
         episode_id = _token(episode_id)
         session_kind = session_kind or ('episode' if player is None else 'board_game')
         if (session_kind not in ('episode', 'board_game', 'turn_game')
@@ -276,14 +305,21 @@ class FunctionHTTPClient(BenchHTTPClient):
         super().__init__(base_url, client=client, timeout_s=timeout_s, get_retries=get_retries)
         self.episode_id = episode_id
         self.session_kind = session_kind
+        if game_protocol not in (None, CARD_PROTOCOL) or (game_protocol and session_kind != 'board_game'):
+            raise BenchHTTPError('invalid game protocol', category='invalid_request')
+        self.game_protocol = game_protocol
         self._binding = None if session is None else session.binding.model_dump(mode='json')
         self._session_token = None if session is None else session.session_token
         self._task_id = None
         self._episode_spec = None
         self._public_rules_sha256 = None
+        self._public_goal = None
         self._scoring_contract = None
+        self._reset_case = None
+        self._reset_case_bound = False
         self._board_rules_snapshot = None
         self._turn_state_snapshot = None
+        self._card_state_snapshot = None
         game_route = 'turn-games' if session_kind == 'turn_game' else 'board-games'
         self._endpoint = (f'/episodes/{episode_id}' if session is None else
             f'/{game_route}/{episode_id}/players/{session.binding.player_id}')
@@ -296,6 +332,12 @@ class FunctionHTTPClient(BenchHTTPClient):
 
     def bind_episode(self, spec, *, task=None):
         parsed = _validated(EpisodeSpec, spec)
+        if parsed.task_id in CARD_TASKS:
+            if self.session_kind != 'board_game':
+                raise _invalid()
+            self.game_protocol = CARD_PROTOCOL
+        elif self.game_protocol == CARD_PROTOCOL:
+            raise _invalid()
         value = parsed.model_dump(mode='json')
         if (parsed.episode_id != self.episode_id
                 or (self._episode_spec is not None and value != self._episode_spec)
@@ -303,20 +345,34 @@ class FunctionHTTPClient(BenchHTTPClient):
             raise _invalid()
         rules_hash = None
         scoring_contract = None
+        public_goal = None
+        reset_case = None
+        if task is not None and task.get('reset_case') is not None:
+            from .seeded_tasks import checked_reset_case
+            reset_case = checked_reset_case(task['reset_case'], seed=parsed.seed,
+                                            configuration_id=parsed.configuration_id, task_id=parsed.task_id)
+        if task is not None and self._reset_case_bound and reset_case != self._reset_case:
+            raise _invalid()
         if task is not None and 'public_rules_sha256' in task:
             requirements = _validated(PublicTaskRequirements, task)
             rules_hash = requirements.public_rules_sha256
+            public_goal = requirements.goal.model_dump(mode='json') if requirements.goal is not None else None
             scoring_contract = (requirements.scoring_contract.model_dump(mode='json', by_alias=True)
                                 if requirements.scoring_contract is not None else None)
             if (requirements.task_id != parsed.task_id
                     or (self._public_rules_sha256 is not None
-                        and (rules_hash != self._public_rules_sha256 or scoring_contract != self._scoring_contract))):
+                        and (rules_hash != self._public_rules_sha256 or scoring_contract != self._scoring_contract
+                             or public_goal != self._public_goal))):
                 raise _invalid()
         self._episode_spec = value
         self._task_id = parsed.task_id
+        if task is not None:
+            self._reset_case = deepcopy(reset_case)
+            self._reset_case_bound = True
         if rules_hash is not None:
             self._public_rules_sha256 = rules_hash
             self._scoring_contract = deepcopy(scoring_contract)
+            self._public_goal = deepcopy(public_goal)
 
     def _check_scoring(self, scoring):
         if self._public_rules_sha256 is None:
@@ -333,8 +389,9 @@ class FunctionHTTPClient(BenchHTTPClient):
             raise BenchHTTPError('board state requires a board-game client', category='invalid_request')
         if not isinstance(state, dict):
             raise _invalid()
-        public = {key: state[key] for key in _BoardPublic.model_fields if key in state}
-        self._bind_board_public(_validated(_BoardPublic, public))
+        model = _CardPublic if self.game_protocol == CARD_PROTOCOL else _BoardPublic
+        public = {key: state[key] for key in model.model_fields if key in state}
+        self._bind_board_public(_validated(model, public))
 
     def _bind_board_public(self, parsed):
         value = _validate_board_public(parsed, self.episode_id)
@@ -344,7 +401,21 @@ class FunctionHTTPClient(BenchHTTPClient):
             raise _invalid()
         self._task_id = parsed.board_game.task_id
         self._board_rules_snapshot = deepcopy(rules)
+        if isinstance(parsed, _CardPublic):
+            self._bind_card_progress(value['board_game'])
         return value
+
+    def _bind_card_progress(self, state):
+        old = self._card_state_snapshot
+        if old is not None and (state['task_id'] != old['task_id']
+                or state['turn_index'] < old['turn_index']
+                or state['round_index'] < old['round_index']
+                or state['event_cursor'] < old['event_cursor']
+                or (old['terminal'] and state != old)
+                or (not state['terminal'] and state['turn_index'] == old['turn_index']
+                    and state['current_player'] != old['current_player'])):
+            raise _invalid()
+        self._card_state_snapshot = deepcopy(state)
 
     def bind_turn_state(self, state):
         """Bind validated creation/state evidence before exposing player context."""
@@ -368,8 +439,10 @@ class FunctionHTTPClient(BenchHTTPClient):
             return {}
         media = re.fullmatch(rf'/episodes/{re.escape(self.episode_id)}/(?:images|depth)/'
                              r'(?:0|[1-9][0-9]*)/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,159}', path)
+        events = (self.game_protocol == CARD_PROTOCOL and re.fullmatch(
+            re.escape(self._endpoint) + r'/events\?after=(?:-1|0|[1-9][0-9]*)&limit=(?:[1-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-6])', path))
         if path not in {self._endpoint + '/' + suffix for suffix in
-                        ('functions', 'state', 'intent', 'call', 'result')} and media is None:
+                        ('functions', 'state', 'intent', 'call', 'result')} and media is None and not events:
             raise BenchHTTPError('request is outside player endpoints', category='invalid_request')
         return {'Authorization': 'Bearer ' + self._session_token}
 
@@ -422,7 +495,8 @@ class FunctionHTTPClient(BenchHTTPClient):
     def catalog(self):
         value = self._get('/functions')
         if self._binding is not None:
-            wrapper = _validated(_TurnCatalog if self.session_kind == 'turn_game' else _BoardCatalog, value)
+            wrapper = _validated(_TurnCatalog if self.session_kind == 'turn_game' else
+                                 _CardCatalog if self.game_protocol == CARD_PROTOCOL else _BoardCatalog, value)
             if wrapper.player.model_dump(mode='json') != self._binding:
                 raise _invalid()
             parsed = wrapper.functions
@@ -475,12 +549,18 @@ class FunctionHTTPClient(BenchHTTPClient):
                 raise _invalid()
             self._check_scoring(response.result.scoring)
         if response.function == 'get_task':
+            reset_case = (response.result.reset_case.model_dump(mode='json', exclude_none=True)
+                          if response.result.reset_case is not None else None)
+            if self._reset_case_bound and reset_case != self._reset_case:
+                raise _invalid()
+            public_goal = response.result.goal.model_dump(mode='json') if response.result.goal is not None else None
             scoring_contract = (response.result.scoring_contract.model_dump(mode='json', by_alias=True)
                                 if response.result.scoring_contract is not None else None)
             if ((self._task_id is not None and response.result.task_id != self._task_id)
                     or (self._public_rules_sha256 is not None
                         and (response.result.public_rules_sha256 != self._public_rules_sha256
-                             or scoring_contract != self._scoring_contract))):
+                             or scoring_contract != self._scoring_contract
+                             or public_goal != self._public_goal))):
                 raise _invalid()
             if response.result.episode.terminal:
                 self._check_scoring(response.result.scoring)
@@ -508,7 +588,7 @@ class FunctionHTTPClient(BenchHTTPClient):
         return response['result']
 
     def _board_state(self, value):
-        parsed = _validated(_BoardState, value)
+        parsed = _validated(_CardState if self.game_protocol == CARD_PROTOCOL else _BoardState, value)
         if parsed.player.model_dump(mode='json') != self._binding:
             raise _invalid()
         return self._bind_board_public(parsed)
@@ -534,13 +614,29 @@ class FunctionHTTPClient(BenchHTTPClient):
             raise BenchHTTPError('game intent requires a player session', category='invalid_request')
         try:
             request = (TurnIntent.model_validate(payload) if self.session_kind == 'turn_game'
+                       else CARD_INTENT_ADAPTER.validate_python(payload) if self.game_protocol == CARD_PROTOCOL
                        else INTENT_ADAPTER.validate_python(payload))
+            if self.game_protocol == CARD_PROTOCOL and request.type not in CARD_INTENTS.get(self._task_id, ()):
+                raise ValueError('Intent belongs to another card game')
         except (ValueError, TypeError):
             raise BenchHTTPError('game intent violates its contract', category='invalid_request') from None
         status, value = self._reply('POST', self._endpoint + '/intent', payload=request.model_dump(mode='json'))
         if status != 200:
             raise FunctionRejected(self._failure(status, value))
         return self._turn_state(value) if self.session_kind == 'turn_game' else self._board_state(value)
+
+    def events(self, *, after=-1, limit=256):
+        if (self.game_protocol != CARD_PROTOCOL or self._binding is None
+                or type(after) is not int or after < -1 or type(limit) is not int or not 1 <= limit <= 256):
+            raise BenchHTTPError('invalid public game event request', category='invalid_request')
+        page = _validated(CardGameEventPage, self._get(f'/events?after={after}&limit={limit}'))
+        value = page.model_dump(mode='json')
+        rows = value['events']
+        if (len(rows) > limit or any(row['task_id'] != self._task_id for row in rows)
+                or [row['sequence'] for row in rows] != list(range(after + 1, after + 1 + len(rows)))
+                or value['next_cursor'] != after + len(rows) or (value['has_more'] and not rows)):
+            raise _invalid()
+        return value
 
     def game_result(self):
         if self._binding is None:
@@ -551,7 +647,8 @@ class FunctionHTTPClient(BenchHTTPClient):
             if status == 409 and failure['error']['code'] == 'result_pending':
                 return None
             raise FunctionRejected(failure)
-        parsed = _validated(TurnGameResult if self.session_kind == 'turn_game' else BoardGameResult, value)
+        parsed = _validated(TurnGameResult if self.session_kind == 'turn_game' else
+                            CardGameResult if self.game_protocol == CARD_PROTOCOL else BoardGameResult, value)
         task_id = parsed.turn_game.game_id if self.session_kind == 'turn_game' else parsed.board_game.task_id
         if (parsed.episode.spec.episode_id != self.episode_id
                 or (self._task_id is not None and task_id != self._task_id)
@@ -562,6 +659,8 @@ class FunctionHTTPClient(BenchHTTPClient):
             raise _invalid()
         if self.session_kind == 'turn_game':
             self.bind_turn_state(parsed.turn_game.model_dump(mode='json'))
+        elif self.game_protocol == CARD_PROTOCOL:
+            self._bind_card_progress(parsed.board_game.model_dump(mode='json'))
         return parsed.model_dump(mode='json')
 
     def get_observation(self, episode_id):

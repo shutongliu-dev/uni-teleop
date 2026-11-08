@@ -21,7 +21,7 @@ def configuration(task):
         raise ValueError('Expected kitchen-manipulation-task-v1')
     ident, seed, c = task['id'], task['episode_seed'], deepcopy(task['evaluation'])
     expected = evaluation_configuration(ident, c['metadata'], seed, c['physics_dt_s'])
-    if c != expected or task.get('public_rules') != public_rules(ident, seed):
+    if c != expected or task.get('public_rules') != public_rules(ident, seed, metadata=c['metadata']):
         raise ValueError('Task rules, geometry or frozen evaluator configuration changed')
     return c, digest(c)
 
@@ -56,9 +56,25 @@ class NativeTaskObserver:
         self.fixed = {name: fixed_state(row['initial_pose_xyzw']) for name, row in self.fixtures.items()}
         self.surface_z = float(self.meta['surface_z_m'])
         self.goals = self.meta['goals']
+        self.wiping = None
+        self.volume_evidence = None
+        self.elastic_evidence = None
+        if self.task_id == 'surface_wiping':
+            from .wiping import ContactWiping
+            self.wiping = ContactWiping(self.meta, self.limits, self.c['physics_dt_s'])
         self.reset()
 
     def reset(self):
+        if self.wiping is not None:
+            self.wiping.reset()
+        if self.meta.get('volume_bodies'):
+            from .sponge_dynamics import BondedSpongeEvidence
+            self.volume_evidence = BondedSpongeEvidence(self.meta, self.limits, self.c['physics_dt_s'])
+        self.volume_points_by_actor, self.volume_state = {}, None
+        if self.meta.get('elastic_composites'):
+            from .elastic_sponge_dynamics import ElasticSpongeEvidence
+            self.elastic_evidence = ElasticSpongeEvidence(self.meta, self.limits, self.c['physics_dt_s'])
+        self.elastic_points_by_actor, self.elastic_state = {}, None
         self.previous = self.previous_time = self.previous_native_time = self.previous_step = None
         self.initial = self.current = None
         self.error = self.safety = self.failure = None
@@ -92,6 +108,10 @@ class NativeTaskObserver:
             if reference is None:
                 row = self.specs[name]
                 self._points_cache[key] = world_points(objects[name], row['local_bounds_m'], row.get('collision_support_points_m'))
+                if name in self.volume_points_by_actor:
+                    self._points_cache[key] = [*self._points_cache[key], *self.volume_points_by_actor[name]]
+                if name in self.elastic_points_by_actor:
+                    self._points_cache[key] = self.elastic_points_by_actor[name]
             else:
                 self._points_cache[key] = local_points(self._points(name, objects), self._object(reference, objects))
         return self._points_cache[key]
@@ -384,6 +404,29 @@ class NativeTaskObserver:
         reason = 'waiting_for_release_and_stability' if phase == 'settling' else 'task_in_progress' if self.pot_ready else 'pot_before_lid_required'
         return phase, reason, {'pot_ready': self.pot_ready, 'pot_stable_s': self.pot_stable_s, 'lid_seated': bool(lid_ok)}
 
+    def _wiping(self, frame, objects, contacts, stationary):
+        # A current signed loaded contact is required at both ends of each
+        # credited segment. Sleeping/recent support memory cannot clean soil.
+        paths = {native_room_path(path) for path in self.goals['wiping_support_paths']}
+        loaded = any(path in paths and contacts.upward('sponge', name,
+            self.limits['minimum_contact_impulse_ns']) and any(
+                {row['a'], row['b']} == {'sponge', name}
+                and row['positive']
+                and -self.limits['maximum_penetration_m'] <= row['separation_m'] <= self.limits['contact_gap_tolerance_m']
+                for row in contacts.rows)
+            for name, path in self.surfaces.items())
+        detail = self.wiping.update(objects['sponge'], loaded_contact=loaded,
+                                    baseline=frame['baseline'])
+        inside, supported = self._container('sponge', 'sponge_tray', objects, contacts, float(frame['time_s']))
+        returned = bool(inside and supported)
+        condition = (detail['cleaning_ready'] and returned and stationary
+                     and not contacts.robot_touched and not frame['baseline'])
+        self._dwell(condition, objects)
+        detail['sponge_returned'] = returned
+        phase = ('settling' if detail['cleaning_ready'] and returned else
+                 'returning' if detail['cleaning_ready'] else 'wiping')
+        return phase, ('waiting_for_release_and_stability' if phase == 'settling' else 'task_in_progress'), detail
+
     def on_frame(self, frame):
         if self.error is not None:
             return
@@ -418,6 +461,19 @@ class NativeTaskObserver:
             self.initial = deepcopy(objects)
         contacts = Contacts(frame['contacts'], time_s=t, actors=self.c['actors'], fixtures=self.fixture_paths,
             robot_prefix=self.c['robot_actor_prefix'], limits=self.limits)
+        if self.volume_evidence is not None:
+            self.volume_points_by_actor, self.volume_state = self.volume_evidence.sample(frame, objects)
+            if not self.volume_state['geometry_valid']:
+                self.safety = 'physics_safety_stop'
+            if not self.volume_state['fully_separated']:
+                contacts.robot_touched.update(self.volume_points_by_actor)
+        if self.elastic_evidence is not None:
+            self.elastic_points_by_actor, self.elastic_state = self.elastic_evidence.sample(frame, objects)
+            if not self.elastic_state['geometry_valid']:
+                self.safety = 'physics_safety_stop'
+            members = set(self.meta['elastic_composites']['sponge']['member_ids'])
+            if not self.elastic_state['fully_separated'] or contacts.robot_touched & members:
+                contacts.robot_touched.update(members)
         if contacts.penetration:
             self.safety = 'physics_safety_stop'
         lo, hi = self.meta.get('recovery_workspace_bounds_m', self.meta['workspace_bounds_m'])
@@ -438,6 +494,10 @@ class NativeTaskObserver:
             quiet = (not first and speed is not None and name not in contacts.robot_touched
                 and speed['linear_m_s'] <= self.limits['maximum_linear_speed_m_s']
                 and speed['angular_rad_s'] <= self.limits['maximum_angular_speed_rad_s'])
+            if name in self.volume_points_by_actor:
+                quiet = quiet and self.volume_state['quiet'] and self.volume_state['geometry_valid']
+            if name in self.elastic_points_by_actor:
+                quiet = quiet and self.elastic_state['quiet'] and self.elastic_state['geometry_valid']
             if quiet:
                 anchor = self.quiet_anchor.setdefault(name, deepcopy(obj))
                 quiet = near(obj, anchor, self.limits['maximum_stable_position_range_m'], self.limits['maximum_stable_orientation_range_rad'])
@@ -453,8 +513,14 @@ class NativeTaskObserver:
             phase, reason, detail = self._pot(frame, objects, contacts, stationary)
         elif self.task_id in ('pantry_stocking', 'table_clearing'):
             phase, reason, detail = self._grouped_sorting(frame, objects, contacts, stationary)
+        elif self.task_id == 'surface_wiping':
+            phase, reason, detail = self._wiping(frame, objects, contacts, stationary)
         else:
             phase, reason, detail = self._sorting(frame, objects, contacts, stationary)
+        if self.volume_state is not None:
+            detail['volume_geometry'] = deepcopy(self.volume_state)
+        if self.elastic_state is not None:
+            detail['elastic_geometry'] = deepcopy(self.elastic_state)
         self.current = {'schema': STATE_SCHEMA, 'configuration_sha256': self.digest, 'task_id': self.task_id,
             'time_s': t, 'native_time_s': nt, 'native_step': step, 'baseline': baseline,
             'phase': phase, 'reason': 'reset_baseline_not_scored' if first else reason,
@@ -479,7 +545,8 @@ class SequenceEvaluator:
     """Canonical worker scorer; missing evidence is unknown, never task failure."""
     def __init__(self, task_spec):
         self.c, self.digest = configuration(task_spec)
-        self.rules = public_rules(self.c['task_id'], self.c['episode_seed'])['referee']
+        self.rules = public_rules(self.c['task_id'], self.c['episode_seed'],
+                                  metadata=self.c['metadata'])['referee']
         self.reset()
 
     def reset(self):

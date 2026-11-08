@@ -79,8 +79,8 @@ def test_pinned_engaged_reset_copies_only_two_poses_and_passive_references(canon
     assert (scene, task) == before
     assert inputs_before == {p: p.read_bytes() for p in inputs_before}
     assert receipt['source_manifest_sha256'] in {
-        '924b9f4dec7eb1437b60d2292cb0ca7c454b243b5b26647086a4591642a06b5d',
-        '94c67e82adbb4c2cb35d7522ea58df665b833b1c821d21ed76780d1ad542983a'}
+        'd62c6d6e6a27257ab2541f29556cb8f8492afecfea9d766f47f9faee5424c4e3',
+        '6f7acabee9a385ab93ede7f6d3c6051edd153d065bbe4fa3d8eb893b93a1ef0a'}
     assert set(receipt['compatible_rigid_assets']) == {'bolt', 'screwdriver', 'threaded_fixture'}
     assert receipt['selected_isaacsim_options'] == scene['isaacsim']
     assert receipt['original_releases_modified'] is False

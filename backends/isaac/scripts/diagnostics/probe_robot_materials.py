@@ -24,7 +24,7 @@ from scripts.validation.validate_scenario import digest, seal_report_before_shut
 
 BIMANUAL_RELEASE = Path(f'{DATA_ROOT}/datasets/fr3_sharpa_bench/isaacsim/releases/'
                         'simple_manipulation/v13_pad_compliance_r2/bimanual')
-BIMANUAL_MANIFEST_SHA256 = 'be1799c4c3e95c25d468f1622a2a5929b3b3e5c6fb839acd67403c972b1f74eb'
+BIMANUAL_MANIFEST_SHA256 = '89655523fae9700c46efa3284178047eedfa3d960ac1ec114ed0dba68bd35933'
 BIMANUAL_TASK = '05_bimanual_box_lift'
 BIMANUAL_COMPLIANCE = {'model': 'force_spring_v1', 'stiffness': 20000., 'damping': 40.}
 
